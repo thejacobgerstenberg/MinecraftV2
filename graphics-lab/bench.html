@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>graphics-lab — benchmark</title>
+  <!-- Inline favicon: prevents the /favicon.ico 404 console error. -->
+  <link rel="icon" href="data:," />
+  <style>
+    :root { color-scheme: dark; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { background: #0b0e14; color: #e6edf3; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      padding: 20px 24px 40px;
+    }
+    h1 {
+      font-size: 18px; font-weight: 600; letter-spacing: 0.08em;
+      text-transform: uppercase; color: #cdd9e5; margin-bottom: 6px;
+    }
+    #status {
+      font-size: 13px; color: #9aa7b5; margin-bottom: 14px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    #status.failed { color: #ff7b72; }
+    #bench-canvas {
+      display: block; width: 480px; max-width: 100%; height: auto;
+      border: 1px solid #232a33; border-radius: 4px; margin-bottom: 14px;
+      background: #000;
+    }
+    #bench-results { overflow-x: auto; }
+    .hint { font-size: 12px; color: #6b7684; margin-top: 18px; max-width: 90ch; }
+    code { color: #9aa7b5; }
+  </style>
+
+  <!-- Local ES-module resolution — same importmap pattern as index.html.
+       NO CDN: three is vendored under ./vendor/. -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./vendor/three.module.js",
+      "three/addons/OrbitControls.js": "./vendor/OrbitControls.js",
+      "three/addons/controls/OrbitControls.js": "./vendor/OrbitControls.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <h1>graphics-lab benchmark</h1>
+  <div id="status">booting…</div>
+  <canvas id="bench-canvas" width="960" height="540"></canvas>
+  <div id="bench-results"></div>
+  <div class="hint">
+    Runs the meshing/rendering suite on load: <code>naive</code> (buildChunkGeometry
+    per chunk), <code>greedy</code> (buildGreedyChunkGeometry per chunk) and
+    <code>greedy+LOD+culling</code> (ChunkManager with a render-distance cap) over the
+    same deterministic 96&times;40&times;96 test world and the same fixed 8-second
+    camera orbit. URL overrides for quick headless runs:
+    <code>?frames=120&amp;warmup=5&amp;chunks=4&amp;seed=7&amp;rd=72</code>.
+    Results land in <code>window.__benchResults</code>;
+    <code>window.__benchDone === true</code> when finished (set even on failure).
+    Headless SwiftShader frame-ms is not real-GPU fps — compare draw calls,
+    triangles and relative deltas.
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { runBenchmark } from './src/benchmark.js';
+
+    const statusEl = document.getElementById('status');
+    const params = new URLSearchParams(location.search);
+    const num = (key, fallback) => {
+      const v = parseFloat(params.get(key));
+      return Number.isFinite(v) ? v : fallback;
+    };
+
+    let results = null;
+    try {
+      const canvas = document.getElementById('bench-canvas');
+      const renderer = new THREE.WebGLRenderer({
+        canvas,
+        antialias: false,
+        powerPreference: 'high-performance',
+      });
+      renderer.setPixelRatio(1);            // deterministic pixel load everywhere
+      renderer.setSize(960, 540, false);    // fixed internal buffer; CSS scales it
+
+      const chunks = num('chunks', 6);
+      results = await runBenchmark(renderer, {
+        container: document.getElementById('bench-results'),
+        chunksX: num('chunksX', chunks),
+        chunksZ: num('chunksZ', chunks),
+        chunkSize: 16,
+        seed: num('seed', 7),
+        frames: num('frames', 480),
+        warmup: num('warmup', 10),
+        orbitSeconds: num('orbit', 8),
+        renderDistance: num('rd', 72),
+        onProgress: (msg) => { statusEl.textContent = msg; },
+      });
+      const failed = results.scenarios.filter((s) => !s.ok).length;
+      statusEl.textContent = failed
+        ? 'done — ' + failed + ' scenario(s) failed (see table / __benchResults)'
+        : 'done — all scenarios completed';
+    } catch (err) {
+      console.error('[bench] fatal:', err);
+      results = {
+        fatal: String((err && err.stack) || err),
+        scenarios: [],
+      };
+      statusEl.textContent = 'FAILED: ' + String((err && err.message) || err);
+      statusEl.classList.add('failed');
+    } finally {
+      // Headless capture contract: results + done flag, set no matter what.
+      window.__benchResults = results;
+      window.__benchDone = true;
+    }
+  </script>
+</body>
+</html>

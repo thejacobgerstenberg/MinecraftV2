@@ -1,0 +1,15 @@
+{
+  "name": "graphics-lab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Standalone Three.js voxel graphics demo (vendored three, no runtime CDN).",
+  "scripts": {
+    "serve": "python3 -m http.server 8099",
+    "start": "python3 -m http.server 8099"
+  },
+  "devDependencies": {
+    "playwright": "^1.61.1",
+    "pngjs": "^7.0.0"
+  }
+}

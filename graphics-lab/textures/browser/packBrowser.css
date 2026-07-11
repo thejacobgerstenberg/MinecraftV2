@@ -1,0 +1,262 @@
+/* graphics-lab/textures/browser/packBrowser.css
+   Pack Browser drawer — ui-kit conventions (lf-* classes, var(--lf-*) tokens
+   only; tokens vendored in ./vendored-tokens.css, linked from index.html).
+   Dark theme is the token default, matching the demo page. */
+
+.lf-packs { --lf-packs-w: min(400px, 94vw); }
+
+.lf-packs,
+.lf-packs *,
+.lf-packs *::before,
+.lf-packs *::after { box-sizing: border-box; }
+
+.lf-packs button {
+  font: inherit;
+  color: inherit;
+}
+
+.lf-packs :is(button):focus-visible {
+  outline: var(--lf-focus-ring-width, 2px) solid var(--lf-color-focus-ring, #FFD24A);
+  outline-offset: var(--lf-focus-ring-offset, 1px);
+}
+
+/* ==========================================================================
+   Launcher — sits NEXT TO the settings gear (gear: fixed bottom 16 / right 16,
+   46x46 — see index.html's .mc2gs-gear override). 46+16+12 = 74px from right.
+   ========================================================================== */
+
+.lf-packs-launcher {
+  position: fixed;
+  right: 74px;
+  bottom: 16px;
+  z-index: 9000; /* same layer as the gear */
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  color: var(--lf-color-icon-glyph, #CFC6E0);
+  background: var(--lf-color-bg-panel, #221B33);
+  border: var(--lf-border-width, 1px) solid var(--lf-color-border-hem, #6A5F8C);
+  border-radius: var(--lf-radius-md, 4px);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.06),
+    inset 0 -2px 0 rgb(0 0 0 / 0.45),
+    0 4px 14px rgb(0 0 0 / 0.45);
+  transition:
+    color var(--lf-dur-fast, 120ms) var(--lf-ease, ease),
+    border-color var(--lf-dur-fast, 120ms) var(--lf-ease, ease),
+    box-shadow var(--lf-dur-fast, 120ms) var(--lf-ease, ease),
+    transform var(--lf-dur-slow, 320ms) var(--lf-ease, ease);
+}
+.lf-packs-launcher:hover {
+  color: var(--lf-brand-primary, #F2C14E);
+  border-color: var(--lf-brand-primary, #F2C14E);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.06),
+    inset 0 -2px 0 rgb(0 0 0 / 0.45),
+    0 4px 16px rgb(0 0 0 / 0.5);
+}
+.lf-packs:not(.is-open) .lf-packs-launcher:active { transform: translateY(1px); }
+/* Drawer open: slide the launcher out to the drawer's left edge (it stays
+   clickable as a close toggle; mirrors the settings gear's is-open slide). */
+.lf-packs.is-open .lf-packs-launcher {
+  color: var(--lf-brand-primary, #F2C14E);
+  border-color: var(--lf-brand-primary, #F2C14E);
+  transform: translateX(calc(-1 * (var(--lf-packs-w) - 62px)));
+}
+
+/* ==========================================================================
+   Drawer shell (right-side slide-in; sits below the settings drawer's 9001
+   so the two never fight when both are open).
+   ========================================================================== */
+
+.lf-packs-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9002; /* over the gear/launcher row (9000) + settings drawer (9001) */
+  width: var(--lf-packs-w);
+  display: flex;
+  flex-direction: column;
+  font-family: var(--lf-font-ui, system-ui, sans-serif);
+  font-size: var(--lf-text-sm, 13px);
+  line-height: var(--lf-leading, 1.45);
+  color: var(--lf-color-text-body, #EDE7DA);
+  background: var(--lf-color-bg-panel, #221B33);
+  border-left: var(--lf-border-width, 1px) solid var(--lf-color-border-hem, #6A5F8C);
+  box-shadow: -12px 0 32px rgb(0 0 0 / 0.5);
+  transform: translateX(calc(100% + 40px));
+  transition: transform var(--lf-dur-slow, 320ms) var(--lf-ease, ease);
+  visibility: hidden;
+}
+.lf-packs.is-open .lf-packs-drawer {
+  transform: translateX(0);
+  visibility: visible;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lf-packs-drawer,
+  .lf-packs-launcher { transition: none; }
+}
+
+/* ==========================================================================
+   Header
+   ========================================================================== */
+
+.lf-packs-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--lf-space-3, 12px);
+  padding: var(--lf-space-4, 16px) var(--lf-space-4, 16px) var(--lf-space-3, 12px);
+  border-bottom: var(--lf-border-width, 1px) solid var(--lf-color-border-hem, #6A5F8C);
+  background: var(--lf-color-bg-root, #14101F);
+}
+.lf-packs-title {
+  margin: 0;
+  font-size: var(--lf-text-md, 15px);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--lf-color-text-heading, #F7F2E4);
+  line-height: var(--lf-leading-tight, 1.2);
+}
+.lf-packs-subtitle {
+  margin: var(--lf-space-1, 4px) 0 0;
+  font-size: var(--lf-text-xs, 11px);
+  color: var(--lf-color-text-dim, #B4AAC9);
+}
+.lf-packs-close {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  font-size: var(--lf-text-lg, 18px);
+  line-height: 1;
+  color: var(--lf-color-icon-glyph, #CFC6E0);
+  background: var(--lf-color-button-secondary-bg, #3B3158);
+  border: var(--lf-border-width, 1px) solid var(--lf-color-border-hem, #6A5F8C);
+  border-radius: var(--lf-radius-sm, 2px);
+}
+.lf-packs-close:hover {
+  color: var(--lf-color-button-secondary-fg, #F4EFE3);
+  background: var(--lf-color-button-secondary-hover-bg, #4B3F70);
+}
+
+/* ==========================================================================
+   Card list
+   ========================================================================== */
+
+.lf-packs-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--lf-space-3, 12px) var(--lf-space-4, 16px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--lf-space-3, 12px);
+}
+
+.lf-pack-card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  padding: var(--lf-space-3, 12px);
+  color: var(--lf-color-text-body, #EDE7DA);
+  background: var(--lf-color-bg-raised, #2E2645);
+  border: var(--lf-border-width, 1px) solid var(--lf-color-border-hem, #6A5F8C);
+  border-radius: var(--lf-radius-lg, 8px);
+  transition:
+    border-color var(--lf-dur-fast, 120ms) var(--lf-ease, ease),
+    background var(--lf-dur-fast, 120ms) var(--lf-ease, ease),
+    box-shadow var(--lf-dur-fast, 120ms) var(--lf-ease, ease);
+}
+.lf-pack-card:hover {
+  border-color: var(--lf-brand-primary-glow, #FFDE8A);
+  background: var(--lf-color-button-secondary-bg, #3B3158);
+}
+.lf-pack-card.is-active {
+  border-color: var(--lf-brand-primary, #F2C14E);
+  box-shadow:
+    0 0 0 1px var(--lf-brand-primary, #F2C14E),
+    0 0 18px rgb(242 193 78 / 0.25);
+}
+
+.lf-pack-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--lf-space-2, 8px);
+  margin-bottom: var(--lf-space-2, 8px);
+}
+.lf-pack-name {
+  font-size: var(--lf-text-md, 15px);
+  font-weight: 700;
+  color: var(--lf-color-text-heading, #F7F2E4);
+}
+.lf-pack-badge {
+  display: none;
+  flex: none;
+  padding: 2px 8px;
+  font-size: var(--lf-text-xs, 11px);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--lf-color-button-primary-fg, #1B1528);
+  background: var(--lf-color-button-primary-bg, #F2C14E);
+  border-radius: var(--lf-radius-pill, 999px);
+}
+.lf-pack-card.is-active .lf-pack-badge { display: inline-block; }
+
+/* Thumbnail strip: 5 live 64px swatches off the pack's atlas canvas. */
+.lf-pack-thumbs-wrap {
+  overflow: hidden;
+  border: var(--lf-border-width, 1px) solid var(--lf-color-border-hem, #6A5F8C);
+  border-radius: var(--lf-radius-md, 4px);
+  background: var(--lf-color-bg-root, #14101F);
+  line-height: 0;
+}
+.lf-pack-thumbs {
+  width: 100%;
+  height: auto;
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.lf-pack-desc {
+  margin: var(--lf-space-2, 8px) 0 0;
+  font-size: var(--lf-text-xs, 11px);
+  color: var(--lf-color-text-dim, #B4AAC9);
+}
+
+/* ==========================================================================
+   Footer — restore the original lab atlas
+   ========================================================================== */
+
+.lf-packs-footer {
+  flex: none;
+  padding: var(--lf-space-3, 12px) var(--lf-space-4, 16px);
+  border-top: var(--lf-border-width, 1px) solid var(--lf-color-border-hem, #6A5F8C);
+  background: var(--lf-color-bg-root, #14101F);
+}
+.lf-packs-reset {
+  display: block;
+  width: 100%;
+  padding: var(--lf-space-2, 8px);
+  cursor: pointer;
+  font-size: var(--lf-text-sm, 13px);
+  font-weight: 600;
+  color: var(--lf-color-button-secondary-fg, #F4EFE3);
+  background: var(--lf-color-button-secondary-bg, #3B3158);
+  border: var(--lf-border-width, 1px) solid var(--lf-color-border-hem, #6A5F8C);
+  border-radius: var(--lf-radius-md, 4px);
+}
+.lf-packs-reset:hover { background: var(--lf-color-button-secondary-hover-bg, #4B3F70); }
+.lf-packs-reset.is-active {
+  color: var(--lf-color-text-dim, #B4AAC9);
+  cursor: default;
+}

@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>textures test harness</title>
+  <link rel="icon" href="data:," />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "../vendor/three.module.js"
+    }
+  }
+  </script>
+  <style>body { background: #14101F; color: #EDE7DA; font: 13px monospace; }</style>
+</head>
+<body>
+<pre id="log">running…</pre>
+<script type="module">
+import { buildAtlas, genTexture, TILE_NAMES, PACK_REGISTRY, TILE_PX, ATLAS_COLS } from './atlas.js';
+
+const log = (s) => { document.getElementById('log').textContent += '\n' + s; };
+const results = {
+  deterministic: false,
+  genTextureMatches: false,
+  uvFallback: false,
+  uvContract: false,
+  tiling: { tested: 0, passed: 0, skipped: 0, fails: [] },
+};
+
+const TILING_EXEMPT = new Set(['water', 'lava', 'glass', 'leaves', 'torch', 'portal', 'door_upper', 'door_lower']);
+// Banded side art: vertical wrap exempt (never self-stacked), horizontal must pass.
+const VERTICAL_EXEMPT = new Set(['snow_side']);
+
+function tilePixels(atlas, name) {
+  const i = atlas.tileIndex(name);
+  const x = (i % atlas.cols) * atlas.tilePx;
+  const y = Math.floor(i / atlas.cols) * atlas.tilePx;
+  const c = document.createElement('canvas');
+  c.width = c.height = atlas.tilePx;
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  g.drawImage(atlas.canvas, x, y, atlas.tilePx, atlas.tilePx, 0, 0, atlas.tilePx, atlas.tilePx);
+  return g.getImageData(0, 0, atlas.tilePx, atlas.tilePx);
+}
+
+const luma = (d, i) => 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+
+function isOpaque(img) {
+  for (let i = 3; i < img.data.length; i += 4) if (img.data[i] < 250) return false;
+  return true;
+}
+
+// Literal 2x2-draw seam test: tile the art in a 64x64 canvas, then compare
+// the gradient across the internal seam (per axis) against (a) 2.5x the mean
+// interior gradient (+6 floor) and (b) 1.35x the strongest legitimate
+// interior pattern edge in the same direction — blocky patterns (bricks,
+// planks, weave) legitimately place a pattern edge on the seam line.
+function seamTest2x2(atlas, name) {
+  const px = atlas.tilePx;
+  const i = atlas.tileIndex(name);
+  const sx = (i % atlas.cols) * px, sy = Math.floor(i / atlas.cols) * px;
+  const c = document.createElement('canvas');
+  c.width = c.height = px * 2;
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  for (const [dx, dy] of [[0, 0], [px, 0], [0, px], [px, px]]) {
+    g.drawImage(atlas.canvas, sx, sy, px, px, dx, dy, px, px);
+  }
+  const img = g.getImageData(0, 0, px * 2, px * 2);
+  const W = px * 2, d = img.data;
+  const L = (x, y) => luma(d, (y * W + x) * 4);
+  let bH = 0, iSumH = 0, colMax = 0, nH = 0;
+  for (let x = 0; x < W - 1; x++) {
+    let col = 0;
+    for (let y = 0; y < W; y++) col += Math.abs(L(x, y) - L(x + 1, y));
+    col /= W;
+    if (x === px - 1) bH = col;
+    else { iSumH += col; colMax = Math.max(colMax, col); nH++; }
+  }
+  const iAvgH = iSumH / nH;
+  let bV = 0, iSumV = 0, rowMax = 0, nV = 0;
+  for (let y = 0; y < W - 1; y++) {
+    let row = 0;
+    for (let x = 0; x < W; x++) row += Math.abs(L(x, y) - L(x, y + 1));
+    row /= W;
+    if (y === px - 1) bV = row;
+    else { iSumV += row; rowMax = Math.max(rowMax, row); nV++; }
+  }
+  const iAvgV = iSumV / nV;
+  return {
+    okH: bH <= Math.max(colMax * 1.35, iAvgH * 2.5 + 6),
+    okV: bV <= Math.max(rowMax * 1.35, iAvgV * 2.5 + 6),
+    bH, bV, iAvgH, iAvgV,
+  };
+}
+
+try {
+  // determinism: two atlases, identical pixels
+  const a1 = buildAtlas('default', 0);
+  const a2 = buildAtlas('default', 0);
+  results.deterministic = a1.canvas.toDataURL() === a2.canvas.toDataURL();
+
+  // genTexture(3 = stone) matches the atlas stone tile
+  const gt = genTexture(3, 'default', 0);
+  const gctx = gt.getContext('2d');
+  const gd = gctx.getImageData(0, 0, TILE_PX, TILE_PX).data;
+  const ad = tilePixels(a1, 'stone').data;
+  results.genTextureMatches = gd.length === ad.length && gd.every((v, i) => v === ad[i]);
+
+  // unknown tile -> index 0 UVs
+  const bogus = a1.tileUV('__bogus__');
+  const first = a1.tileUV(TILE_NAMES[0]);
+  results.uvFallback = JSON.stringify(bogus) === JSON.stringify(first);
+
+  // UV contract: half-texel inset, GL space (v0<v1), canvas-top -> v1
+  const W = a1.canvas.width, H = a1.canvas.height;
+  const uv = a1.tileUV('dirt'); // index 2, row 0
+  results.uvContract =
+    Math.abs(uv.u0 - (2 * TILE_PX + 0.5) / W) < 1e-9 &&
+    Math.abs(uv.u1 - (3 * TILE_PX - 0.5) / W) < 1e-9 &&
+    Math.abs(uv.v1 - (H - 0.5) / H) < 1e-9 &&
+    Math.abs(uv.v0 - (H - TILE_PX + 0.5) / H) < 1e-9 &&
+    uv.u0 < uv.u1 && uv.v0 < uv.v1 &&
+    a1.cols === ATLAS_COLS && a1.tilePx === TILE_PX &&
+    a1.texture.flipY === true;
+
+  // tiling per pack
+  for (const packId of Object.keys(PACK_REGISTRY)) {
+    const atlas = buildAtlas(packId, 0);
+    for (const name of TILE_NAMES) {
+      const img = tilePixels(atlas, name);
+      if (!isOpaque(img)) {
+        results.tiling.skipped++;
+        if (!TILING_EXEMPT.has(name)) {
+          results.tiling.fails.push(`${packId}/${name}: unexpectedly non-opaque`);
+        }
+        continue;
+      }
+      results.tiling.tested++;
+      const s = seamTest2x2(atlas, name);
+      const vOk = s.okV || VERTICAL_EXEMPT.has(name);
+      if (s.okH && vOk) results.tiling.passed++;
+      else results.tiling.fails.push(`${packId}/${name} bH=${s.bH.toFixed(2)}/${s.iAvgH.toFixed(2)}${s.okH ? '' : ' H!'} bV=${s.bV.toFixed(2)}/${s.iAvgV.toFixed(2)}${s.okV ? '' : ' V!'}`);
+    }
+  }
+
+  log(JSON.stringify(results, null, 2));
+} catch (e) {
+  results.error = String(e && e.stack ? e.stack : e);
+  log(results.error);
+}
+
+window.__testResults = results;
+window.__testDone = true;
+</script>
+</body>
+</html>

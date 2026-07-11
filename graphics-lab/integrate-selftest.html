@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>GraphicsStack selftest</title>
+  <link rel="icon" href="data:," />
+  <style>html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #0b0e14; }</style>
+  <script type="importmap">{ "imports": { "three": "./vendor/three.module.js" } }</script>
+</head>
+<body>
+  <script type="module">
+    // The ENTIRE builder integration: 7 statements (plus 2 test hooks below).
+    import { GraphicsStack } from './integrate.js';
+    import { generateDemoChunk } from './src/worldgen.js';
+    const volume = generateDemoChunk();
+    const gfx = new GraphicsStack({ quality: 'medium', texturePack: 'default', dimension: 'warpwold' });
+    await gfx.init({ domElement: document.body, volumeProvider: { volume }, waterLevel: volume.WATER_LEVEL });
+    gfx.setTimeOfDay(0.35);
+    gfx.start();
+    // Test hooks (not part of the integration line count).
+    window.gfx = gfx;
+    requestAnimationFrame(() => requestAnimationFrame(() => { window.__ready = true; }));
+  </script>
+</body>
+</html>

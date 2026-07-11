@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>GraphicsStack x builder worldgen — real-world integration demo</title>
+  <link rel="icon" href="data:," />
+  <style>html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #0b0e14; }</style>
+  <!-- 'three' mapped for integrate.js + the lab modules. The vendored builder
+       modules (integration/builder/) are PURE — no bare specifiers, no three —
+       so they need no map entries and load byte-exact from their new home. -->
+  <script type="importmap">{ "imports": { "three": "./vendor/three.module.js" } }</script>
+</head>
+<body>
+  <script type="module">
+    // Presets: ?preset=day | night | cinderloom | nevermend (default day).
+    import './integration/main.js';
+  </script>
+</body>
+</html>
