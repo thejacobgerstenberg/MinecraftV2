@@ -1,0 +1,585 @@
+# Unified release CI for MinecraftV2 (Loomfall).
+#
+# Every suite we built is represented as its own job. Each job feature-detects
+# its target and skips GREEN when that target is absent, so this workflow stays
+# green standalone on feature/ci and lights up progressively as branches merge
+# to master:
+#   - content-validation : needs content/                         (dependency-free node)
+#   - audio-verification : needs audio/                           (Playwright + Chromium in $RUNNER_TEMP)
+#   - game-tests         : needs root package.json `test` script
+#   - backend-load       : always self-tests load+chaos vs reference mock; gates real server when present
+#   - authority-audit    : always self-tests authority vs strict ref server; gates real server when present
+#   - persistence        : always self-tests durability vs ref server; runs full suite vs real server when present
+#   - soak               : always self-tests soak vs reference mock; longer soak vs real server when present
+#   - integration-smoke  : needs server/index.js + public/ + scripts/integration-smoke.mjs  (assembled-game go/no-go)
+#   - e2e-multiplayer    : needs deploy/e2e-multiplayer.mjs + server/index.js               (2-client MP proof)
+#   - qa-p0              : needs a QA P0 entrypoint (qa/ runner, qa:p0 npm script, or scripts/qa-p0.mjs)
+#
+# Where a job needs Chromium it installs it via `npx playwright install
+# --with-deps chromium` into $RUNNER_TEMP (or /tmp/pw) — never into the repo (a
+# root package.json is owned by another branch and must not appear here).
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Validate game content definitions. scripts/validate-content.mjs is
+  # dependency-free, so plain `node` is enough — no npm install, no setup-node.
+  # ---------------------------------------------------------------------------
+  content-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate content
+        run: |
+          if [ -d content ]; then
+            node scripts/validate-content.mjs
+          else
+            echo "no content/ directory — skipping"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Verify the procedural audio engine by offline-rendering it in headless
+  # Chromium. GitHub-hosted runners ship no browsers for Playwright, so we
+  # install playwright + Chromium into $RUNNER_TEMP — never into the repo
+  # (a root package.json is owned by another branch and must not appear here).
+  # ---------------------------------------------------------------------------
+  audio-verification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Detect audio/ and expose the result as an output so the later steps
+      # skip cleanly (and the job stays green) when it is absent.
+      - name: Check for audio/
+        id: audio
+        run: |
+          if [ ! -d audio ]; then
+            echo "no audio/ directory — skipping"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "present=true" >> "$GITHUB_OUTPUT"
+
+      - name: Install Playwright + Chromium (outside the repo)
+        if: steps.audio.outputs.present == 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/pw"
+          cd "$RUNNER_TEMP/pw"
+          npm init -y
+          npm i playwright
+          npx playwright install --with-deps chromium
+
+      - name: Verify audio engine
+        if: steps.audio.outputs.present == 'true'
+        run: PW_DIR="$RUNNER_TEMP/pw" node scripts/verify-audio.mjs
+
+  # ---------------------------------------------------------------------------
+  # Run the game's test suite, if a root package.json with a `test` script
+  # exists. Structured so a real `npm test` failure fails the step — the
+  # "skipping" fallback only fires when the test script is missing.
+  # ---------------------------------------------------------------------------
+  game-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run tests
+        run: |
+          if [ ! -f package.json ]; then
+            echo "no package.json — skipping"
+            exit 0
+          fi
+          if node -e "const s=require('./package.json').scripts||{}; process.exit(s.test?0:1)"; then
+            if [ -f package-lock.json ]; then
+              npm ci
+            else
+              npm install
+            fi
+            npm test
+          else
+            echo "no test script — skipping"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Backend load & chaos harness. The multiplayer server does not exist yet, so
+  # this job ALWAYS runs a fast SELF-TEST of the harness against the bundled,
+  # dependency-free reference mock (scripts/mock-server.mjs, spawned via
+  # --spawn) — proving the harness works today and keeping the job green with no
+  # real server. When the real Voxelheim entrypoint lands (a root package.json
+  # with a `start` script — npm start == `node server/index.js`), it
+  # ADDITIONALLY installs the server's deps, launches it in the background on an
+  # explicit port (PORT=8123, WS path /ws), waits for that endpoint to accept a
+  # WebSocket connection, runs the full load + chaos suite against it, and always
+  # kills the server. Pure Node builtins only — no browser, no Playwright — and
+  # this job never creates a root package.json (that file is owned by another
+  # branch).
+  # ---------------------------------------------------------------------------
+  backend-load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Always-on: prove the load + chaos harnesses work against the reference
+      # mock. Relaxed latency thresholds (P95_MS/P99_MS, env-overridable) keep
+      # noisy shared CI runners from flaking a green harness self-test.
+      - name: Harness self-test (reference mock)
+        run: |
+          P95_MS=400 P99_MS=800 node scripts/load-test.mjs --spawn --players 20 --duration-sec 6
+          node scripts/chaos-test.mjs --spawn
+
+      # Feature-detect the real Voxelheim entrypoint: a root package.json exposing
+      # a `start` script (npm start == `node server/index.js`). Emits real=<bool>;
+      # anything else leaves the reference-mock self-test as the only coverage.
+      - name: Detect real server entrypoint
+        id: server
+        run: |
+          if [ -f package.json ] && node -e "const s=require('./package.json').scripts||{}; process.exit(s.start?0:1)"; then
+            echo "detected root package.json start script (Voxelheim entrypoint)"
+            echo "real=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no root package.json start script — reference mock self-test only"
+            echo "real=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Only when the real server exists: install its deps (never creating a root
+      # package.json), launch Voxelheim in the background on an explicit port, wait
+      # for its WS endpoint at /ws to accept a connection, run the full load + chaos
+      # suite against it, and ALWAYS kill the server on the way out.
+      - name: Full load + chaos suite (real server)
+        if: steps.server.outputs.real == 'true'
+        run: |
+          npm ci || npm install
+
+          # Launch Voxelheim in the background on an explicit port. Prefer the
+          # documented single-process entrypoint (directly killable); fall back to
+          # `npm start` otherwise.
+          if [ -f server/index.js ]; then
+            PORT=8123 node server/index.js >"$RUNNER_TEMP/voxelheim.log" 2>&1 &
+          else
+            PORT=8123 npm start >"$RUNNER_TEMP/voxelheim.log" 2>&1 &
+          fi
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+
+          # Wait until ws://127.0.0.1:8123/ws completes a WebSocket handshake, using
+          # the harness's own dependency-free client (the same one the bots use).
+          up=false
+          for i in $(seq 1 60); do
+            if node -e "const t=setTimeout(()=>process.exit(1),2000);import('./scripts/lib/ws-transport.mjs').then(async m=>{const c=await m.wsConnect('ws://127.0.0.1:8123/ws',{handshakeTimeoutMs:1500});clearTimeout(t);try{c.close();}catch{}process.exit(0);}).catch(()=>{clearTimeout(t);process.exit(1);});" 2>/dev/null; then
+              up=true; break
+            fi
+            sleep 1
+          done
+          if [ "$up" != true ]; then
+            echo "server did not accept a WS connection on ws://127.0.0.1:8123/ws"
+            cat "$RUNNER_TEMP/voxelheim.log" 2>/dev/null || true
+            exit 1
+          fi
+
+          GAME_PORT=8123 node scripts/load-test.mjs --players 30 --duration-sec 12
+          GAME_PORT=8123 node scripts/chaos-test.mjs --url ws://127.0.0.1:8123/ws
+
+  # ---------------------------------------------------------------------------
+  # Server-authority security audit. The real multiplayer server is owned by
+  # another branch and may not exist here yet, so this job ALWAYS runs a fast
+  # SELF-TEST of the authority suite against the bundled STRICT reference server
+  # (scripts/authority-ref-server.mjs, spawned via --spawn) — every one of the 15
+  # authority checks must PASS (0 VULNs → exit 0), proving the suite and the
+  # reference are correct and keeping the job green with no real server. When the
+  # real Voxelheim entrypoint lands (a root package.json with a `start` script —
+  # npm start == `node server/index.js`), it ADDITIONALLY installs the server's
+  # deps, launches it in the background on an explicit port (PORT=8124, WS path
+  # /ws), waits for that endpoint to accept a WebSocket connection, and runs the
+  # full authority audit against it as a GATE — any VULN exits non-zero and fails
+  # the job (a regression is caught). Pure Node builtins only — no browser, no
+  # Playwright — and this job never creates a root package.json (that file is
+  # owned by another branch). Self-tests until the server is on master, then
+  # gates it.
+  # ---------------------------------------------------------------------------
+  authority-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Always-on: prove the authority suite is correct by running it against the
+      # strict reference server. --spawn boots scripts/authority-ref-server.mjs
+      # (every authority rule enforced); all 15 checks must PASS → exit 0.
+      - name: Authority self-test (reference server)
+        run: node scripts/authority-test.mjs --spawn
+
+      # Feature-detect the real Voxelheim entrypoint: a root package.json exposing
+      # a `start` script (npm start == `node server/index.js`). Emits real=<bool>;
+      # anything else leaves the reference self-test as the only coverage.
+      - name: Detect real server entrypoint
+        id: server
+        run: |
+          if [ -f package.json ] && node -e "const s=require('./package.json').scripts||{}; process.exit(s.start?0:1)"; then
+            echo "detected root package.json start script (Voxelheim entrypoint)"
+            echo "real=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no root package.json start script — reference self-test only"
+            echo "real=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Only when the real server exists: install its deps (never creating a root
+      # package.json), launch Voxelheim in the background on an explicit port, wait
+      # for its WS endpoint at /ws to accept a connection, run the full authority
+      # audit against it as a GATE, and ALWAYS kill the server on the way out. Any
+      # VULN makes authority-test exit non-zero and fails the job (regression).
+      - name: Full authority audit (real server)
+        if: steps.server.outputs.real == 'true'
+        run: |
+          npm ci || npm install
+
+          # Launch Voxelheim in the background on an explicit port. Prefer the
+          # documented single-process entrypoint (directly killable); fall back to
+          # `npm start` otherwise.
+          if [ -f server/index.js ]; then
+            PORT=8124 node server/index.js >"$RUNNER_TEMP/voxelheim.log" 2>&1 &
+          else
+            PORT=8124 npm start >"$RUNNER_TEMP/voxelheim.log" 2>&1 &
+          fi
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+
+          # Wait until ws://127.0.0.1:8124/ws completes a WebSocket handshake, using
+          # the harness's own dependency-free client (the same one the checks use).
+          up=false
+          for i in $(seq 1 60); do
+            if node -e "const t=setTimeout(()=>process.exit(1),2000);import('./scripts/lib/ws-transport.mjs').then(async m=>{const c=await m.wsConnect('ws://127.0.0.1:8124/ws',{handshakeTimeoutMs:1500});clearTimeout(t);try{c.close();}catch{}process.exit(0);}).catch(()=>{clearTimeout(t);process.exit(1);});" 2>/dev/null; then
+              up=true; break
+            fi
+            sleep 1
+          done
+          if [ "$up" != true ]; then
+            echo "server did not accept a WS connection on ws://127.0.0.1:8124/ws"
+            cat "$RUNNER_TEMP/voxelheim.log" 2>/dev/null || true
+            exit 1
+          fi
+
+          # GATE: any VULN exits non-zero and fails the job. The harness derives the
+          # REST base (http://127.0.0.1:8124) from the ws url for GET/PUT checks.
+          node scripts/authority-test.mjs --url ws://127.0.0.1:8124/ws
+
+  # ---------------------------------------------------------------------------
+  # Persistence / durability suite. The real Voxelheim server is owned by another
+  # branch and may not exist here yet, so this job ALWAYS runs a fast SELF-TEST of
+  # the durability suite against the bundled reference persistent server
+  # (scripts/persist-ref-server.mjs, spawned via --spawn) — every applicable
+  # durability check (create+edit+GET, on-disk save/reload, save-file schema,
+  # concurrent saves, mid-save SIGKILL recovery) must PASS → exit 0, proving the
+  # suite and the reference are correct and keeping the job green with no real
+  # server. When the real Voxelheim entrypoint lands (a root package.json with a
+  # `start` script — npm start == `node server/index.js`), it ADDITIONALLY installs
+  # the server's deps and runs the full suite against the REAL server via
+  # --server-cmd (the test OWNS the process so it can SIGTERM/SIGKILL/restart it
+  # with the same port + save-dir), reading saves from <cwd>/saves. Pure Node
+  # builtins only — no browser, no Playwright — and this job never creates a root
+  # package.json (that file is owned by another branch).
+  # ---------------------------------------------------------------------------
+  persistence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Always-on: prove the durability suite is correct by running it against the
+      # reference persistent server. --spawn boots scripts/persist-ref-server.mjs
+      # (same save schema + debounced atomic write as the real server); all
+      # applicable checks must PASS → exit 0.
+      - name: Persistence self-test (reference server)
+        run: node scripts/persistence-test.mjs --spawn --report "$RUNNER_TEMP/persistence-ref.json"
+
+      # Feature-detect the real Voxelheim entrypoint: a root package.json exposing
+      # a `start` script (npm start == `node server/index.js`). Emits real=<bool>;
+      # anything else leaves the reference self-test as the only coverage.
+      - name: Detect real server entrypoint
+        id: server
+        run: |
+          if [ -f package.json ] && node -e "const s=require('./package.json').scripts||{}; process.exit(s.start?0:1)"; then
+            echo "detected root package.json start script (Voxelheim entrypoint)"
+            echo "real=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no root package.json start script — reference self-test only"
+            echo "real=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Only when the real server exists: install its deps (never creating a root
+      # package.json) and run the full durability suite against the REAL server.
+      # --server-cmd lets the test OWN the process so it can SIGTERM/SIGKILL/restart
+      # it with the same port + save-dir; the real server writes saves to <cwd>/saves.
+      - name: Full persistence suite (real server)
+        if: steps.server.outputs.real == 'true'
+        run: |
+          npm ci || npm install
+          node scripts/persistence-test.mjs \
+            --server-cmd "node server/index.js" \
+            --server-cwd "$PWD" \
+            --save-dir "$PWD/saves" \
+            --report "$RUNNER_TEMP/persistence-real.json"
+
+  # ---------------------------------------------------------------------------
+  # Long-run leak / stability soak. The real Voxelheim server is owned by another
+  # branch and may not exist here yet, so this job ALWAYS runs a SHORT SELF-TEST of
+  # the soak harness against the bundled load/chaos reference mock
+  # (scripts/mock-server.mjs, spawned via --spawn) — bots continuously move/edit/chat
+  # while the harness samples RSS/fd/threads from /proc; the linear RSS-vs-time fit
+  # over the drained steady-state window must be FLAT (and fds must not grow) →
+  # exit 0, keeping the job green with no real server. The self-test duration is
+  # scaled down from the 20-min target to 45s so CI stays fast. When the real
+  # Voxelheim entrypoint lands (a root package.json with a `start` script — npm
+  # start == `node server/index.js`), it ADDITIONALLY installs the server's deps and
+  # runs a longer soak against the REAL server via --server-cmd (the harness reads
+  # the server pid from the process it spawned to sample /proc). Pure Node builtins
+  # only — no browser, no Playwright — and this job never creates a root
+  # package.json (that file is owned by another branch).
+  # ---------------------------------------------------------------------------
+  soak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Always-on: prove the soak harness works against the load/chaos reference
+      # mock. A short 45s run (scaled from the 20-min target) with 1.5s sampling
+      # must fit FLAT (no RSS/fd/thread leak) → exit 0.
+      - name: Soak self-test (reference mock)
+        run: node scripts/soak-test.mjs --spawn --duration-sec 45 --sample-ms 1500 --report "$RUNNER_TEMP/soak-ref.json"
+
+      # Feature-detect the real Voxelheim entrypoint: a root package.json exposing
+      # a `start` script (npm start == `node server/index.js`). Emits real=<bool>;
+      # anything else leaves the reference-mock self-test as the only coverage.
+      - name: Detect real server entrypoint
+        id: server
+        run: |
+          if [ -f package.json ] && node -e "const s=require('./package.json').scripts||{}; process.exit(s.start?0:1)"; then
+            echo "detected root package.json start script (Voxelheim entrypoint)"
+            echo "real=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no root package.json start script — reference mock self-test only"
+            echo "real=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Only when the real server exists: install its deps (never creating a root
+      # package.json) and run a longer soak against the REAL server. --server-cmd
+      # lets the harness own the process so it knows the pid and can sample
+      # /proc/<pid> RSS/fd/threads directly.
+      - name: Longer soak (real server)
+        if: steps.server.outputs.real == 'true'
+        run: |
+          npm ci || npm install
+          node scripts/soak-test.mjs \
+            --server-cmd "node server/index.js" \
+            --server-cwd "$PWD" \
+            --duration-sec 120 --sample-ms 3000 \
+            --report "$RUNNER_TEMP/soak-real.json"
+
+  # ---------------------------------------------------------------------------
+  # Assembled-game go/no-go smoke. This is the integration gate for the fully
+  # assembled game: it runs only when the real server (server/index.js), the
+  # client (public/) AND the integration harness (scripts/integration-smoke.mjs)
+  # are all present; otherwise it skips cleanly (job stays green) so feature/ci
+  # stays green standalone. When present it installs playwright-core into
+  # $RUNNER_TEMP (never the repo) plus a headless Chromium via
+  # `npx playwright install --with-deps chromium`, installs the game's own deps,
+  # then drives the assembled client+server end to end via
+  # scripts/integration-smoke.mjs (PW_DIR points it at the out-of-repo install).
+  # ---------------------------------------------------------------------------
+  integration-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check for integration-smoke target
+        id: smoke
+        run: |
+          if [ -f server/index.js ] && [ -d public ] && [ -f scripts/integration-smoke.mjs ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "server/index.js, public/, or scripts/integration-smoke.mjs absent — skipping"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install playwright-core + Chromium (outside the repo)
+        if: steps.smoke.outputs.present == 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/pw"
+          cd "$RUNNER_TEMP/pw"
+          npm init -y
+          npm i playwright-core playwright
+          npx playwright install --with-deps chromium
+
+      - name: Install game deps
+        if: steps.smoke.outputs.present == 'true'
+        run: |
+          if [ -f package.json ]; then
+            npm ci || npm install
+          fi
+
+      - name: Integration smoke (assembled-game go/no-go)
+        if: steps.smoke.outputs.present == 'true'
+        run: PW_DIR="$RUNNER_TEMP/pw" node scripts/integration-smoke.mjs
+
+  # ---------------------------------------------------------------------------
+  # Definitive 2-client multiplayer proof. Runs only when the deploy harness
+  # (deploy/e2e-multiplayer.mjs) AND the real server (server/index.js) are both
+  # present; otherwise it skips cleanly (job stays green). Installs Playwright +
+  # Chromium in CI — like the audio job — never into the repo. The harness
+  # (owned by the deploy branch) resolves playwright-core from /tmp/pw and
+  # launches a Chromium at a fixed absolute path, so we install into /tmp/pw and
+  # expose the CI-installed Chromium at that path as CI plumbing only (no repo
+  # files touched). Runs the real server + real ES-module client end to end.
+  # ---------------------------------------------------------------------------
+  e2e-multiplayer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check for e2e-multiplayer target
+        id: e2e
+        run: |
+          if [ -f deploy/e2e-multiplayer.mjs ] && [ -f server/index.js ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy/e2e-multiplayer.mjs or server/index.js absent — skipping"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Playwright + Chromium (outside the repo)
+        if: steps.e2e.outputs.present == 'true'
+        run: |
+          # The harness resolves playwright-core via createRequire from /tmp/pw,
+          # so install there (never the repo).
+          mkdir -p /tmp/pw
+          cd /tmp/pw
+          npm init -y
+          npm i playwright-core playwright
+          npx playwright install --with-deps chromium
+          # The harness launches Chromium by a fixed absolute path; expose the
+          # CI-installed Chromium there (best-effort CI plumbing, not repo code).
+          CHROME="$(find "$HOME/.cache/ms-playwright" -type f -name chrome -path '*chrome-linux*' 2>/dev/null | head -n1)"
+          if [ -n "$CHROME" ]; then
+            sudo mkdir -p /opt/pw-browsers/chromium-1194/chrome-linux
+            sudo ln -sf "$CHROME" /opt/pw-browsers/chromium-1194/chrome-linux/chrome
+          fi
+
+      - name: Install game deps
+        if: steps.e2e.outputs.present == 'true'
+        run: |
+          if [ -f package.json ]; then
+            npm ci || npm install
+          fi
+
+      - name: Run 2-client multiplayer e2e (real server + client)
+        if: steps.e2e.outputs.present == 'true'
+        run: node deploy/e2e-multiplayer.mjs --report "$RUNNER_TEMP/e2e-multiplayer.json"
+
+  # ---------------------------------------------------------------------------
+  # QA P0 acceptance suite. The P0 entrypoint is owned by another branch
+  # (reportedly feature/qa-suite) and is absent here, so this job feature-detects
+  # a P0 runner — a qa/ runner (qa/run-p0.mjs or qa/p0.mjs), a root `qa:p0` npm
+  # script, or scripts/qa-p0.mjs — and skips cleanly (job stays green) when none
+  # is present, keeping feature/ci green standalone. When a runner lands it
+  # installs Playwright + Chromium in CI (the P0 suite drives the real browser
+  # client through its window.__qa hooks) into $RUNNER_TEMP — never the repo —
+  # installs the game's deps, then runs the detected entrypoint.
+  # ---------------------------------------------------------------------------
+  qa-p0:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Detect QA P0 entrypoint
+        id: qa
+        run: |
+          if [ -f qa/run-p0.mjs ]; then
+            echo "cmd=node qa/run-p0.mjs" >> "$GITHUB_OUTPUT"
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          elif [ -f qa/p0.mjs ]; then
+            echo "cmd=node qa/p0.mjs" >> "$GITHUB_OUTPUT"
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          elif [ -f package.json ] && node -e "const s=require('./package.json').scripts||{}; process.exit(s['qa:p0']?0:1)"; then
+            echo "cmd=npm run qa:p0" >> "$GITHUB_OUTPUT"
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          elif [ -f scripts/qa-p0.mjs ]; then
+            echo "cmd=node scripts/qa-p0.mjs" >> "$GITHUB_OUTPUT"
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no QA P0 entrypoint (qa/ runner, qa:p0 npm script, or scripts/qa-p0.mjs) — skipping"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Playwright + Chromium (outside the repo)
+        if: steps.qa.outputs.present == 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/pw"
+          cd "$RUNNER_TEMP/pw"
+          npm init -y
+          npm i playwright-core playwright
+          npx playwright install --with-deps chromium
+
+      - name: Install game deps
+        if: steps.qa.outputs.present == 'true'
+        run: |
+          if [ -f package.json ]; then
+            npm ci || npm install
+          fi
+
+      - name: Run QA P0 suite
+        if: steps.qa.outputs.present == 'true'
+        env:
+          QA_CMD: ${{ steps.qa.outputs.cmd }}
+          PW_DIR: ${{ runner.temp }}/pw
+        run: |
+          echo "running QA P0: $QA_CMD"
+          eval "$QA_CMD"
