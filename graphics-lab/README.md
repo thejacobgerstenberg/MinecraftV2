@@ -25,8 +25,21 @@ python3 -m http.server 8099        # or: npm run serve
 `toggle(name, bool)` for
 `ao|sky|shadows|water|post|particles|fog|portal|crack|viewmodel|torchlights|wind|biome`
 plus the Phase 3 names `ssao|godrays|bloom|greedy` (`greedy` A-Bs the chunk
-between the greedy and classic meshers live),
-`setView('hero'|'sunrise'|'closeup'|'firstperson'|'portal'|'torches')`, the
+between the greedy and classic meshers live) and the environment-phase names
+`falls|underwaterfx|biolum|ambient|reflections` (`biolum` defaults OFF;
+`reflections` re-applies the planar-reflection tier for the current quality
+preset, so it stays off at `low`),
+`setView('hero'|'sunrise'|'closeup'|'firstperson'|'portal'|'torches')` plus the
+beauty presets `'beauty-warpwold'|'beauty-cinderloom'|'beauty-nevermend'`
+(these also stage the scene — they call `setDimension` + `setTimeOfDay`, so one
+call sets up the whole money shot; allow ~1 s for the crossfades),
+`setDimension('warpwold'|'cinderloom'|'nevermend')` — the MASTER dimension
+control: one call re-themes sky grade/aurora/smoke (DimensionSky), the ambient
+life field (AmbientLife), the portal palette, the per-dimension biome grade and
+the cinderloom-only lavafall —
+`togglePhotoMode()` (also bound to the `P` key) and
+`captureStill({ width = 2560, height = 1440 })` → PNG dataURL rendered through
+the full PostFX chain, the
 Phase 2 calls: `setPortalDimension('warpwold'|'cinderloom'|'nevermend')`,
 `triggerBreak()`, `setHeldItem('block:<id|name>'|'tool:pickaxe'|null)`,
 `swing()`, `setBiome(name)` (any of the 16 brand biomes in `BIOMES` plus the
@@ -60,6 +73,12 @@ produced the screenshots below.
 | ![godrays](./screenshots/11-godrays.png) | God rays at sunrise (Phase 3): quarter-res radial-blur shafts streaming past the island silhouette, altitude-derived warm tint, occluded by geometry (mask = sky-only HDR colour), on top of SSAO + the full post chain. |
 | ![settings](./screenshots/12-settings.png) | Settings drawer (Phase 3): gear-button panel with quality presets, render distance / FOV sliders, FPS cap, VSync and per-effect toggles — pure DOM, persists to `localStorage`, broadcasts `graphics-settings-change` events the demo maps onto module APIs. |
 | ![benchmark](./screenshots/13-benchmark.png) | `bench.html` (Phase 3): deterministic meshing/rendering suite — naive vs greedy vs greedy+LOD+culling over the same 96×40×96 world and fixed 8 s orbit; the table below is this run. |
+| ![beauty warpwold](./screenshots/20-beauty-warpwold.png) | `setView('beauty-warpwold')` (Environment phase): golden-hour diorama — the lake-outflow waterfall pouring off the south cliff (FlowFalls), quarter-res planar reflections on the ocean, drifting pollen motes (AmbientLife), brand-violet dusk undertone (DimensionSky). |
+| ![beauty cinderloom](./screenshots/21-beauty-cinderloom.png) | `setView('beauty-cinderloom')`: ember dusk — the cinderloom-only lavafall blooming off the north cliff, rising ember field, dark smoke deck overhead, ash-orange sky grade, dimmer/redder sun. |
+| ![beauty nevermend](./screenshots/22-beauty-nevermend.png) | `setView('beauty-nevermend')`: pale void night — three undulating aurora ribbon curtains, boosted stars, icy desaturated gradient, falling thread-wisps, moon low on the -Z band. |
+| ![warpwold rain](./screenshots/23-warpwold-rain.png) | Rain over warpwold: the TWO stacked weather cloud layers thickened dark + fast (parallax drift in opposite directions), wind-tilted streaks, ambient motes thinned by the weather. |
+| ![underwater caustics](./screenshots/24-underwater-caustics.png) | UnderwaterFX from inside the lake: the cellular caustic web dappling submerged block tops (one merged additive mesh), sun-aligned light shafts hanging from the surface. |
+| ![photo mode](./screenshots/25-photomode.png) | Photo mode (`P`): free-fly compose camera with cinematic letterbox + vignette overlay; `captureStill()` renders 2560×1440 stills through the full PostFX chain. |
 
 ## Module catalog
 
@@ -146,12 +165,26 @@ writes `ao = 1` everywhere instead.
 
 **What it does.** Full day/night sky: gradient dome with a sun-side twilight
 band and baked sun/moon halos, 2200-star twinkling point field, square
-Minecraft-style sun and moon sprites, drifting fbm cloud plane, plus the scene's
-light rig — a directional key (`sky.sun`: warm sun by day, cool blue moonlight
-at night, never pitch black) and a hemisphere fill (`sky.hemi`). All sky visuals
-are camera-centred and far-plane proof (clip-space `z = w * 0.99995` hug, and
-the rig rescales to fit `camera.far`). Weather grades the whole sky toward
-storm grey (rain) or cool steel blue (snow).
+Minecraft-style sun and moon sprites, LAYERED fbm clouds — TWO stacked
+horizontal planes, a low deck plus a higher/larger/slower veil drifting the
+opposite way for parallax, tinted by the sun colour and weather-reactive
+(clear = sparse white, rain = thicker/darker/faster, snow = pale dense) — plus
+the scene's light rig — a directional key (`sky.sun`: warm sun by day, cool
+blue moonlight at night, never pitch black) and a hemisphere fill (`sky.hemi`).
+All sky visuals are camera-centred and far-plane proof (clip-space
+`z = w * 0.99995` hug, and the rig rescales to fit `camera.far`). Weather
+grades the whole sky toward storm grey (rain) or cool steel blue (snow).
+
+**Environment-phase additions** (all optional, no-ops when unused — the
+baseline look is unchanged): `setCloudiness(v)` manual 0..1 cloud-cover
+override (null = back to weather-driven), `setPaletteTint(tint|null)` — a
+re-gradeable dimension tint applied LAST in `setTimeOfDay` (held by REFERENCE,
+so a caller can mutate its fields and re-install to crossfade; `getFogColor()`
+reflects the tinted horizon so fog stays seamless), and
+`addSkyObject(obj)`/`removeSkyObject(obj)` — parent custom meshes (aurora
+ribbons, smoke decks) into the camera-following, far-plane-fitted visuals rig,
+sized against `sky.domeRadius`. These are exactly the hooks `dimensionSky.js`
+drives — sky.js itself knows nothing about dimensions.
 
 **Public API.**
 
@@ -165,6 +198,17 @@ sky.setTimeOfDay(t)   // 0=midnight, 0.25=sunrise, 0.5=noon, 0.75=sunset
 sky.setWeather(w)     // 'clear'|'rain'|'snow' (also synced from ctx.weather)
 sky.weather           // getter
 sky.getFogColor(target?) // CURRENT horizon colour; pass a THREE.Color to avoid alloc
+// Environment-phase hooks (dimension theming — see dimensionSky.js):
+sky.setCloudiness(v)  // 0..1 manual cloud cover; null/undefined = auto (weather)
+sky.cloudiness        // getter (null while automatic)
+sky.setPaletteTint(tint | null)
+  // tint fields (all optional): horizon/zenith/glow/sun/hemi (colours) with
+  // horizonAmt/zenithAmt/glowAmt/sunAmt/hemiAmt lerp amounts (default 1),
+  // sunIntensity/hemiIntensity multipliers, cloudLit/cloudShadow + cloudAmt,
+  // starBoost. Applied last in setTimeOfDay; null restores the natural sky.
+sky.paletteTint       // getter (the installed tint object, by reference)
+sky.addSkyObject(obj); sky.removeSkyObject(obj)  // ride the visuals rig
+sky.domeRadius        // sizing reference for custom sky objects
 sky.update(dt, ctx); sky.setEnabled(on); sky.enabled; sky.dispose();
 ```
 
@@ -182,8 +226,10 @@ sky.getFogColor(ctx.skyColor);    // feed the horizon colour to fog + water
 
 **Perf notes.** One lean dome shader (gradient + band + halos in a single
 fragment), one Points draw for all stars (brightness-only twinkle, so no
-attribute uploads), one plane for clouds, two sprites. `setTimeOfDay` is
-allocation-free (scratch colours reused); `update` only touches uniforms.
+attribute uploads), two planes for the layered clouds (each layer's wind phase
+is integrated, not uTime-scaled, so weather speed changes never jump the
+pattern), two sprites. `setTimeOfDay` is allocation-free (scratch colours
+reused); `update` only touches uniforms.
 
 **Toggle behaviour.** `setEnabled(false)` hides only the visuals —
 `sky.sun`/`sky.hemi` keep lighting the scene so shadows never die with the
@@ -249,7 +295,24 @@ custom shader: 3 analytic directional sine waves displaced in the vertex stage
 ripple normals, Schlick fresnel blending body colour toward the live sky
 colour, day/night-aware Blinn-Phong glints (warm sun by day, a cool moon
 streak at night — direction flips automatically), and a radial edge dissolve
-so the square plane border melts into fog. `UnderwaterOverlay` swaps in dense
+so the square plane border melts into fog.
+
+**Environment-phase additions.** (1) ANIMATED FLOW: the whole wave/ripple
+phase field translates along a flow vector accumulated on the CPU
+(`uFlowOffset`), so the surface reads as a gently drifting body of water;
+`setFlow({dirX, dirZ, speed})` steers it live and never jumps phase (the
+offset accumulates, so direction/speed changes glide). (2) REFLECTION-LITE: an
+optional planar reflection — the scene re-rendered through a camera mirrored
+about the water plane into a small RT (oblique near-plane clip at
+`y = level`), sampled projectively, distorted by the ripple normal and blended
+INTO the existing sky-colour fresnel term, so with it off (or the camera
+underwater) the shader degrades to exactly the previous look. The RT pass runs
+inside `update()` via `ctx.renderer/scene/camera`, hides particles/transparent
+objects and the water itself, freezes shadow-map updates for the pass and
+restores all state after (re-entrancy guarded; flag `userData.noReflection`
+to exclude an object).
+
+`UnderwaterOverlay` swaps in dense
 blue-green fog + background and a camera-enveloping tint sphere when the
 camera goes below `level` (or `ctx.underwater` is set), snapshotting and
 restoring the previous `scene.fog`/`scene.background` verbatim.
@@ -263,10 +326,22 @@ new Water(scene, {
   segments = 64, waveHeight = 1.0,
   deepColor = 0x0a2634, shallowColor = 0x1f6f70, skyColor = 0x9fc4e8,
   sunColor = 0xfff2d0, moonColor = 0xbfd3ee,
-  opacity = 0.75, fadeStart = 0.85 } = {})
+  opacity = 0.75, fadeStart = 0.85,
+  flow = null,                        // initial { dirX, dirZ, speed } (see setFlow)
+  reflectionQuality = 'medium',       // 'off'|'low'(=off)|'medium'|'high'|'ultra'
+  reflectionStrength = 0.85 } = {})   // RT vs analytic sky-fresnel blend
 water.object3d                        // auto-added to scene when one is passed
 water.setSkyReflectionColor(color)    // pin reflection colour (ctx.skyColor still wins)
 water.setSunLight(intensity, color?)  // manual override; setSunLight(null) => auto
+water.setFlow({ dirX?, dirZ?, speed? })  // partial updates OK; zero-length dir
+                                      // ignored; speed clamped >= 0; never jumps phase
+water.getFlow()                       // -> { dirX, dirZ, speed } (allocates)
+water.setReflectionQuality(q)         // quality tiers + RT sizes:
+                                      //   'off'/'low' (or false/null/0) = disabled
+                                      //     (pure analytic sky fresnel)
+                                      //   'medium' = quarter-res RT
+                                      //   'high'/'ultra' = half-res RT
+water.reflectionQuality               // getter
 water.update(dt, ctx); water.setEnabled(on); water.enabled; water.dispose();
 
 new UnderwaterOverlay(scene, camera, {
@@ -290,9 +365,13 @@ underwater.object3d.userData.noShadow = true;   // keep tint sphere out of shado
 // per frame: water.update(dt, ctx); underwater.update(dt, ctx);
 ```
 
-**Perf notes.** One draw call, one material; waves are vertex-stage sines (no
-render-to-texture, no reflection/refraction passes); ripples are 3 noise
-fetches. `transparent`, `depthWrite:false`, `DoubleSide` (visible from below).
+**Perf notes.** One draw call, one material; waves are vertex-stage sines;
+ripples are 3 noise fetches. The ONLY render-to-texture cost is the optional
+reflection pass: off at `'off'`/`'low'`, one quarter-res scene re-render at
+`'medium'`, half-res at `'high'`/`'ultra'` (RT + mirror camera created lazily
+on the first update that wants one; particles/transparent objects are hidden
+for the pass to keep it cheap). `transparent`, `depthWrite:false`,
+`DoubleSide` (visible from below).
 Sky-colour priority per frame: `ctx.skyColor` > `sunRef.getFogColor()` on
 time-of-day change > pinned `setSkyReflectionColor` value.
 
@@ -1107,6 +1186,278 @@ gallery: `textures/gallery.html`.
 | ![pack accessible](./screenshots/18-pack-accessible.png) | Loudstone (`accessible`): 1.66x contrast, 2px outlines, colorblind-safe ore shapes (dots/stripes/diamonds/crosses/rings/zigzag). |
 | ![pack in scene](./screenshots/19-pack-inscene.png) | A pack hot-swapped into the live demo via `demo.setTexturePack()` — chunk re-meshed, held-item viewmodel rebuilt, same lighting/post chain. |
 
+### waterfx.js — `FlowFalls` (Environment phase)
+
+**What it does.** Waterfall + lavafall showcase pieces. Each fall is an
+animated falling SHEET between a lip (`from`) and a landing point (`to`): the
+fragment shader scrolls stretched value-noise streaks down the fall (no
+textures, no CPU UV animation), the bottom of the SAME sheet carries the foam
+fringe (water: churning white band) / ember fringe (lava: hot glow band) so
+the fringe costs zero extra draws, and the vertex stage adds a gentle billow +
+base flare so the sheet never reads as a flat card. Lava is emissive (HDR
+values > 1 feed the bloom chain) and near-opaque. Each fall also gets one soft
+MIST quad at the base (water: pale normal-blended; lava: hot additive glow)
+and feeds ONE shared splash/ember particle pool.
+
+**Public API.**
+
+```js
+new FlowFalls(scene, { atlas = null } = {})   // atlas accepted for forward
+                                              // compat; visuals are procedural
+ff.addFall({ type: 'water'|'lava', from, to, width = 3 })
+  -> { id, type, remove() } | null            // from = lip, to = landing point
+                                              // (Vector3-like); remove()
+                                              // disposes the fall's geometry
+ff.update(dt, ctx); ff.setEnabled(on); ff.enabled; ff.dispose(); ff.object3d
+```
+
+**Integration snippet.**
+
+```js
+import { FlowFalls } from './waterfx.js';
+const falls = new FlowFalls(scene, { atlas });
+falls.addFall({
+  type: 'water',
+  from: { x: 14, y: 16.9, z: 48.32 },          // cliff lip
+  to: { x: 14, y: WATER_LEVEL + 0.15, z: 48.85 }, // splash-down
+  width: 3.2,
+});
+// per frame: falls.update(dt, ctx);
+// dimension-conditional falls: keep the handle, handle.remove() to tear down
+// (the demo creates/removes its lavafall on the master dimension switch).
+```
+
+**Perf notes.** Exactly 2 draw calls per fall (sheet + mist) + 1 shared Points
+draw for ALL falls' splash/embers (capacity 320, fixed typed arrays recycled
+in place via swap-with-last, hidden when nothing is alive). All water sheets
+share ONE material and all lava sheets share ONE material — per-fall length
+and width travel in an `aInfo` vertex attribute, not uniforms, so no per-fall
+shader programs. Particle randomness is a seeded LCG (deterministic, no
+`Math.random`). Sheets draw at `renderOrder 6` (after the lake surface), mist
+at 7, the pool at 8; everything is `noShadow`.
+
+### underwaterfx.js — `UnderwaterFX` (Environment phase)
+
+**What it does.** Three underwater environment effects in one module, 3 draw
+calls total, each auto-hidden while its eased level is ~0. (1) CAUSTICS —
+`setVolume(volume)` scans for underwater TOP faces (solid block with WATER
+directly above) and lays one additive depth-tested quad 3 cm above each,
+merged into ONE static geometry; the dapple pattern is a procedural
+cellular/voronoi "bright web" canvas texture sampled twice at different
+scales/scroll directions and min()-combined (the classic caustic trick) with
+a time-based UV warp, per-vertex depth attenuation (strongest in the
+shallows), day-driven. (2) LIGHT SHAFTS — 4..8 slanted translucent quads
+hanging from the surface, aligned to the LIVE sun direction each update (kept
+at least 25% downward so they never go horizontal at sunset), swaying, faded
+by night and by camera state: full strength underwater, partial when looking
+steeply down from above, gone otherwise. (3) BIOLUMINESCENCE (default OFF) —
+sparse cyan-green pulsing motes + a few larger floor glows, deterministically
+placed in submerged water cells weighted toward the deep basin, strongest at
+night (strength scales with 1 − sun contribution).
+
+**Public API.**
+
+```js
+new UnderwaterFX(scene, {
+  waterLevel = 10,
+  bounds = null,           // optional { minX, maxX, minZ, maxZ } clamp region
+  shafts = 7,              // 4..8 light shafts
+  causticIntensity = 1.0 } = {})
+ufx.setVolume(volume)      // (re)build caustic quads + biolum placements
+ufx.setBiolum(on)          // master switch, default OFF; ufx.biolum getter
+ufx.setCausticIntensity(v) // master caustic strength (>= 0)
+ufx.update(dt, ctx)        // uniform writes only; reads ctx.sunDir/camera/underwater
+ufx.setEnabled(on); ufx.enabled; ufx.dispose(); ufx.object3d
+```
+
+**Integration snippet.**
+
+```js
+import { UnderwaterFX } from './underwaterfx.js';
+const underwaterFx = new UnderwaterFX(scene, { waterLevel: WATER_LEVEL });
+underwaterFx.setVolume(volume);      // after worldgen (and after chunk edits)
+// per frame: underwaterFx.update(dt, ctx);
+// demo.toggle('underwaterfx', b) => setEnabled; demo.toggle('biolum', b) => setBiolum
+```
+
+**Perf notes.** Geometry is built once (or on explicit `setVolume`); per-frame
+work is uniform writes only, zero allocation (`getWorldDirection` writes into
+a preallocated scratch). Visibility levels ease frame-rate-independently so
+day/night and surface transitions never pop. Caustics are also drawn (at 55%
+strength) when viewed from ABOVE the surface, so the lake floor dapples read
+in overhead shots.
+
+### dimensionSky.js — `DimensionSky` (Environment phase)
+
+**What it does.** Re-skins the EXISTING `DynamicSky` per Loomfall dimension
+without forking it — all colour work goes through the additive hooks sky.js
+exposes (`setPaletteTint` / `addSkyObject` / `domeRadius`), so the underlying
+day/night/star/moon machinery is untouched and switching back to `'warpwold'`
+(or disposing) restores the natural look exactly. `warpwold` = the natural
+baseline + a subtle Duskwarp-violet twilight tint; `cinderloom` = ember
+atmosphere (warm smoky gradient, dimmer/redder sun, a drifting DARK SMOKE
+cloud deck, ash-haze horizon so `sky.getFogColor()` feeds ash-coloured fog);
+`nevermend` = pale void (desaturated icy gradient, boosted stars, and an
+AURORA — 3 slowly undulating translucent ribbon curtains, vertex-waved,
+additive, pale cyan-green, visible mainly at night/dusk). All ramp hexes come
+from `textures/palettes.js`, which embeds the canonical `brand/palette.json`
+dimension ramps — nothing is invented.
+
+**Public API.**
+
+```js
+new DimensionSky(sky, { fadeTime = 1.0 } = {})   // sky: a DynamicSky (kept, never forked)
+DIMENSIONS                 // exported: ['warpwold', 'cinderloom', 'nevermend']
+ds.setDimension(name) -> bool  // ~1s eased crossfade; re-selecting = no-op;
+                               // unknown names warn + return false
+ds.dimension               // getter
+ds.update(dt, ctx)         // crossfade step + aurora night gating + smoke drift
+ds.setEnabled(on)          // off = natural sky (tint removed, smoke/aurora
+                           // hidden); dimension + fade state remembered
+ds.enabled; ds.dispose();  // dispose restores the natural sky
+// no .object3d — smoke/aurora are parented into the sky rig via addSkyObject
+```
+
+**Integration snippet.**
+
+```js
+import { DimensionSky } from './dimensionSky.js';
+const dimSky = new DimensionSky(sky, { fadeTime: 1.0 });
+// per frame, right after sky.update: dimSky.update(dt, ctx);
+// then sky.getFogColor(ctx.skyColor) — fog/water inherit the dimension grade.
+dimSky.setDimension('cinderloom');
+```
+
+**Perf notes.** Allocation-free per frame (all Colors/uniform objects
+prebuilt; the tint object handed to `sky.setPaletteTint` is mutated in place
+and re-installed only while fading). Adds 1 draw for the smoke deck and 3 for
+the aurora ribbons, each `visible=false` whenever its opacity is ~0 — the
+warpwold steady state costs zero extra draws. Aurora visibility is driven by
+the live sun altitude, so it fades in at dusk without any scripting.
+
+### ambientLife.js — `AmbientLife` (Environment phase)
+
+**What it does.** Dimension-keyed ambient particle fields, switched with a
+~1 s opacity crossfade (per-field `uFade` uniform — no per-particle work):
+`'warpwold'` = drifting warm-gold pollen/dust motes (normal blending, reads as
+sunlit dust; thinned smoothly by rain), `'cinderloom'` = floating embers
+rising with sinusoidal turbulence + per-particle flicker (additive, feeds
+bloom), `'nevermend'` = slender pale thread-wisps descending in slow spirals.
+Optional leaf drift: tiny green squares tumbling through the tree-canopy band
+(from `setFoliageBand` or the `setVolume` leaf-block scan). Fields are
+camera-boxed with toroidal wrapping (same scheme as the rain/snow systems), so
+they work anywhere in the world.
+
+**Public API.**
+
+```js
+new AmbientLife(scene, { camera = null } = {})
+al.setDimension(name)      // 'warpwold'|'cinderloom'|'nevermend'; ~1s crossfade;
+                           // unknown names fade all fields out
+al.setLeafDrift(on)        // tumbling-leaf sprinkles near canopy height
+al.setFoliageBand(yMin, yMax)  // explicit canopy band (world Y)
+al.setVolume(volume)       // heuristic band from leaf blocks (id 6), padded
+al.setDensity(d)           // 0..1 particle budget (demo maps quality presets:
+                           // low .3 / medium .6 / high .85 / ultra 1)
+al.update(dt, ctx); al.setEnabled(on); al.enabled; al.dispose(); al.object3d
+```
+
+**Integration snippet.**
+
+```js
+import { AmbientLife } from './ambientLife.js';
+const ambient = new AmbientLife(scene, { camera });
+ambient.setVolume(volume);           // foliage band from leaf blocks
+ambient.setDimension('warpwold');
+ambient.setDensity(0.6);             // medium preset
+// per frame: ambient.update(dt, ctx);  // rain thins the warpwold motes
+```
+
+**Perf notes.** Architecture mirrors `particles.js` exactly: one
+`THREE.Points` per field over fixed-capacity typed-array pools (motes 700,
+embers 550, wisps 400, leaves 64 — live-point ceiling at density 1 is 764),
+zero per-frame allocation, screen-capped `gl_PointSize`. Steady state is 1
+draw call (+1 with leaf drift); during a crossfade two fields overlap for
+~1 s. Fields fully faded out are not drawn at all.
+
+### photomode.js — `PhotoMode` (Environment phase)
+
+**What it does.** Self-contained photo mode: free-fly compose camera,
+cinematic framing overlay, and high-resolution still capture — designed to
+sit BESIDE the demo without touching demo.js or postprocessing.js. `enter()`
+saves the camera transform + OrbitControls state, disables the controls and
+switches to drag-look free-fly (deliberately NOT pointer-lock — plain
+left-drag to look — so it works in iframes and headless captures); `exit()`
+restores everything bit-for-bit. Controls: W/S/A/D + Q/E (world up/down),
+Shift = ×4, left-drag = look (YXZ, pitch clamped). Dispatches window
+CustomEvents `photomode:enter`/`photomode:exit` — the demo listens and flips
+scenic mode + letterbox, this module never reaches into the demo.
+
+**The DoF decision (skipped — letterbox/vignette instead).** A depth-aware
+DoF pass needs the scene depth buffer, which lives inside postprocessing.js's
+render-target chain: reproducing it here would mean a second scene render
+(doubling frame cost) or reaching into PostFX internals (out of bounds for
+this module), and a depth-less fake (framebuffer copy + radial blur) is
+fragile against composer timing. So DoF was deliberately SKIPPED in favour of
+`setFrame({ vignette, letterbox })` — two DOM letterbox bars + a CSS
+radial-gradient vignette, animated with CSS transitions, zero GPU cost.
+`setDoF()`/`setFocus()` exist as safe inert stubs (record state, warn once,
+return false) so callers can feature-detect:
+`if (!photo.setDoF(true)) photo.setFrame({ vignette: true })`.
+
+**Public API.**
+
+```js
+new PhotoMode(camera, renderer, {
+  domElement,        // drag-listen target (default renderer.domElement)
+  controls,          // OrbitControls-like: disabled on enter, restored on exit
+  scene,             // for captureStill's default plain-render path
+  render,            // ({width,height,camera,renderer}) => void — capture
+                     // through a custom pipeline (wins over the scene path)
+  onEnter, onExit, moveSpeed = 8, fastMultiplier = 4,
+  lookSpeed = 0.0035, damping = 12 } = {})
+pm.enter(); pm.exit(); pm.toggle(); pm.active
+pm.update(dt)                       // call every frame; cheap no-op when inactive
+pm.setFrame({ vignette?, letterbox? }) -> state   // partial updates OK;
+                                    // auto-cleared on exit()
+pm.setDoF(on) -> false; pm.setFocus(d) -> false   // inert stubs (see above)
+pm.captureStill({ width = 2560, height = 1440, render } = {}) -> PNG dataURL
+  // ONE frame at the requested resolution: drawing buffer resized at
+  // pixelRatio 1 (CSS size untouched — no reflow), camera aspect fixed,
+  // rendered, toDataURL read in the same JS task (valid without
+  // preserveDrawingBuffer). Renderer size/pixelRatio/aspect restored in a
+  // try/finally, so a render exception can never leave the renderer resized.
+pm.triggerDownload(filename?, opts?) // captureStill + synthetic <a download>
+pm.dispose()                        // exits if active, removes listeners + DOM
+```
+
+**Integration snippet** (how the demo captures through the full post chain):
+
+```js
+import { PhotoMode } from './photomode.js';
+const photo = new PhotoMode(camera, renderer, {
+  controls, scene,
+  render: ({ width, height }) => {   // capture THROUGH PostFX, not around it
+    post.setSize(width, height);
+    post.render(0);
+  },
+});
+window.addEventListener('photomode:enter', () => {
+  demo.setScenicMode(true);          // hide viewmodel + GUI
+  photo.setFrame({ letterbox: true, vignette: true });
+});
+window.addEventListener('photomode:exit', () => demo.setScenicMode(false));
+// per frame: if (photo.active) photo.update(dt);
+// after a captureStill through PostFX: post.setSize() to re-detect the live size.
+```
+
+**Perf notes.** No pointer lock, no rAF of its own, no render targets, no
+per-frame allocation in `update()` (module-level scratch vectors). The
+framing overlay is pure DOM (pointer-events:none) — zero interaction with the
+render pipeline. `window.demo.captureStill(opts)` wraps
+`photo.captureStill` and restores PostFX's RT sizes afterwards; `P` toggles
+photo mode in the demo.
+
 ## Integration guide for the builder
 
 ### Per-frame update order (what demo.js does)
@@ -1133,14 +1484,22 @@ function animate() {
   ctx.elapsed = clock.elapsedTime;             // + refresh timeOfDay/weather/underwater
 
   controls.update();
+  if (photo.active) photo.update(dt);          // free-fly camera (photo mode only)
 
   sky.update(dt, ctx);                         // 1. sky first (owns sun + colours)
+  dimSky.update(dt, ctx);                      // 1b. dimension grade crossfade +
+                                               //     aurora/smoke (BEFORE getFogColor
+                                               //     so fog inherits the tint)
   sky.getFogColor(ctxSkyColor);                // 2. horizon -> shared skyColor
   if (ctx.underwater) underwater.getFogColor(ctxSkyColor); // murk wins submerged
 
   shadows.update(dt, ctx);                     // 3. frustum follows camera + sunDir
-  water.update(dt, ctx);                       // 4. waves + night-correct lighting
+  water.update(dt, ctx);                       // 4. waves + flow + (optional)
+                                               //    planar-reflection RT pass
   underwaterOverlay.update(dt, ctx);           // 5. fog/background swap below level
+  falls.update(dt, ctx);                       // 5b. waterfall/lavafall sheets + pool
+  underwaterFx.update(dt, ctx);                // 5c. caustics + shafts + biolum
+  ambient.update(dt, ctx);                     // 5d. dimension ambient field + leaves
   fog.update(dt, ctx);                         // 6. colour <- skyColor, density <- weather
   particles.update(dt, ctx);                   // 7. flames/weather/debris sim
 
@@ -1193,8 +1552,10 @@ the mesh (the build is a pure function; dispose the old geometry).
 
 ### Quality presets
 
-`demo.setQuality(q)` fans out to exactly three modules — `post.setQuality(q)`,
-`shadows.setQuality(q)` and `torchMgr.setMaxLights(QUALITY_LIGHTS[q])`.
+`demo.setQuality(q)` fans out to `post.setQuality(q)`, `shadows.setQuality(q)`,
+`torchMgr.setMaxLights(QUALITY_LIGHTS[q])`, and (Environment phase)
+`water.setReflectionQuality` (off/quarter-res/half-res/half-res),
+`ambient.setDensity` (.3/.6/.85/1) and `ambient.setLeafDrift` (on at high+).
 `post.setQuality` also re-gates SSAO/god rays (both OFF at low, ON at
 medium+) — the demo mirrors `post.features` back into its GUI state so the
 checkboxes stay honest:
@@ -1316,16 +1677,19 @@ Lean-shader choices made throughout:
 ## Known limitations / future work
 
 - **Single-plane water.** One big wavy plane at `WATER_LEVEL` — correct for a
-  sea/lake at a global level, wrong for elevated pools or waterfalls. Per-block
-  water meshing (and flow) is future work; the mesher already skips water faces
-  in anticipation.
+  sea/lake at a global level, wrong for elevated pools. The surface now flows
+  (`setFlow`) and `FlowFalls` provides showcase waterfall/lavafall sheets, but
+  those are hand-placed set pieces, not derived from voxel water data —
+  per-block water meshing (and simulated flow) is still future work; the
+  mesher already skips water faces in anticipation.
 - **No wet-surface response in rain.** Blocks don't darken or gain specular
   when it rains; rain also falls through overhangs (no occlusion test) and only
   splashes on the water plane, not on terrain.
 - **No snow accumulation.** Snow weather is particles + colour grade only; the
   terrain never whitens over time.
-- **Clouds are a textured layer, not volumetric.** A scrolling fbm alpha plane —
-  no raymarched depth, no cloud shadows on the ground.
+- **Clouds are textured layers, not volumetric.** Two stacked scrolling fbm
+  alpha planes (parallax, weather-reactive) — no raymarched depth, no cloud
+  shadows on the ground.
 - **Greedy atlas mode drops the per-block brightness variation.** A unique
   tint per block would forbid all merging, so greedy atlas colour is neutral
   tint × face shade (the classic mesher, kept for A-B via
@@ -1339,8 +1703,11 @@ Lean-shader choices made throughout:
   radius to the dirty chunk (and rebuilds only its active LOD synchronously),
   but within a chunk the build is still whole-chunk — dirty-region meshing is
   future work.
-- **No underwater caustics;** god rays fade out underwater by design, so the
-  underwater look is still fog + tint.
+- **Underwater god rays stay off by design** (the fade includes an underwater
+  term); the submerged look is fog + tint + `UnderwaterFX` (caustics, its own
+  purpose-built light shafts, optional bioluminescence). The planar water
+  reflection is also disabled while the camera is underwater — there is no
+  refraction/Snell's-window rendering.
 - **Foliage cast shadows don't sway.** Wind sway (Phase 2) displaces vertices
   in the render pass only — the depth material used for the shadow map is not
   patched, so the canopy's cast shadow stays still (invisible at ≤ 0.08u of
