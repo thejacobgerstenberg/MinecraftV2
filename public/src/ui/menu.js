@@ -73,13 +73,23 @@ const SETTINGS_SPEC = {
   renderDistance: { min: 2, max: 12, def: 6 },
   fov: { min: 60, max: 110, def: 75 },
   sensitivity: { min: 0.1, max: 2, def: 1 },
+  volumeMaster: { min: 0, max: 1, def: 1 },
+  volumeSfx: { min: 0, max: 1, def: 1 },
+  volumeMusic: { min: 0, max: 1, def: 0.7 },
 };
+
+// Graphics post-processing tiers (graphics phase). 'off' bypasses the chain.
+const GRAPHICS_QUALITIES = ['off', 'low', 'medium', 'high', 'ultra'];
 
 const DEFAULT_SETTINGS = Object.freeze({
   renderDistance: 6,
   fov: 75,
   sensitivity: 1,
   texturePack: 'default',
+  graphicsQuality: 'medium',
+  volumeMaster: 1,
+  volumeSfx: 1,
+  volumeMusic: 0.7,
 });
 
 function clampNum(v, min, max, def) {
@@ -165,6 +175,9 @@ export function initMenus(opts = {}) {
         if (raw[key] != null) s[key] = clampNum(raw[key], spec.min, spec.max, spec.def);
       }
       if (typeof raw.texturePack === 'string') s.texturePack = raw.texturePack;
+      if (GRAPHICS_QUALITIES.includes(raw.graphicsQuality)) {
+        s.graphicsQuality = raw.graphicsQuality;
+      }
     }
     return s;
   }
@@ -340,9 +353,45 @@ export function initMenus(opts = {}) {
       settingControls[key] = { input, valueEl, fmt };
     }
 
+    function selectRow(key, label, options) {
+      const row = el('div', 'set-row', body);
+      el('span', 'set-label', row, label);
+      const select = el('select', 'vx-select', row);
+      for (const o of options) {
+        const opt = el('option', null, select, o.name ?? o.id);
+        opt.value = o.id;
+      }
+      if ([...select.options].some((o) => o.value === settings[key])) {
+        select.value = settings[key];
+      } else if (select.options.length > 0) {
+        settings[key] = select.options[0].value;
+        select.value = settings[key];
+      }
+      const valueEl = el('span', 'set-value', row, '');
+      select.addEventListener('change', () => {
+        settings[key] = select.value;
+        settingChanged();
+      });
+      settingControls[key] = { input: select, valueEl, fmt: () => '' };
+      return select;
+    }
+
+    const pct = (v) => `${Math.round(v * 100)}%`;
+
     sliderRow('renderDistance', 'Render Distance', 2, 12, 1, (v) => `${v} chunks`);
     sliderRow('fov', 'Field of View', 60, 110, 1, (v) => `${v}°`);
-    sliderRow('sensitivity', 'Mouse Sensitivity', 0.1, 2, 0.05, (v) => `${Math.round(v * 100)}%`);
+    sliderRow('sensitivity', 'Mouse Sensitivity', 0.1, 2, 0.05, pct);
+
+    // Graphics quality (post-processing tier; 'off' = plain render).
+    selectRow('graphicsQuality', 'Graphics Quality', GRAPHICS_QUALITIES.map((q) => ({
+      id: q,
+      name: q === 'off' ? 'Off' : q.charAt(0).toUpperCase() + q.slice(1),
+    }))).classList.add('set-graphics-quality');
+
+    // Audio volume channels (audio phase; applied live via onSettingsChange).
+    sliderRow('volumeMaster', 'Master Volume', 0, 1, 0.05, pct);
+    sliderRow('volumeSfx', 'SFX Volume', 0, 1, 0.05, pct);
+    sliderRow('volumeMusic', 'Music Volume', 0, 1, 0.05, pct);
 
     // Texture pack select
     {

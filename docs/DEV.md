@@ -55,6 +55,9 @@ object — there are no test doubles.** The same lifecycle applies to
 | `__game.travelTo(dim)` | async fn | the full travel UX: fade to black (~400 ms), `setDimension` near the player's coords, fade back in. This is what portal dwell and the pause-menu Travel row call |
 | `__game.portals` | `PortalSystem` | `charge` (s of continuous portal overlap), `cooldown` (s), `traveling`, `playerInPortal()`, `handlePortalPlacement(x,y,z)`, `collapseAt(x,y,z)` (see `public/src/gameplay/portals.js`) |
 | `__game.getDimension()` | fn | current dimension id string |
+| `__game.weather` | weather API | `setWeather('clear'\|'rain'\|'storm'\|'snow')` forces the logical machine state; `getState()` -> `{machine, presented, weather, intensity}` (`presented` is what the `WeatherSystem` shows: snow biomes present precip as snow, non-overworld dims force clear); `strike(opts?)` -> Promise resolving `{far}` at the flash peak; `setIntensity(v, ramp?)`; `on(type, handler)`; `system` is the raw `WeatherSystem` (public/weather/) |
+| `__game.audio` | `GameAudio` | crash-proof wrapper over the procedural engine (public/audio/). `audio.state` is the QA stub-check surface: `{resumed, contextState, plays, lastSound, music, rain, volumes}` — `plays` counts every attempted `play()` even while the AudioContext is suspended (autoplay policy). `audio.engine` is the raw `AudioEngine` |
+| `__game.fx` | object | `{ post: PostFX, fog: DistanceFog, particles: Particles }` from public/graphics/src/ — `post.enabled`/`post.quality`, `fog.fog` is the live `THREE.Fog` installed on the scene, `particles.spawnBlockBreak(pos, [r,g,b])` |
 | `__game.ui.menus` | menus API | `showMain/showWorldSelect/showSettings/showPause/hideAll/setLoading/getSettings` |
 | `__game.ui.chat` | chat API | `open/close/isOpen/addMessage({name,text,system})` |
 | `__game.ui.hud` | HUD API | `showCrosshair(b)/setHealth(0..20)/setBreakProgress(p\|null)` |
@@ -164,9 +167,57 @@ whole build is a dev build; deviation from the spec's gating note).
 
 Spec items **not implemented** (the engine has no equivalent): screens/`getScreen`, poses, game modes, block states/light levels, entities/item drops, health/hunger records, net-stats/TPS mirrors, `setSetting`/`tp`/`give`/`setBlock` mutators (use `__game.world.setBlock` + `__game.net.sendEdit` directly, or `__game.player.position` for teleports), atlas hashes, audio probes.
 
+## Audio / visual integration (graphics + audio + weather packages)
+
+Three support packages live under `public/` (each README documents its full
+API): `public/graphics/` (PostFX, DistanceFog, Particles — the game uses
+exactly those three modules; its DynamicSky/voxelMesher/voxelMaterial
+duplicate verified systems and are NOT wired), `public/audio/` (procedural
+`AudioEngine`, wrapped by `public/src/audio/GameAudio.js`), and
+`public/weather/` (`WeatherSystem` — its `SkyController` is neutralized at
+construction because our `Sky` owns background/lights and `DistanceFog` owns
+`scene.fog`; the lightning flash is bridged into our sky/light rig and, in
+fast-lighting mode, into `ChunkRenderer.setLightLevel`).
+
+- **Graphics quality** (`settings.graphicsQuality`): `off` bypasses the post
+  chain entirely (plain `renderer.render`); `low`..`ultra` map to PostFX
+  tiers (bloom off at low; FXAA on medium+; full-res bloom at ultra).
+  Default `medium`.
+- **Distance fog** is `THREE.Fog` (linear) whose far plane matches the
+  chunk fog-culling wall (`max(48, (renderDistance + 0.5) * 16)`) and whose
+  color tracks the live sky/horizon every frame — chunk pop-in stays hidden
+  at night and during weather (the old static fog color only matched the
+  midday sky).
+- **Weather machine** is overworld-only: mostly clear, rolls every ~2
+  in-game hours (rain sometimes, storms rarer). Storms auto-strike
+  lightning; thunder plays ~90 ms after each flash starts (the visible
+  peak). While the player stands in a Snowfield/Snowcap biome,
+  precipitation presents as snow. Other dimensions force clear visuals.
+- **Audio events**: block break/place (`break.<mat>`/`place.<mat>` via the
+  block→material map in GameAudio.js), footsteps throttled by ground
+  distance (~2.2 blocks/step) on the block under the feet, splash on
+  entering liquid, portal whoosh on travel, `ui.click` on menu buttons,
+  per-dimension music (`calm`/`nether`/`mysterious`) + ambience beds
+  (overworld wind, Cinderloom cave), rain loop with live intensity, thunder
+  near/far. `hurt`, `levelup`, `achievement` are wired in GameAudio but not
+  yet triggered by gameplay (combat lands next stage).
+- **Autoplay policy**: the AudioContext is created lazily and `resume()`d on
+  the first pointerdown/keydown/menu click. Before that, every `play()` is
+  harmless (suspended context) and still counted in `__game.audio.state`.
+
+Deferred graphics-lab modules (one line each, per the integration plan):
+water plane + `UnderwaterOverlay` (single global-level plane would
+double-render/z-fight our per-block meshed water), `ShadowController` (needs
+lit materials + `applyToScene` after every chunk build; software-rasterizer
+fast path uses unlit materials), torch flames/`TorchLightManager` +
+view model + block cracks + wind sway + biome grading (no torches/held-item
+rendering/progressive breaking yet — natural next-stage candidates).
+
 ### Local storage keys
 
-- `loomfall.settings` — persisted settings JSON.
+- `loomfall.settings` — persisted settings JSON: `{renderDistance, fov,
+  sensitivity, texturePack, graphicsQuality, volumeMaster, volumeSfx,
+  volumeMusic}`.
 - `loomfall.name` — multiplayer display name (default `Wanderer` + 3 digits,
   generated and persisted on first join).
 

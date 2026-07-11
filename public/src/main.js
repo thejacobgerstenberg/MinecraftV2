@@ -26,6 +26,13 @@ import { DIMENSIONS } from './dimensions/dimensions.js';
 import { prngSample } from './qa/prng.js';
 import { NetClient } from './net/NetClient.js';
 import { PeerAvatars } from './net/PeerAvatars.js';
+import { isInLiquid } from './gameplay/physics.js';
+import { PostFX } from '../graphics/src/postprocessing.js';
+import { DistanceFog } from '../graphics/src/fog.js';
+import { Particles } from '../graphics/src/particles.js';
+import WeatherSystem from '../weather/weather.js';
+import { GameAudio } from './audio/GameAudio.js';
+import { tileForFace } from './blocks/blocks.js';
 import { makeIconFactory } from './ui/icons.js';
 import { initMenus } from './ui/menu.js';
 import { initHUD } from './ui/hud.js';
@@ -48,6 +55,16 @@ const MAX_DT = 0.05; // clamp frame gaps to 50 ms
 const QA_TICK_S = 0.05; // __qa tick length (20 ticks/s, matches the QA plan)
 const FADE_MS = 400; // dimension-travel fade to/from black
 const DRY_SPAWN_RADIUS = 24; // spiral scan radius for a dry (non-liquid) spawn
+const STEP_DISTANCE = 2.2; // blocks of ground travel between footstep sounds
+const WEATHER_ROLL_S = DAY_LENGTH_S / 12; // weather machine rolls every ~2 game hours
+const SNOW_BIOMES = new Set(['Snowfield', 'Snowcap']); // biomeAt() display names
+
+// Scratch colors for the per-frame sky/fog/weather grading (no allocation).
+const _grey = new THREE.Color();
+const RAIN_GREY = new THREE.Color(0x8b95a1);
+const STORM_GREY = new THREE.Color(0x474e58);
+const SNOW_GREY = new THREE.Color(0xc9d4e0);
+const FLASH_TINT = new THREE.Color(0xeaf1ff);
 
 const canvas = document.getElementById('game');
 
@@ -160,6 +177,12 @@ let quality = null; // AutoQuality — adaptive resolution + fast-lighting flag
 
 const ui = {}; // menus, hud, hotbar, chat, inventoryUI, debug — initialized at boot
 
+/** Procedural audio (page lifetime). Engine + context are created lazily;
+ *  resume() runs on the first user gesture (browser autoplay policy). */
+const audio = new GameAudio();
+window.addEventListener('pointerdown', () => audio.resume(), { once: true });
+window.addEventListener('keydown', () => audio.resume(), { once: true });
+
 // ---------------------------------------------------------------------------
 // Travel overlays (fade-to-black + portal charge vignette) — page lifetime
 // ---------------------------------------------------------------------------
@@ -247,6 +270,15 @@ ui.inventoryUI = initInventory({
 });
 ui.debug = initDebug();
 
+// Menu buttons: every click is a user gesture (resume audio) + ui.click.
+document.getElementById('menu-root')?.addEventListener('click', (e) => {
+  if (e.target && e.target.closest && e.target.closest('button')) {
+    audio.resume();
+    audio.ui();
+  }
+});
+audio.setVolumes(ui.menus.getSettings());
+
 ui.hud.showCrosshair(false); // hidden until a game starts
 ui.menus.setLoading(null);
 ui.menus.showMain();
@@ -288,13 +320,26 @@ window.addEventListener('resize', () => {
 
 function applySettings(next) {
   Object.assign(settings, next);
+  audio.setVolumes(settings);
   if (!G) return;
   G.camera.fov = settings.fov;
   G.camera.updateProjectionMatrix();
   G.controls.sensitivity = BASE_SENSITIVITY * settings.sensitivity;
   updateFog();
+  applyGraphicsQuality(settings.graphicsQuality);
   if (settings.texturePack !== G.pack) hotSwapTexturePack(settings.texturePack);
   // renderDistance is read live by the loop's chunkRenderer.update call.
+}
+
+/** Post-processing tier: 'off' bypasses the chain, others map to PostFX. */
+function applyGraphicsQuality(q) {
+  if (!G || !G.fx) return;
+  if (q === 'off') {
+    G.fx.post.setEnabled(false);
+  } else {
+    G.fx.post.setEnabled(true);
+    G.fx.post.setQuality(q || 'medium');
+  }
 }
 
 /**
@@ -319,10 +364,12 @@ function hotSwapTexturePack(packId) {
 
 function updateFog() {
   if (!G) return;
+  // Linear DistanceFog paired with ChunkRenderer._applyCulling: chunks past
+  // `far` are hidden, so the fog wall must reach 100% there. The fog COLOR
+  // tracks the live sky/horizon color per frame (ctx.skyColor in the loop),
+  // which is what actually hides chunk pop-in at dawn/dusk/night.
   const far = Math.max(48, (settings.renderDistance + 0.5) * CHUNK_SX);
-  G.scene.fog.color.set(DIMENSIONS[G.dim].fog);
-  G.scene.fog.near = Math.max(24, far * 0.55);
-  G.scene.fog.far = far;
+  G.fx.fog.setRange(Math.max(24, far * 0.55), far);
 }
 
 // ---------------------------------------------------------------------------
@@ -358,11 +405,56 @@ async function bootSession(worldMeta) {
   }
   quality.reset();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  // PostFX owns ACES tonemapping + sRGB encode on its HDR buffer; the plain
+  // bypass path ('off') renders sRGB directly (three's default pipeline).
+  renderer.toneMapping = THREE.NoToneMapping;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
   const camera = new THREE.PerspectiveCamera(
     settings.fov, window.innerWidth / window.innerHeight, 0.1, 1000);
   const scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(DIMENSIONS[dim].fog, 60, 120);
   const sky = new Sky(scene);
+
+  // --- Graphics FX (graphics package: post chain, distance fog, particles) ---
+  const gq = settings.graphicsQuality || 'medium';
+  const post = new PostFX(renderer, scene, camera, {
+    quality: gq === 'off' ? 'medium' : gq,
+  });
+  if (gq === 'off') post.setEnabled(false);
+  // Linear mode pairs with the chunk fog-culling wall (see updateFog); the
+  // color is synced to the live sky every frame so pop-in dissolves into the
+  // horizon at any time of day / weather / dimension.
+  const fog = new DistanceFog(scene, { mode: 'linear', near: 60, far: 120 });
+  const particles = new Particles(scene, { camera });
+  particles.setWaterLevel(null); // splash rings are driven by its own rain (unused)
+  const fx = { post, fog, particles };
+
+  // --- Weather (weather package; visuals overworld-only) ---------------------
+  // Our Sky owns background/lights and DistanceFog owns scene.fog, so the
+  // weather package's SkyController is neutralized right away — we keep its
+  // rain/snow/lightning effects and bridge the flash into our sky/lighting.
+  const weather = new WeatherSystem(scene, camera);
+  weather.sky.dispose(); // detaches its lights and releases scene.fog
+  scene.background = null; // Sky.update() reclaims it on the next frame
+
+  // Shared per-frame effect context (stable object, mutated in place).
+  const fxCtx = {
+    camera,
+    renderer,
+    scene,
+    elapsed: 0,
+    timeOfDay: START_TIME_OF_DAY,
+    weather: 'clear', // 'clear' | 'rain' | 'snow' — drives fog haze
+    underwater: false,
+    skyColor: new THREE.Color(DIMENSIONS[dim].fog),
+  };
+  // Particles get a weather-less view of the ctx: precip visuals belong to
+  // the weather package (Particles would spawn its own rain/snow otherwise).
+  const particlesCtx = {
+    camera,
+    renderer,
+    underwater: false,
+    get elapsed() { return fxCtx.elapsed; },
+  };
 
   // Dedicated lights for skyless dimensions (nether/end); off in overworld.
   const dimLights = {
@@ -455,6 +547,25 @@ async function bootSession(worldMeta) {
     peers,
     portals,
     outline,
+    fx,
+    fxCtx,
+    particlesCtx,
+    weather,
+    // Weather machine (overworld-only): `state` is the logical weather,
+    // `presented` is what the WeatherSystem currently shows (snow biomes
+    // present precipitation as snow; other dimensions force 'clear').
+    wx: {
+      state: 'clear',
+      presented: 'clear',
+      nextRollAt: WEATHER_ROLL_S * (0.75 + 0.5 * Math.random()),
+      inSnowBiome: false,
+      biomeCheckAt: 0,
+    },
+    stepAcc: 0, // ground distance since the last footstep sound
+    lastFeetX: 0,
+    lastFeetZ: 0,
+    wasInLiquid: false,
+    blockColorCache: new Map(), // `${pack}:${id}` -> [r,g,b] for debris tint
     paused: false,
     debugVisible: false,
     suppressPause: 0, // pending intentional unlocks that must not open the pause menu
@@ -473,6 +584,17 @@ async function bootSession(worldMeta) {
     tmpDir: new THREE.Vector3(),
   };
   G = S;
+
+  // Thunder pairs with the flash: the visible peak is ~90 ms after strike
+  // start (weather/README.md "Light before sound"), so the crack lands just
+  // after the light. Far strikes use the soft distant roll, non-positional.
+  weather.on('lightningStrike', (e) => {
+    const far = !!(e.detail && e.detail.far);
+    setTimeout(() => {
+      if (G !== S) return;
+      audio.thunder(far, far ? null : S.player.eyePosition);
+    }, 90);
+  });
 
   // --- Network handlers -------------------------------------------------------
   for (const p of welcome.peers || []) peers.upsert(p);
@@ -584,10 +706,13 @@ async function bootSession(worldMeta) {
     if (!t.hit) return;
     const id = S.world.getBlock(t.x, t.y, t.z);
     const def = getBlockDef(id);
+    const center = { x: t.x + 0.5, y: t.y + 0.5, z: t.z + 0.5 };
     if (id === PORTAL_BLOCK) {
       // Breaking any portal block collapses the whole connected fill
       // (each cleared cell goes through the synced edit path).
       S.portals.collapseAt(t.x, t.y, t.z);
+      S.fx.particles.spawnBlockBreak(center, blockDebrisColor(S, id));
+      audio.blockBreak(id, center);
       ui.hud.setBreakProgress(1);
       setTimeout(() => ui.hud.setBreakProgress(null), 140);
       return;
@@ -596,6 +721,9 @@ async function bootSession(worldMeta) {
     S.world.setBlock(t.x, t.y, t.z, 0);
     recordEdit(S.dim, t.x, t.y, t.z, 0);
     S.net.sendEdit(t.x, t.y, t.z, 0);
+    // Debris burst tinted with the broken block's atlas tile + break sound.
+    S.fx.particles.spawnBlockBreak(center, blockDebrisColor(S, id));
+    audio.blockBreak(id, center);
     // Breaking a frame block (obsidian/end stone) collapses adjacent fills.
     if (id in FRAME_TARGETS) S.portals.handleFrameBreak(t.x, t.y, t.z);
     // Instant break for now: brief full-bar flash.
@@ -632,6 +760,7 @@ async function bootSession(worldMeta) {
     S.world.setBlock(nx, ny, nz, id);
     recordEdit(S.dim, nx, ny, nz, id);
     S.net.sendEdit(nx, ny, nz, id);
+    audio.blockPlace(id, { x: nx + 0.5, y: ny + 0.5, z: nz + 0.5 });
   }
 
   /** One __qa.recordTicks sample (see docs/DEV.md — "__qa adapter"). */
@@ -696,11 +825,55 @@ async function bootSession(worldMeta) {
     S.elapsed += dt;
     const timeOfDay = (START_TIME_OF_DAY + S.elapsed / DAY_LENGTH_S) % 1;
     if (S.dim === 'overworld') sky.update(timeOfDay, S.player.eyePosition);
-    if (quality.fastLighting) {
-      // Unlit fast materials: drive the day/night tint by hand.
-      S.chunkRenderer.setLightLevel(
-        S.dim === 'overworld' ? S.sky.daylight ?? 1 : S.dim === 'nether' ? 0.9 : 0.85);
+
+    // Weather: machine rolls + presentation, then the effect systems.
+    weatherMachineTick(S);
+    S.weather.update(dt);
+    const wxState = S.weather.getState();
+    const flash = S.dim === 'overworld' ? (S.weather.lightning.getFlash() || 0) : 0;
+
+    // Weather sky grading + lightning-flash bridge. Our Sky rewrites the
+    // background color and light rig every frame, so these post-hoc tweaks
+    // are self-healing (no state to restore).
+    if (S.dim === 'overworld' && scene.background && scene.background.isColor) {
+      if (wxState.weather !== 'clear' && wxState.intensity > 0.01) {
+        const day = S.sky.daylight ?? 1;
+        const base = wxState.weather === 'storm' ? STORM_GREY
+          : wxState.weather === 'snow' ? SNOW_GREY : RAIN_GREY;
+        _grey.copy(base).multiplyScalar(0.1 + 0.9 * day);
+        scene.background.lerp(_grey, 0.7 * wxState.intensity);
+        S.sky.sunLight.intensity *=
+          1 - 0.55 * wxState.intensity * (wxState.weather === 'storm' ? 1 : 0.6);
+      }
+      if (flash > 0) {
+        S.sky.sunLight.intensity += flash * 2.2;
+        S.sky.hemiLight.intensity += flash * 1.4;
+        S.sky.ambientLight.intensity += flash * 0.9;
+        scene.background.lerp(FLASH_TINT, flash * 0.85);
+      }
+      S.fxCtx.skyColor.copy(scene.background);
+    } else if (S.dim !== 'overworld') {
+      S.fxCtx.skyColor.set(DIMENSIONS[S.dim].fog);
     }
+
+    if (quality.fastLighting) {
+      // Unlit fast materials: day/night tint (+ storm dim + flash) by hand.
+      let level = S.dim === 'overworld' ? S.sky.daylight ?? 1
+        : S.dim === 'nether' ? 0.9 : 0.85;
+      if (S.dim === 'overworld') {
+        if (wxState.weather !== 'clear') level *= 1 - 0.3 * wxState.intensity;
+        level = Math.min(1, level + flash);
+      }
+      S.chunkRenderer.setLightLevel(level);
+    }
+
+    // Distance fog (sky-matched color, weather haze) + particle systems.
+    S.fxCtx.elapsed = S.elapsed;
+    S.fxCtx.timeOfDay = S.dim === 'overworld' ? timeOfDay : 0.5;
+    S.fxCtx.weather = (S.wx.presented === 'rain' || S.wx.presented === 'storm')
+      ? 'rain' : S.wx.presented === 'snow' ? 'snow' : 'clear';
+    S.fx.fog.update(dt, S.fxCtx);
+    S.fx.particles.update(dt, S.particlesCtx);
 
     // Crosshair target outline.
     const target = computeTarget();
@@ -715,10 +888,41 @@ async function bootSession(worldMeta) {
     S.peers.update(dt);
     S.net.sendMove(S.player.position, S.controls.yaw, S.controls.pitch);
 
+    // Audio: 3D listener on the eyes/facing; footsteps + water splash.
+    audio.setListener(S.player.eyePosition, S.controls.yaw);
+    {
+      const feetX = S.player.position.x + S.player.size.x / 2;
+      const feetZ = S.player.position.z + S.player.size.z / 2;
+      const moved = Math.hypot(feetX - S.lastFeetX, feetZ - S.lastFeetZ);
+      S.lastFeetX = feetX;
+      S.lastFeetZ = feetZ;
+      const inLiq = isInLiquid(S.world, { pos: S.player.position, size: S.player.size });
+      if (inLiq && !S.wasInLiquid) {
+        audio.splash({ x: feetX, y: S.player.position.y + 0.5, z: feetZ });
+      }
+      S.wasInLiquid = inLiq;
+      if (S.player.onGround && !inLiq && moved > 0 && moved < 2) {
+        // Throttled by distance: ~1 step per STEP_DISTANCE blocks walked.
+        S.stepAcc += moved;
+        if (S.stepAcc >= STEP_DISTANCE) {
+          S.stepAcc = 0;
+          const under = S.world.getBlock(
+            Math.floor(feetX), Math.floor(S.player.position.y - 0.01), Math.floor(feetZ));
+          audio.step(under, { x: feetX, y: S.player.position.y, z: feetZ },
+            S.controls.input.sprint ? 1 : 0.7);
+        }
+      } else if (!S.player.onGround) {
+        S.stepAcc = Math.min(S.stepAcc, STEP_DISTANCE * 0.5);
+      }
+    }
+
     // HUD.
     ui.hud.setHealth(S.player.health);
 
-    renderer.render(S.scene, S.camera);
+    // Post chain (bloom + ACES + vignette + FXAA) or plain render when 'off'
+    // (PostFX.render falls back to renderer.render internally when disabled).
+    S.fx.post.update(dt, S.fxCtx);
+    S.fx.post.render(dt);
 
     // FPS (1 s rolling, real frame time — not the clamped sim dt) + debug.
     S.fpsFrames++;
@@ -799,6 +1003,12 @@ function teardownSession() {
   S.peers.dispose();
   S.chunkRenderer.dispose();
 
+  audio.stopAll(); // music, ambience beds, rain loop, live voices
+  S.weather.dispose();
+  S.fx.post.dispose();
+  S.fx.fog.dispose();
+  S.fx.particles.dispose();
+
   S.outline.geometry.dispose();
   S.outline.material.dispose();
   deepDispose(S.sky.group);
@@ -856,7 +1066,13 @@ function applyDimensionEnvironment(dimId) {
       G.dimLights.hemi.groundColor.set(0x120b22);
       G.dimLights.hemi.intensity = 0.5;
     }
+    // Fog color for skyless dimensions (the loop keeps it synced anyway).
+    G.fxCtx.skyColor.set(spec.fog);
   }
+  // Weather visuals are overworld-only (presentation forces 'clear'
+  // elsewhere); music + ambience beds switch per dimension.
+  applyWeatherPresentation(G);
+  audio.setDimension(dimId, G.worldMeta.seed);
 }
 
 /** ensureChunk for the chunk containing world column (x, z). */
@@ -947,6 +1163,7 @@ async function travelToDimension(targetDim, { viaPortal = false } = {}) {
     return;
   }
   S.travelInFlight = true;
+  audio.portal(S.player.eyePosition); // otherworldly whoosh over the fade
   if (!viaPortal) S.portals.notifyTravelStart(); // latch + clear the vignette
   const near = {
     x: S.player.position.x + S.player.size.x / 2,
@@ -1025,6 +1242,121 @@ async function switchDimension(dimId, opts = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Weather machine (overworld-only) + block debris tint
+// ---------------------------------------------------------------------------
+
+const WEATHER_STATES = ['clear', 'rain', 'storm', 'snow'];
+
+/**
+ * What the WeatherSystem should currently SHOW. The machine state is the
+ * logical weather; snow-biome players see precipitation as snow, and
+ * non-overworld dimensions never show weather.
+ */
+function weatherPresentation(S) {
+  if (S.dim !== 'overworld') return 'clear';
+  const st = S.wx.state;
+  if (st === 'clear') return 'clear';
+  if ((st === 'rain' || st === 'storm') && S.wx.inSnowBiome) return 'snow';
+  return st;
+}
+
+/** Push the current presentation into visuals + the paired rain-loop audio. */
+function applyWeatherPresentation(S) {
+  const want = weatherPresentation(S);
+  if (want === S.wx.presented) return;
+  S.wx.presented = want;
+  S.weather.setWeather(want);
+  if (want !== 'clear') {
+    S.weather.setIntensity(want === 'storm' ? 0.9 : want === 'snow' ? 0.7 : 0.55, 2);
+  }
+  // Audio pairing (public/weather/README.md): rain loop for rain/storm with a
+  // live intensity ramp; snow is visual-only; clear stops the loop.
+  if (want === 'rain') audio.rainSet(S.wx.state === 'storm' ? 0.85 : 0.5, 2);
+  else if (want === 'storm') audio.rainSet(0.9, 2);
+  else audio.rainStop();
+}
+
+/** Force a weather state (pause-proof QA entry point: __game.weather). */
+function setWeatherState(S, state) {
+  if (!WEATHER_STATES.includes(state)) return;
+  S.wx.state = state;
+  // Hold the forced state for at least one full machine window.
+  S.wx.nextRollAt = S.elapsed + WEATHER_ROLL_S;
+  applyWeatherPresentation(S);
+}
+
+/**
+ * Weather machine tick: mostly clear skies, occasional rain, rare storms.
+ * Rolls every ~2 in-game hours (WEATHER_ROLL_S with jitter). Also refreshes
+ * the player's snow-biome flag (~1 Hz) so precipitation presents as snow
+ * while standing in Snowfield/Snowcap terrain.
+ */
+function weatherMachineTick(S) {
+  if (S.dim === 'overworld') {
+    if (S.elapsed >= S.wx.biomeCheckAt) {
+      S.wx.biomeCheckAt = S.elapsed + 1;
+      const px = S.player.position.x + S.player.size.x / 2;
+      const pz = S.player.position.z + S.player.size.z / 2;
+      S.wx.inSnowBiome = SNOW_BIOMES.has(S.generator.biomeAt(px, pz));
+    }
+    if (S.elapsed >= S.wx.nextRollAt) {
+      S.wx.nextRollAt = S.elapsed + WEATHER_ROLL_S * (0.75 + 0.5 * Math.random());
+      const r = Math.random();
+      const st = S.wx.state;
+      if (st === 'clear') {
+        if (r < 0.06) S.wx.state = 'storm'; // storms are rarer
+        else if (r < 0.28) S.wx.state = 'rain';
+      } else if (st === 'rain') {
+        if (r < 0.12) S.wx.state = 'storm';
+        else if (r < 0.55) S.wx.state = 'clear';
+      } else { // storm (or forced snow) winds down
+        if (r < 0.45) S.wx.state = 'clear';
+        else if (r < 0.75) S.wx.state = 'rain';
+      }
+    }
+  }
+  applyWeatherPresentation(S);
+}
+
+/**
+ * Average color (0..1 rgb triplet) of a block's side tile in the LIVE atlas
+ * canvas — debris particles match the current texture pack. Cached per
+ * (pack, block id); falls back to grey chips if canvas readback fails.
+ */
+function blockDebrisColor(S, id) {
+  const key = `${S.pack}:${id}`;
+  const hit = S.blockColorCache.get(key);
+  if (hit) return hit;
+  let rgb = [0.6, 0.6, 0.6];
+  try {
+    const def = getBlockDef(id);
+    const tile = tileForFace(def, 'side') ?? tileForFace(def, 'top');
+    if (tile) {
+      const atlas = S.atlas;
+      const i = atlas.tileIndex(tile);
+      const px = atlas.tilePx;
+      const sx = (i % atlas.cols) * px;
+      const sy = Math.floor(i / atlas.cols) * px;
+      const data = atlas.canvas.getContext('2d').getImageData(sx, sy, px, px).data;
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      let n = 0;
+      for (let o = 0; o < data.length; o += 16) { // every 4th pixel
+        if (data[o + 3] < 32) continue;
+        r += data[o];
+        g += data[o + 1];
+        b += data[o + 2];
+        n++;
+      }
+      if (n > 0) rgb = [r / n / 255, g / n / 255, b / n / 255];
+    }
+  } catch { /* canvas readback unavailable — grey chips */ }
+  S.blockColorCache.set(key, rgb);
+  return rgb;
+}
+
+// ---------------------------------------------------------------------------
 // QA hooks (documented in docs/DEV.md)
 // ---------------------------------------------------------------------------
 
@@ -1041,6 +1373,23 @@ function publishHooks() {
     sky: G.sky,
     peers: G.peers,
     portals: G.portals,
+    // Weather (weather package + overworld machine). setWeather forces a
+    // logical state ('clear'|'rain'|'storm'|'snow'); snow biomes/dimensions
+    // may present it differently (getState().presented).
+    weather: {
+      system: G.weather,
+      setWeather: (s) => setWeatherState(G, s),
+      getState: () => ({
+        machine: G.wx.state,
+        presented: G.wx.presented,
+        ...G.weather.getState(),
+      }),
+      setIntensity: (v, ramp) => G.weather.setIntensity(v, ramp),
+      strike: (opts) => G.weather.strike(opts),
+      on: (type, handler) => G.weather.on(type, handler),
+    },
+    audio, // GameAudio wrapper — audio.state is the QA stub-check surface
+    fx: G.fx, // { post: PostFX, fog: DistanceFog, particles: Particles }
     setDimension: switchDimension,
     travelTo: travelToDimension,
     getDimension: () => (G ? G.dim : null),
