@@ -103,3 +103,76 @@ jobs:
           else
             echo "no test script — skipping"
           fi
+
+  # ---------------------------------------------------------------------------
+  # Backend load & chaos harness. The multiplayer server does not exist yet, so
+  # this job ALWAYS runs a fast SELF-TEST of the harness against the bundled,
+  # dependency-free reference mock (scripts/mock-server.mjs, spawned via
+  # --spawn) — proving the harness works today and keeping the job green with no
+  # real server. When a real server entrypoint lands (root package.json `start`
+  # script, a $SERVER_CMD, or a top-level `server` file/dir a.k.a. scripts/../
+  # server), it ADDITIONALLY runs the full suite against that real server.
+  # Pure Node builtins only — no browser, no Playwright — and this job never
+  # creates a root package.json (that file is owned by another branch).
+  # ---------------------------------------------------------------------------
+  backend-load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Always-on: prove the load + chaos harnesses work against the reference
+      # mock. Relaxed latency thresholds (P95_MS/P99_MS, env-overridable) keep
+      # noisy shared CI runners from flaking a green harness self-test.
+      - name: Harness self-test (reference mock)
+        run: |
+          P95_MS=400 P99_MS=800 node scripts/load-test.mjs --spawn --players 20 --duration-sec 6
+          node scripts/chaos-test.mjs --spawn
+
+      # Feature-detect a real server entrypoint and synthesise the command used
+      # to launch it. Detected when EITHER $SERVER_CMD is set, OR a root
+      # package.json exposes a `start` script, OR a top-level `server` file/dir
+      # (scripts/../server) is present. Emits real=<bool> and cmd=<launch cmd>.
+      - name: Detect real server entrypoint
+        id: server
+        run: |
+          real=false
+          cmd=""
+          if [ -n "${SERVER_CMD:-}" ]; then
+            echo "detected \$SERVER_CMD"
+            cmd="$SERVER_CMD"
+            real=true
+          elif [ -f package.json ] && node -e "const s=require('./package.json').scripts||{}; process.exit(s.start?0:1)"; then
+            echo "detected root package.json start script"
+            cmd="npm start"
+            real=true
+          elif [ -e server ]; then
+            echo "detected top-level server entrypoint (scripts/../server)"
+            cmd="node server"
+            real=true
+          else
+            echo "no real server entrypoint — reference mock self-test only"
+          fi
+          echo "real=$real" >> "$GITHUB_OUTPUT"
+          echo "cmd=$cmd" >> "$GITHUB_OUTPUT"
+
+      # Only when a real server exists: install its deps (never creating a root
+      # package.json), then run the full load + chaos suite against it. The
+      # harness's --server-cmd spawns the server, waits for its port, and points
+      # GAME_URL at it, so this lights up automatically once the server lands.
+      - name: Full load + chaos suite (real server)
+        if: steps.server.outputs.real == 'true'
+        run: |
+          if [ -f package.json ]; then
+            if [ -f package-lock.json ]; then
+              npm ci
+            else
+              npm install
+            fi
+          fi
+          node scripts/load-test.mjs --server-cmd "${{ steps.server.outputs.cmd }}"
+          node scripts/chaos-test.mjs --server-cmd "${{ steps.server.outputs.cmd }}"
