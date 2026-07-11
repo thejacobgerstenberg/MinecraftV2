@@ -44,6 +44,11 @@ import { TorchLightManager, QUALITY_LIGHTS, makeTorchMesh } from './torchlights.
 import { InstancedProps } from './instancedProps.js';
 import { applyWindSway, getWindController } from './windsway.js';
 import { BiomeGrading } from './biomelut.js';
+import { FlowFalls } from './waterfx.js';
+import { UnderwaterFX } from './underwaterfx.js';
+import { DimensionSky } from './dimensionSky.js';
+import { AmbientLife } from './ambientLife.js';
+import { PhotoMode } from './photomode.js';
 import { createGUI } from './gui.js';
 import { createSettingsPanel } from '../settings/settings.js';
 import { createPackAtlas, PACK_REGISTRY } from '../textures/labAdapter.js';
@@ -143,6 +148,23 @@ function init() {
     firstperson: { pos: [38.5, 24.5, 28.5], target: [31.5, 20.5, 14.5], maxPolar: 0.52 },
     portal:      { pos: [20, 18.5, 37], target: [22, 18.6, 25.5], maxPolar: 0.55 },
     torches:     { pos: [27.5, 18.5, 22.5], target: [33.5, 16.5, 27.5], maxPolar: 0.55 },
+    // Environment-phase BEAUTY presets (the PR money shots). These carry scene
+    // state too: setView applies dimension + time-of-day when present, so one
+    // call stages the whole shot (allow ~1s for the dimension crossfades).
+    // 'beauty-warpwold'   golden hour from high SW over the ocean: the whole
+    //                     island as a floating diorama — portal + cabin at
+    //                     centre, the lake-outflow waterfall pouring off the
+    //                     south cliff at right, low western sun warming the
+    //                     grass under the brand-violet dusk sky.
+    // 'beauty-cinderloom' dusk from the north-west ocean looking back at the
+    //                     island: lavafall pouring off the tall north cliff,
+    //                     portal glow beyond, embers + smoke deck overhead.
+    // 'beauty-nevermend'  night from the south, looking north over the island
+    //                     at the aurora curtains + low moon arc (both live on
+    //                     the -Z sky band) with thread-wisps in the air.
+    'beauty-warpwold':   { pos: [-20, 24, 64], target: [22, 13, 22], maxPolar: 0.55, time: 0.725, dimension: 'warpwold' },
+    'beauty-cinderloom': { pos: [2, 27, -24], target: [24, 11, 30], maxPolar: 0.55, time: 0.78, dimension: 'cinderloom' },
+    'beauty-nevermend':  { pos: [12, 20, 70], target: [58, 33, -6], maxPolar: 0.58, time: 0.85, dimension: 'nevermend' },
   };
   // Underwater framing: FULLY submerged inside the lake bowl (centre (13,34),
   // r=10, floor ~5, surface at WATER_LEVEL=10 with ~0.6u waves — so the camera
@@ -486,6 +508,104 @@ function init() {
   // ---- Per-biome colour grading through PostFX.setGrade (eased in-post).
   const biomes = new BiomeGrading(post);
 
+  // ==========================================================================
+  // 6b. Environment & atmosphere phase: dimension sky theming, waterfalls,
+  //     underwater FX, ambient life fields, photo mode.
+  // ==========================================================================
+
+  // ---- Dimension sky re-skin (rides the DynamicSky rig; ~1s crossfades).
+  const dimSky = new DimensionSky(sky, { fadeTime: 1.0 });
+
+  // ---- FlowFalls: one waterfall always on, one lavafall only in cinderloom.
+  // WATERFALL — the lake (centre 13,34, r=10) reaches to z~44; the south cliff
+  // at z=47 sits 3 blocks beyond the rim, with column tops y=16..17 around
+  // x=12..16 (read from worldgen heights). The sheet hangs just off the south
+  // face (world z=48) so it reads as the lake outflow spilling into the ocean
+  // apron at WATER_LEVEL. Sheet width runs along world X = parallel to this
+  // face, and the 'hero'/'beauty-warpwold' cameras look at it from the south.
+  const falls = new FlowFalls(scene, { atlas });
+  falls.addFall({
+    type: 'water',
+    from: { x: 14, y: 16.9, z: 48.32 },
+    to: { x: 14, y: WATER_LEVEL + 0.15, z: 48.85 },
+    width: 3.2,
+  });
+  // LAVAFALL — the tall north cliff (columns x=9..12 at z=0 top out at y=19,
+  // the highest edge of the island = "the far side" from the hero view). Only
+  // present while the dimension is cinderloom: created/removed on the master
+  // dimension switch (remove() disposes its geometry, so toggling is clean).
+  const LAVAFALL_SPEC = {
+    type: 'lava',
+    from: { x: 10.5, y: 18.8, z: -0.32 },
+    to: { x: 10.5, y: WATER_LEVEL + 0.15, z: -0.85 },
+    width: 2.6,
+  };
+  let lavaFall = null;
+  function syncLavaFall(dim) {
+    if (dim === 'cinderloom' && !lavaFall) {
+      lavaFall = falls.addFall(LAVAFALL_SPEC);
+    } else if (dim !== 'cinderloom' && lavaFall) {
+      lavaFall.remove();
+      lavaFall = null;
+    }
+  }
+
+  // ---- Underwater caustics + light shafts + (off-by-default) bioluminescence.
+  const underwaterFx = new UnderwaterFX(scene, { waterLevel: WATER_LEVEL });
+  underwaterFx.setVolume(volume);
+
+  // ---- Ambient life: dimension-keyed particle fields + optional leaf drift.
+  // Density follows the quality preset (see setQuality); leaf drift from high.
+  const AMBIENT_DENSITY = { low: 0.3, medium: 0.6, high: 0.85, ultra: 1 };
+  const ambient = new AmbientLife(scene, { camera });
+  ambient.setVolume(volume);                    // foliage band from leaf blocks
+  ambient.setDimension('warpwold');
+  ambient.setDensity(AMBIENT_DENSITY.medium);
+
+  // ---- Water reflection quality per quality preset ('off' at low, quarter-res
+  // at medium, half-res from high). Water's own default is medium; assert it
+  // anyway so demo state and module state can never drift apart.
+  const REFLECTION_BY_QUALITY = { low: 'off', medium: 'medium', high: 'high', ultra: 'high' };
+  water.setReflectionQuality(REFLECTION_BY_QUALITY.medium);
+
+  // ---- Master dimension -> biome grade mapping (biomelut BIOMES aliases:
+  // warpwold's meadow look = 'plains', cinderloom's ember wastes = 'cinder',
+  // nevermend's pale frost = 'tundra').
+  const DIMENSION_BIOME = {
+    warpwold: 'plains',
+    cinderloom: 'cinder',
+    nevermend: 'tundra',
+  };
+
+  // ---- Photo mode: free-fly framing + letterbox + high-res stills captured
+  // through the demo's own post pipeline (PostFX RTs resized for the capture;
+  // demo.captureStill restores them afterwards).
+  const photo = new PhotoMode(camera, renderer, {
+    controls,
+    scene,
+    render: ({ width, height }) => {
+      post.setSize(width, height);
+      post.render(0);
+    },
+  });
+  // Enter/exit side-wiring per the integration contract: scenic mode (hide
+  // viewmodel + GUI/gear) and cinematic letterbox while composing. PhotoMode
+  // clears its own frame overlay on exit; scenic mode is restored here.
+  window.addEventListener('photomode:enter', () => {
+    window.demo.setScenicMode(true);
+    photo.setFrame({ letterbox: true, vignette: true });
+  });
+  window.addEventListener('photomode:exit', () => {
+    window.demo.setScenicMode(false);
+  });
+  // 'P' toggles photo mode (ignored while typing in form fields).
+  window.addEventListener('keydown', (e) => {
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' ||
+      t.tagName === 'SELECT' || t.isContentEditable)) return;
+    if (e.code === 'KeyP' && !e.repeat) window.demo.togglePhotoMode();
+  });
+
   // Mark cast/receive flags AFTER every mesh (incl. water) is in the scene.
   shadows.applyToScene(scene);
 
@@ -504,6 +624,14 @@ function init() {
       godrays: !!post.features.godrays,
       bloom: !!post.features.bloom,
       greedy: true,
+      // Environment phase: falls/underwaterfx/ambient default ON, biolum OFF
+      // (per the UnderwaterFX contract), reflections mirror the quality preset
+      // (medium boots with the quarter-res planar reflection active).
+      falls: true,
+      underwaterfx: true,
+      biolum: false,
+      ambient: true,
+      reflections: true,
     },
     quality: 'medium',
     timeOfDay: 0.35,
@@ -622,9 +750,32 @@ function init() {
       else applyView(currentView);
     },
 
-    // Camera view presets: 'hero' | 'sunrise' | 'closeup' | ...
+    // Camera view presets: 'hero' | 'sunrise' | 'closeup' | ... plus the
+    // 'beauty-<dimension>' money shots, which also stage the scene (dimension
+    // + time of day) so one call sets up the whole frame. Dimension and
+    // ambient crossfades take ~1s — let the sim run before capturing.
     setView(name) {
       applyView(name);
+      const v = VIEWS[name];
+      if (v && v.dimension) window.demo.setDimension(v.dimension);
+      if (v && typeof v.time === 'number') window.demo.setTimeOfDay(v.time);
+    },
+
+    // MASTER dimension control: one call re-themes the whole scene — sky
+    // grade/aurora/smoke (DimensionSky), ambient life field (AmbientLife),
+    // portal palette (PortalGate), per-dimension biome colour grade, and the
+    // cinderloom-only lavafall. 'warpwold' | 'cinderloom' | 'nevermend'.
+    setDimension(name) {
+      if (!DIMENSION_BIOME[name]) {
+        console.warn('[graphics-lab] setDimension: unknown dimension "' + name + '"');
+        return;
+      }
+      state.dimension = name;
+      dimSky.setDimension(name);
+      ambient.setDimension(name);
+      portal.setDimension(name);
+      window.demo.setBiome(DIMENSION_BIOME[name]);
+      syncLavaFall(name);
     },
 
     setQuality(q) {
@@ -638,6 +789,13 @@ function init() {
       state.effects.ssao = !!post.features.ssao;
       state.effects.godrays = !!post.features.godrays;
       state.effects.bloom = !!post.features.bloom;
+      // Environment phase follows the preset too: reflection tier (off at
+      // low), ambient-life density (.3/.6/.85/1) and leaf drift (high+).
+      const refl = REFLECTION_BY_QUALITY[quality];
+      water.setReflectionQuality(refl);
+      state.effects.reflections = refl !== 'off';
+      ambient.setDensity(AMBIENT_DENSITY[quality]);
+      ambient.setLeafDrift(quality === 'high' || quality === 'ultra');
     },
 
     // Camera field of view in degrees (settings drawer: 60..110).
@@ -707,6 +865,22 @@ function init() {
       if (biomes.setBiome(name)) state.biome = name;
     },
 
+    // Photo mode: free-fly compose camera (WASD/QE + drag look, letterbox on
+    // enter, OrbitControls + exact camera transform restored on exit).
+    togglePhotoMode() {
+      photo.toggle();
+    },
+
+    // High-resolution PNG still (dataURL) rendered through the full PostFX
+    // chain. opts: { width=2560, height=1440 }. Restores the live RT sizes.
+    captureStill(opts) {
+      try {
+        return photo.captureStill(opts);
+      } finally {
+        post.setSize(); // re-detect the live drawing-buffer size for PostFX
+      }
+    },
+
     // Stress hook: register n synthetic torch positions in a ring around the
     // island (replaces the previous synthetic set; scenery torches untouched).
     setTorchCount(n) {
@@ -751,6 +925,17 @@ function init() {
         case 'bloom': post.toggle('bloom', b); break;
         case 'greedy':
           if (b !== usingGreedy) rebuildChunk(b);
+          break;
+        // Environment phase toggles:
+        case 'falls': falls.setEnabled(b); break;
+        case 'underwaterfx': underwaterFx.setEnabled(b); break;
+        case 'biolum': underwaterFx.setBiolum(b); break;
+        case 'ambient': ambient.setEnabled(b); break;
+        case 'reflections':
+          // ON re-applies the tier for the CURRENT quality preset (so a low
+          // preset stays 'off' even with the box ticked — mirrored below).
+          water.setReflectionQuality(b ? REFLECTION_BY_QUALITY[state.quality] : 'off');
+          state.effects.reflections = water.reflectionQuality !== 'off';
           break;
         default: break;
       }
@@ -817,6 +1002,7 @@ function init() {
       case 'ssao': d.toggle('ssao', value); break;
       case 'shadows': d.toggle('shadows', value); break;
       case 'water': d.toggle('water', value); break;
+      case 'reflections': d.toggle('reflections', value); break;
       case 'bloom': d.toggle('bloom', value); break;
       case 'godRays': d.toggle('godrays', value); break;
       case 'windSway': d.toggle('wind', value); break;
@@ -909,10 +1095,15 @@ function init() {
     ctx.weather = state.weather;
     ctx.underwater = state.underwater;
 
-    controls.update();
+    // Photo mode owns the camera while active (OrbitControls.update() would
+    // re-derive the camera from its target and fight the free-fly movement).
+    if (photo.active) photo.update(dt);
+    else controls.update();
 
     // Effect updates (each module self-gates on its own enabled flag).
     sky.update(dt, ctx);
+    dimSky.update(dt, ctx);      // dimension grade crossfade + aurora/smoke
+                                 // (before getFogColor so fog sees the grade)
 
     // Per-frame sky -> fog/water colour sync: copy the CURRENT horizon colour
     // into the shared ctx.skyColor (allocation-free via the target overload).
@@ -928,6 +1119,9 @@ function init() {
     water.update(dt, ctx);       // sun/moon intensity+colour auto-derived from
                                  // ctx.sunDir + sunRef (night-correct water)
     underwater.update(dt, ctx);
+    falls.update(dt, ctx);       // waterfall/lavafall sheets + splash/embers
+    underwaterFx.update(dt, ctx); // caustics + light shafts + biolum motes
+    ambient.update(dt, ctx);     // dimension ambient field + leaf drift
     fog.update(dt, ctx);
     particles.update(dt, ctx);
     portal.update(dt, ctx);      // swirl time + palette fade + burst envelope

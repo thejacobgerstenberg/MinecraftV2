@@ -118,6 +118,9 @@ const EFFECTS = [
   'portal', 'crack', 'viewmodel', 'torchlights', 'wind', 'biome',
   // Phase 3: post-chain SSAO / god rays / bloom + greedy-mesher A-B switch.
   'ssao', 'godrays', 'bloom', 'greedy',
+  // Environment phase: waterfalls/lavafall, underwater caustics+shafts,
+  // bioluminescence (default OFF), ambient life fields, water reflections.
+  'falls', 'underwaterfx', 'biolum', 'ambient', 'reflections',
 ];
 const QUALITIES = ['low', 'medium', 'high', 'ultra'];
 const WEATHERS = ['clear', 'rain', 'snow'];
@@ -305,9 +308,9 @@ export function createGUI(demo, state = {}) {
   wSection.appendChild(wSel);
   bodyEl.appendChild(wSection);
 
-  // --- Portal dimension --------------------------------------------------------
+  // --- Dimension (MASTER: sky grade + ambient life + portal + biome + falls) --
   const pSection = el('div', 'glab-section');
-  pSection.appendChild(el('span', 'glab-label', 'Portal dimension'));
+  pSection.appendChild(el('span', 'glab-label', 'Dimension'));
   const pSel = el('select');
   for (const [value, label] of DIMENSIONS) {
     const opt = el('option', null, label);
@@ -315,7 +318,7 @@ export function createGUI(demo, state = {}) {
     if (value === dimension0) opt.selected = true;
     pSel.appendChild(opt);
   }
-  pSel.addEventListener('change', () => call('setPortalDimension', pSel.value));
+  pSel.addEventListener('change', () => call('setDimension', pSel.value));
   pSection.appendChild(pSel);
   bodyEl.appendChild(pSection);
 
@@ -369,6 +372,14 @@ export function createGUI(demo, state = {}) {
   brBtn.addEventListener('click', () => call('triggerBreak'));
   brSection.appendChild(brBtn);
   bodyEl.appendChild(brSection);
+
+  // --- Photo mode button ('P' also toggles it) -----------------------------------
+  const phSection = el('div', 'glab-section');
+  const phBtn = el('button', 'glab-btn', 'photo mode (P)');
+  phBtn.type = 'button';
+  phBtn.addEventListener('click', () => call('togglePhotoMode'));
+  phSection.appendChild(phBtn);
+  bodyEl.appendChild(phSection);
 
   // --- Underwater ------------------------------------------------------------
   const uSection = el('div', 'glab-section');

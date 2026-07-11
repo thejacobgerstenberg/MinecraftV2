@@ -41,6 +41,7 @@ export const DEFAULTS = Object.freeze({
   ssao: true,              // screen-space AO (post pass; on from medium up)
   shadows: true,
   water: true,             // water surface + underwater effects
+  reflections: true,       // water planar reflection (off at the low preset)
   bloom: true,
   godRays: true,           // crepuscular rays (post pass; on from medium up)
   windSway: true,
@@ -52,7 +53,7 @@ export const DEFAULTS = Object.freeze({
 
 /** The boolean effect toggles a quality preset drives. */
 export const TOGGLE_KEYS = Object.freeze([
-  'ao', 'ssao', 'shadows', 'water', 'bloom', 'godRays',
+  'ao', 'ssao', 'shadows', 'water', 'reflections', 'bloom', 'godRays',
   'windSway', 'particles', 'fog', 'biomeGrading', 'portalFx',
 ]);
 
@@ -69,22 +70,26 @@ export const TOGGLE_KEYS = Object.freeze([
  *             boolean toggles do not capture. */
 export const PRESETS = Object.freeze({
   low: Object.freeze({
-    ao: true,  ssao: false, shadows: false, water: false, bloom: false,
+    ao: true,  ssao: false, shadows: false, water: false, reflections: false,
+    bloom: false,
     godRays: false, windSway: false, particles: false, fog: true,
     biomeGrading: false, portalFx: false,
   }),
   medium: Object.freeze({
-    ao: true,  ssao: true,  shadows: true,  water: true,  bloom: false,
+    ao: true,  ssao: true,  shadows: true,  water: true,  reflections: true,
+    bloom: false,
     godRays: true,  windSway: true,  particles: false, fog: true,
     biomeGrading: true,  portalFx: true,
   }),
   high: Object.freeze({
-    ao: true,  ssao: true,  shadows: true,  water: true,  bloom: true,
+    ao: true,  ssao: true,  shadows: true,  water: true,  reflections: true,
+    bloom: true,
     godRays: true,  windSway: true,  particles: true,  fog: true,
     biomeGrading: true,  portalFx: true,
   }),
   ultra: Object.freeze({
-    ao: true,  ssao: true,  shadows: true,  water: true,  bloom: true,
+    ao: true,  ssao: true,  shadows: true,  water: true,  reflections: true,
+    bloom: true,
     godRays: true,  windSway: true,  particles: true,  fog: true,
     biomeGrading: true,  portalFx: true,
   }),
@@ -103,6 +108,7 @@ const EFFECT_META = [
   { key: 'ssao',         label: 'SSAO',              hint: 'screen-space' },
   { key: 'shadows',      label: 'Shadows',           hint: 'sun shadow map' },
   { key: 'water',        label: 'Water Effects',     hint: 'waves + underwater' },
+  { key: 'reflections',  label: 'Reflections',       hint: 'water planar' },
   { key: 'bloom',        label: 'Bloom',             hint: 'HDR glow' },
   { key: 'godRays',      label: 'God Rays',          hint: 'light shafts' },
   { key: 'windSway',     label: 'Wind Sway',         hint: 'foliage' },

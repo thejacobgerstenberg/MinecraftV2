@@ -10,8 +10,11 @@
 //     to ~0.9 opacity when the sun is well below the horizon,
 //   - a procedural SUN sprite (soft radial glow, grows warm + large at the
 //     horizon) and a pale cratered MOON sprite opposite-ish the sun,
-//   - soft drifting fbm CLOUDS on a large horizontal plane, tinted by the sun
-//     colour (white day / pink-orange twilight / faintly lit night),
+//   - soft drifting fbm CLOUDS on TWO stacked horizontal planes (a low deck +
+//     a higher, larger, slower veil drifting the opposite way for parallax),
+//     tinted by the sun colour (white day / pink-orange twilight / faintly lit
+//     night) and weather-reactive (clear = sparse white, rain = thicker/darker/
+//     faster, snow = pale dense). setCloudiness(0..1) overrides coverage,
 //   - a key DirectionalLight (this.sun) + HemisphereLight fill (this.hemi).
 //     Night is NEVER pitch black: cool blue moonlight (~0.21-0.28) plus a hemi
 //     floor keep terrain faintly readable.
@@ -27,6 +30,17 @@
 // blue-grey by day, warm orange at sunrise/sunset, very dark navy at night) so
 // the fog module can match the sky seamlessly. Pass an optional target Color
 // to avoid the per-call allocation.
+//
+// ADDITIVE dimension-theming hooks (used by dimensionSky.js — all optional,
+// no-ops when unused, so the baseline demo look is unchanged):
+//   setPaletteTint(tint|null)  re-gradeable colour tint applied LAST in
+//                              setTimeOfDay (fields documented on the method);
+//                              getFogColor() reflects the tinted horizon.
+//   setCloudiness(v|null)      0..1 manual cloud-cover override (null = auto).
+//   addSkyObject(obj) / removeSkyObject(obj)   parent custom meshes (auroras,
+//                              smoke decks) into the camera-following,
+//                              far-plane-fitted visuals rig.
+//   get domeRadius             sizing reference for such custom meshes.
 //
 // Follows the graphics-lab effect contract:
 //   constructor(renderer, opts) / update(dt, ctx) / setEnabled(bool) /
@@ -207,6 +221,9 @@ export class DynamicSky {
     this._weather = 'clear'; // 'clear' | 'rain' | 'snow' (storm mood grade)
     this._elapsed = 0;
     this._disposables = [];
+    this._cloudiness = null;  // setCloudiness override (null = weather-driven)
+    this._paletteTint = null; // setPaletteTint grade (null = natural)
+    this._windMul = 1;        // weather wind-speed multiplier (rain = faster)
 
     const domeRadius = size * 0.5;
     const starRadius = domeRadius * 0.92;
@@ -383,6 +400,7 @@ export class DynamicSky {
       uniforms: {
         uTime: { value: 0 },
         uOpacity: { value: 0 },
+        uStarBoost: { value: 1 }, // brightness multiplier (dimension theming)
         uPixelRatio: { value: renderer ? renderer.getPixelRatio() : 1 },
       },
       vertexShader: /* glsl */ `
@@ -401,12 +419,13 @@ export class DynamicSky {
       `,
       fragmentShader: /* glsl */ `
         uniform float uOpacity;
+        uniform float uStarBoost;
         varying float vTw;
         void main() {
           vec2 pc = gl_PointCoord - 0.5;
           float d = length(pc);
           float a = smoothstep(0.5, 0.08, d);
-          vec3 col = vec3(0.97, 0.98, 1.0) * 1.4; // near-white HDR pop
+          vec3 col = vec3(0.97, 0.98, 1.0) * 1.4 * uStarBoost; // near-white HDR pop
           gl_FragColor = vec4(col, a * uOpacity * vTw);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
@@ -461,67 +480,92 @@ export class DynamicSky {
     this._visuals.add(this._moonSprite);
 
     // -----------------------------------------------------------------------
-    // Clouds: a big horizontal plane with a scrolling fbm shader, tinted by
-    // the sun (white day, pink twilight, faintly lit night).
+    // Clouds: TWO stacked horizontal fbm planes for a parallax feel.
+    //   layer 0 — the original low deck (same freq/coverage/opacity/drift as
+    //             the single-layer version, so the baseline look is preserved),
+    //   layer 1 — a higher, larger, lower-frequency veil drifting the OPPOSITE
+    //             way at a different speed (counter-drift = obvious parallax).
+    // Wind phase is integrated on the CPU (phase += wind * windMul * dt) so
+    // weather speed changes (rain blows the deck along faster) never cause a
+    // pattern jump the way rescaling uTime would.
     // -----------------------------------------------------------------------
-    const cloudGeo = new THREE.PlaneGeometry(cloudSize, cloudSize, 1, 1);
-    this._disposables.push(cloudGeo);
-    this._cloudMat = new THREE.ShaderMaterial({
-      transparent: true,
-      depthWrite: false,
-      depthTest: true, // far-hugged: sky shows clouds, terrain occludes them
-      side: THREE.DoubleSide,
-      fog: false,
-      uniforms: {
-        uTime: { value: 0 },
-        uWind: { value: new THREE.Vector2(0.007, 0.0026) },
-        uCloudLit: { value: this._cloudLit },
-        uCloudShadow: { value: this._cloudShadow },
-        uCoverage: { value: 0.46 },
-        uOpacity: { value: 0.94 },
-      },
-      vertexShader: /* glsl */ `
-        ${FAR_HUG_GLSL}
-        varying vec2 vUv;
-        void main() {
-          vUv = uv;
-          gl_Position = skyProject(position);
-        }
-      `,
-      fragmentShader: /* glsl */ `
-        uniform float uTime;
-        uniform vec2 uWind;
-        uniform vec3 uCloudLit;
-        uniform vec3 uCloudShadow;
-        uniform float uCoverage;
-        uniform float uOpacity;
-        varying vec2 vUv;
-        ${FBM_GLSL}
-        void main() {
-          vec2 uvc = vUv - 0.5;
-          float edge = smoothstep(0.5, 0.20, length(uvc));
-          // Higher noise frequency (x8) so several distinct puffs sit in the
-          // visible sky band above the island instead of one faint smear.
-          vec2 p = vUv * 8.0 + uWind * uTime;
-          float n = fbm(p);
-          float density = smoothstep(uCoverage, uCoverage + 0.16, n);
-          float shade = smoothstep(0.25, 0.85, n);
-          vec3 col = mix(uCloudShadow, uCloudLit, shade);
-          float alpha = density * edge * uOpacity;
-          if (alpha < 0.003) discard;
-          gl_FragColor = vec4(col, alpha);
-          #include <tonemapping_fragment>
-          #include <colorspace_fragment>
-        }
-      `,
-    });
-    this._disposables.push(this._cloudMat);
-    this._clouds = new THREE.Mesh(cloudGeo, this._cloudMat);
-    this._clouds.rotation.x = -Math.PI / 2;
-    this._clouds.position.y = cloudHeight;
-    this._clouds.renderOrder = -985;
-    this._clouds.frustumCulled = false;
-    this._visuals.add(this._clouds);
+    this._cloudLayers = [];
+    const makeCloudLayer = (planeSize, height, freq, windX, windY,
+                            baseCoverage, baseOpacity, order, seedOfs) => {
+      const geo = new THREE.PlaneGeometry(planeSize, planeSize, 1, 1);
+      this._disposables.push(geo);
+      const mat = new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        depthTest: true, // far-hugged: sky shows clouds, terrain occludes them
+        side: THREE.DoubleSide,
+        fog: false,
+        uniforms: {
+          uPhase: { value: new THREE.Vector2(seedOfs, seedOfs * 0.37) },
+          uFreq: { value: freq },
+          uCloudLit: { value: this._cloudLit },
+          uCloudShadow: { value: this._cloudShadow },
+          uCoverage: { value: baseCoverage },
+          uOpacity: { value: baseOpacity },
+        },
+        vertexShader: /* glsl */ `
+          ${FAR_HUG_GLSL}
+          varying vec2 vUv;
+          void main() {
+            vUv = uv;
+            gl_Position = skyProject(position);
+          }
+        `,
+        fragmentShader: /* glsl */ `
+          uniform vec2 uPhase;
+          uniform float uFreq;
+          uniform vec3 uCloudLit;
+          uniform vec3 uCloudShadow;
+          uniform float uCoverage;
+          uniform float uOpacity;
+          varying vec2 vUv;
+          ${FBM_GLSL}
+          void main() {
+            vec2 uvc = vUv - 0.5;
+            float edge = smoothstep(0.5, 0.20, length(uvc));
+            // Noise frequency x8 (deck) so several distinct puffs sit in the
+            // visible sky band above the island instead of one faint smear;
+            // the high veil runs at x5 for larger, softer shapes.
+            vec2 p = vUv * uFreq + uPhase;
+            float n = fbm(p);
+            float density = smoothstep(uCoverage, uCoverage + 0.16, n);
+            float shade = smoothstep(0.25, 0.85, n);
+            vec3 col = mix(uCloudShadow, uCloudLit, shade);
+            float alpha = density * edge * uOpacity;
+            if (alpha < 0.003) discard;
+            gl_FragColor = vec4(col, alpha);
+            #include <tonemapping_fragment>
+            #include <colorspace_fragment>
+          }
+        `,
+      });
+      this._disposables.push(mat);
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.y = height;
+      mesh.renderOrder = order;
+      mesh.frustumCulled = false;
+      this._visuals.add(mesh);
+      this._cloudLayers.push({
+        mesh, mat,
+        baseWind: new THREE.Vector2(windX, windY),
+        baseCoverage, baseOpacity,
+      });
+      return mat;
+    };
+    // Layer 0: the classic low deck (identical parameters to the old single
+    // plane). Layer 1: higher/larger veil, ~35% opacity weight, counter-drift.
+    // The veil draws FIRST (-986) so the nearer deck blends over it.
+    this._cloudMat = makeCloudLayer(
+      cloudSize, cloudHeight, 8.0, 0.007, 0.0026, 0.46, 0.94, -985, 0);
+    makeCloudLayer(
+      size * 1.35, size * 0.085, 5.0, -0.0045, -0.0016, 0.55, 0.42, -986, 3.7);
+    this._clouds = this._cloudLayers[0].mesh;
 
     // -----------------------------------------------------------------------
     // Lights (world space; NOT children of _visuals, so setEnabled(false) only
@@ -654,12 +698,12 @@ export class DynamicSky {
       smoothstep(this.moonDir.y, -0.03, 0.06) * nightF;
     this._moonSprite.visible = this._moonSpriteMat.opacity > 0.001;
 
-    // ---- Cloud colours + opacity (sun-tinted).
+    // ---- Cloud colours (sun-tinted; both layers share these Color refs).
+    // Coverage/opacity for the two layers is applied in _applyCloudState().
     this._cloudLit.copy(CLOUD_LIT_NIGHT).lerp(CLOUD_LIT_DAY, dayAmt);
     this._cloudLit.lerp(CLOUD_LIT_DUSK, tw * 0.75);
     this._cloudShadow.copy(CLOUD_SHADOW_NIGHT).lerp(CLOUD_SHADOW_DAY, dayAmt);
     this._cloudShadow.lerp(CLOUD_SHADOW_DUSK, tw * 0.6);
-    this._cloudMat.uniforms.uOpacity.value = 0.94 * (0.35 + 0.65 * dayAmt);
 
     // ---- Directional key light: sun while it is up, moon (opposite, high at
     // midnight) while it is down. Warm-low, white-noon; at night a cool blue
@@ -717,13 +761,11 @@ export class DynamicSky {
       this._moonSprite.visible = this._moonSpriteMat.opacity > 0.001;
       this._starMat.uniforms.uOpacity.value *= (1 - 0.85 * wf);
 
-      // Heavier, greyer cloud deck.
+      // Heavier, greyer cloud deck (density/opacity in _applyCloudState).
       this._scratch2.copy(RAIN_CLOUD_LIT).multiplyScalar(greyScale);
       this._cloudLit.lerp(this._scratch2, 0.8 * wf);
       this._scratch2.copy(RAIN_CLOUD_SHADOW).multiplyScalar(greyScale);
       this._cloudShadow.lerp(this._scratch2, 0.8 * wf);
-      this._cloudMat.uniforms.uOpacity.value =
-        Math.min(1, this._cloudMat.uniforms.uOpacity.value + 0.4 * wf);
 
       // Dim + desaturate the light rig: sun -45% in rain, hemi greyer/dimmer.
       this.sun.intensity *= (1 - 0.45 * wf);
@@ -746,7 +788,126 @@ export class DynamicSky {
         this._cloudShadow.lerp(this._scratch2, 0.30);
       }
     }
-    this._cloudMat.uniforms.uCoverage.value = 0.46 - 0.2 * wf;
+    this._applyCloudState(dayAmt, wf);
+    this._applyPaletteTint();
+  }
+
+  // Per-layer cloud coverage/opacity: weather-driven by default (clear =
+  // sparse white, rain = thicker + darker + faster, snow = pale dense), or
+  // pinned by the setCloudiness(0..1) override.
+  _applyCloudState(dayAmt, wf) {
+    const dayFactor = 0.35 + 0.65 * dayAmt;
+    // Rain blows the deck along ~2.6x faster; snow drifts a touch quicker.
+    this._windMul =
+      this._weather === 'rain' ? 2.6 : this._weather === 'snow' ? 1.45 : 1.0;
+    const v = this._cloudiness;
+    for (let i = 0; i < this._cloudLayers.length; i++) {
+      const L = this._cloudLayers[i];
+      let coverage, opacity;
+      if (v === null) {
+        coverage = L.baseCoverage - 0.2 * wf;
+        opacity = L.baseOpacity * dayFactor;
+        // Overcast thickens the deck (layer 0 formula identical to the old
+        // single-layer version; the veil thickens a little less).
+        if (wf > 0) {
+          opacity = Math.min(1, opacity + 0.4 * wf * (i === 0 ? 1 : 0.6));
+        }
+      } else {
+        // Manual override: 0 = a few thin wisps, 1 = heavy unbroken deck.
+        coverage = lerp(0.68, 0.18, v) + (i === 1 ? 0.05 : 0);
+        opacity = L.baseOpacity * dayFactor * Math.min(1, 0.25 + 0.9 * v);
+      }
+      L.mat.uniforms.uCoverage.value = coverage;
+      L.mat.uniforms.uOpacity.value = opacity;
+    }
+  }
+
+  // Dimension palette tint — applied LAST in setTimeOfDay so it re-grades the
+  // weather-graded colours; recomputed from scratch on every call so passing
+  // null fully restores the natural look. All fields optional:
+  //   { horizon, horizonAmt, zenith, zenithAmt,   // sky gradient lerp targets
+  //     glow, glowAmt,                            // twilight band tint
+  //     sun, sunAmt, sunIntensity,                // key light + sun glow/sprite
+  //     hemi, hemiAmt, hemiIntensity,             // fill light
+  //     cloudLit, cloudShadow, cloudAmt,          // cloud deck tint
+  //     starBoost }                               // star brightness multiplier
+  // Colours may be THREE.Color, hex number, or CSS string. Amounts are 0..1.
+  _applyPaletteTint() {
+    const glowU = this._domeMat.uniforms.uGlowColor.value;
+    glowU.copy(DUSK_GLOW);
+    this._starMat.uniforms.uStarBoost.value = 1;
+    const g = this._paletteTint;
+    if (!g) return;
+    const s = this._scratch2;
+    if (g.horizon !== undefined) {
+      this._horizonColor.lerp(s.set(g.horizon), g.horizonAmt ?? 1);
+    }
+    if (g.zenith !== undefined) {
+      this._zenithColor.lerp(s.set(g.zenith), g.zenithAmt ?? 1);
+    }
+    if (g.glow !== undefined) glowU.lerp(s.set(g.glow), g.glowAmt ?? 1);
+    if (g.sun !== undefined) {
+      const amt = g.sunAmt ?? 1;
+      this._sunGlowColor.lerp(s.set(g.sun), amt);
+      this._sunSpriteMat.color.copy(this._sunGlowColor);
+      this.sun.color.lerp(s.set(g.sun), amt);
+    }
+    if (typeof g.sunIntensity === 'number') this.sun.intensity *= g.sunIntensity;
+    if (g.hemi !== undefined) this.hemi.color.lerp(s.set(g.hemi), g.hemiAmt ?? 1);
+    if (typeof g.hemiIntensity === 'number') {
+      this.hemi.intensity *= g.hemiIntensity;
+    }
+    const cAmt = g.cloudAmt ?? 1;
+    if (g.cloudLit !== undefined) this._cloudLit.lerp(s.set(g.cloudLit), cAmt);
+    if (g.cloudShadow !== undefined) {
+      this._cloudShadow.lerp(s.set(g.cloudShadow), cAmt);
+    }
+    if (typeof g.starBoost === 'number') {
+      this._starMat.uniforms.uStarBoost.value = g.starBoost;
+    }
+  }
+
+  // Manual cloud-cover override, 0 (clear) .. 1 (overcast). Pass null (or
+  // undefined) to return to automatic weather-driven coverage.
+  setCloudiness(v) {
+    this._cloudiness = (v === null || v === undefined) ? null : clamp(v, 0, 1);
+    this.setTimeOfDay(this._timeOfDay); // re-grade with the override applied
+  }
+
+  get cloudiness() {
+    return this._cloudiness;
+  }
+
+  // Install (or clear, with null) a dimension palette tint. The tint object is
+  // held by REFERENCE and re-applied on every setTimeOfDay, so a caller may
+  // mutate its fields and call setPaletteTint(sameObject) again to crossfade.
+  // See _applyPaletteTint for the field list.
+  setPaletteTint(tint) {
+    this._paletteTint = tint || null;
+    this.setTimeOfDay(this._timeOfDay); // re-grade immediately
+  }
+
+  get paletteTint() {
+    return this._paletteTint;
+  }
+
+  // Parent a custom mesh/group (aurora ribbons, smoke decks, ...) into the sky
+  // visuals rig: it follows the camera and rescales with camera.far exactly
+  // like the dome/stars/clouds. Size such objects relative to .domeRadius.
+  // Note: the rig is hidden by setEnabled(false) along with the rest of the
+  // sky visuals; the caller keeps ownership (dispose your own geometry).
+  addSkyObject(obj) {
+    if (obj) this._visuals.add(obj);
+    return obj;
+  }
+
+  removeSkyObject(obj) {
+    if (obj && obj.parent === this._visuals) this._visuals.remove(obj);
+    return obj;
+  }
+
+  get domeRadius() {
+    return this._domeRadius;
   }
 
   // dt seconds, ctx = { camera, renderer, elapsed, timeOfDay, ... }.
@@ -765,9 +926,16 @@ export class DynamicSky {
       if (typeof t === 'number' && t !== this._timeOfDay) this.setTimeOfDay(t);
     }
 
-    // Animated uniforms (twinkle + cloud drift).
+    // Animated uniforms (twinkle + cloud drift). Cloud wind phase is
+    // integrated (not uTime-scaled) so weather speed changes never jump the
+    // pattern; each layer drifts along its own wind vector for parallax.
     this._starMat.uniforms.uTime.value = this._elapsed;
-    this._cloudMat.uniforms.uTime.value = this._elapsed;
+    const step =
+      (typeof dt === 'number' && dt > 0 ? dt : 0.016) * this._windMul;
+    for (let i = 0; i < this._cloudLayers.length; i++) {
+      const L = this._cloudLayers[i];
+      L.mat.uniforms.uPhase.value.addScaledVector(L.baseWind, step);
+    }
 
     // Keep the pixel ratio current (quality changes rescale points).
     const r = (ctx && ctx.renderer) || this._renderer;
