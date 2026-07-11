@@ -110,9 +110,14 @@ function init() {
     sunrise: { pos: [-26, WATER_LEVEL + 6, 47], target: [54, WATER_LEVEL + 4, 63], maxPolar: 0.55 },
     closeup: { pos: [38, 25, 27], target: [29.5, 20.5, 16.5], maxPolar: 0.52 },
   };
-  // Lake centre is (13,34) r=10 in worldgen; dip to WATER_LEVEL-2 inside it.
-  const UNDER_CAM = new THREE.Vector3(13, WATER_LEVEL - 2, 40);         // ~(13,8,40)
-  const UNDER_TARGET = new THREE.Vector3(20, WATER_LEVEL + 1, 26);
+  // Underwater framing: FULLY submerged inside the lake bowl (centre (13,34),
+  // r=10, floor ~5, surface at WATER_LEVEL=10 with ~0.6u waves — so the camera
+  // sits at y=7.6, safely below every wave trough, never straddling the
+  // surface). It looks up-slope at the submerged sand rim to the NE so the
+  // frame is filled with underwater terrain, with a slice of the water
+  // surface visible overhead.
+  const UNDER_CAM = new THREE.Vector3(13, WATER_LEVEL - 2.4, 35.5);
+  const UNDER_TARGET = new THREE.Vector3(21, WATER_LEVEL + 0.2, 26.5);
 
   const camera = new THREE.PerspectiveCamera(
     55, window.innerWidth / window.innerHeight, 0.1, 4000,
@@ -191,9 +196,10 @@ function init() {
 
   const water = new Water(scene, {
     level: WATER_LEVEL,
-    size: Math.max(sx, sz) + 24,
+    size: 260,                       // wide "ocean" apron: the sea stays visible
+    // far past the island so the horizon line reads (72 ended at the fog wall)
     center: { x: sx / 2, z: sz / 2 },
-    segments: 64,
+    segments: 96,
     sunRef: sky,                     // pulls sun colour/dir + reflection colour
   });
   water.setSkyReflectionColor(sky.getFogColor());
@@ -206,7 +212,9 @@ function init() {
 
   const fog = new DistanceFog(scene, {
     mode: 'exp2',
-    density: 0.0055,
+    density: 0.0016,                 // pulled way back (was 0.0055-clamped-to-
+    // 0.0035): ~5% haze at 150u, so the ocean + horizon stay readable while
+    // only the farthest water softens into the sky
     skyRef: sky,                     // auto-tints toward the sky horizon colour
   });
   fog.setSkyColor(sky.getFogColor());
@@ -285,7 +293,9 @@ function init() {
       const mode = (w === 'rain' || w === 'snow') ? w : 'clear';
       state.weather = mode;
       ctx.weather = mode;
-      particles.setWeather(mode);          // reseed the weather field
+      // Snow runs at higher intensity: flakes fall slowly, so a heavier field
+      // is needed for the frame to read as snowfall at a glance.
+      particles.setWeather(mode, mode === 'snow' ? 0.9 : 0.7);
       sky.setWeather(mode);                // storm mood: grey sky, sun -45%
       ctxSkyColor.copy(sky.getFogColor()); // fog snaps to the graded horizon
       // DistanceFog additionally scales density from ctx.weather every frame.
@@ -295,6 +305,10 @@ function init() {
       const b = !!on;
       state.underwater = b;
       ctx.underwater = b;                  // UnderwaterOverlay + fog react to this
+      // Submerged, the bright sky dome must never leak through the murk (it
+      // used to read as a white void past the fog), so the sky visuals are
+      // hidden and restored on surfacing (honouring the GUI's sky toggle).
+      sky.setEnabled(b ? false : state.effects.sky);
       if (b) frameUnderwater();
       else applyView(currentView);
     },
@@ -392,6 +406,10 @@ function init() {
     // DistanceFog and Water both read ctx.skyColor every frame, so fog, water
     // body/reflection and sky stay seamless through sunrise/sunset.
     sky.getFogColor(ctxSkyColor);
+    // Submerged, the shared colour becomes the underwater murk colour instead,
+    // so the water surface seen from below tints deep teal — the sky-bright
+    // reflection colour used to bleach the surface plane into a white sheet.
+    if (state.underwater) underwater.getFogColor(ctxSkyColor);
 
     shadows.update(dt, ctx);
     water.update(dt, ctx);       // sun/moon intensity+colour auto-derived from

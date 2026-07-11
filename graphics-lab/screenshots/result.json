@@ -9,11 +9,11 @@
     "/home/user/MinecraftV2/graphics-lab/screenshots/05-snow.png",
     "/home/user/MinecraftV2/graphics-lab/screenshots/06-sunrise.png"
   ],
-  "fpsMedium": 1.371817383669956,
+  "fpsMedium": 1.8258170531322075,
   "fpsByQuality": {
-    "low": 0.24488196689192454,
-    "medium": 1.371817383669956,
-    "ultra": 0.8914774753357405
+    "low": 3.076331474716401,
+    "medium": 1.8258170531322075,
+    "ultra": 0.681291729118495
   },
-  "notes": "demoReady=true after 9ms\ndemo API keys: setTimeOfDay,setWeather,setUnderwater,setView,setQuality,toggle,spawnBlockBreak,renderer,camera,scene,sky,controls\n01-day.png: {\"mean\":144.19,\"std\":72.27,\"width\":1600,\"height\":900}\n02-night.png: {\"mean\":54.66,\"std\":55.17,\"width\":1600,\"height\":900}\n03-rain.png: {\"mean\":123.59,\"std\":64.21,\"width\":1600,\"height\":900}\n04-underwater.png: {\"mean\":90.87,\"std\":40.49,\"width\":1600,\"height\":900}\n05-snow.png: {\"mean\":139.1,\"std\":65.22,\"width\":1600,\"height\":900}\n06-sunrise.png: {\"mean\":112.49,\"std\":66.79,\"width\":1600,\"height\":900}\nfps medium=1.4 ultra=0.9 low=0.2"
+  "notes": "demoReady=true after 8ms\ndemo API keys: setTimeOfDay,setWeather,setUnderwater,setView,setQuality,toggle,spawnBlockBreak,renderer,camera,scene,sky,controls\n01-day.png: {\"mean\":137.65,\"std\":74.77,\"width\":1600,\"height\":900}\n02-night.png: {\"mean\":53.82,\"std\":54.55,\"width\":1600,\"height\":900}\n03-rain.png: {\"mean\":116.8,\"std\":66.51,\"width\":1600,\"height\":900}\n04-underwater.png: {\"mean\":53.16,\"std\":12.3,\"width\":1600,\"height\":900}\n05-snow.png: {\"mean\":130.8,\"std\":71.37,\"width\":1600,\"height\":900}\n06-sunrise.png: {\"mean\":99.98,\"std\":66.49,\"width\":1600,\"height\":900}\nfps medium=1.8 ultra=0.7 low=3.1"
 }

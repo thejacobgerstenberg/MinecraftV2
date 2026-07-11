@@ -48,7 +48,7 @@ const { clamp, smoothstep, lerp } = THREE.MathUtils;
 // ---------------------------------------------------------------------------
 const c = (hex) => new THREE.Color(hex);
 
-const DAY_ZENITH    = c(0x2565cc); // rich sky blue straight up
+const DAY_ZENITH    = c(0x1d68e6); // rich saturated sky blue straight up
 const DAY_HORIZON   = c(0xb4d0ec); // light blue-grey at the horizon (fog match)
 const DUSK_ZENITH   = c(0x2e4f9e); // twilight zenith stays BLUISH, never orange
 const DUSK_HORIZON  = c(0xff7a30); // warm orange band at the horizon
@@ -96,22 +96,32 @@ function mulberry32(seed) {
 }
 
 // ---------------------------------------------------------------------------
-// Procedural sprite textures (soft radial sun, cratered moon).
+// Procedural sprite textures. Minecraft-style SQUARE sun and moon quads (a
+// crisp square core carries the disc; a soft radial gradient stays underneath
+// purely as the glow/bloom feed — round discs read as generic, not Minecraft).
 // ---------------------------------------------------------------------------
 function makeSunTexture() {
   const s = 128;
   const cv = document.createElement('canvas');
   cv.width = cv.height = s;
   const ctx = cv.getContext('2d');
+  // Soft radial glow (kept for the bloom halo; core alpha is low so the
+  // square silhouette below stays crisp).
   const g = ctx.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
-  g.addColorStop(0.0, 'rgba(255,255,255,1.0)');
-  g.addColorStop(0.14, 'rgba(255,248,228,1.0)');
-  g.addColorStop(0.22, 'rgba(255,236,190,0.85)');
-  g.addColorStop(0.45, 'rgba(255,208,140,0.32)');
-  g.addColorStop(0.75, 'rgba(255,180,110,0.08)');
+  g.addColorStop(0.0, 'rgba(255,244,214,0.55)');
+  g.addColorStop(0.30, 'rgba(255,224,160,0.28)');
+  g.addColorStop(0.60, 'rgba(255,196,124,0.10)');
   g.addColorStop(1.0, 'rgba(255,170,100,0.0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, s, s);
+  // Square white-yellow sun: warm rim quad + bright core quad.
+  const half = s / 2;
+  const q = Math.round(s * 0.19); // core half-side (~24px)
+  const rim = 5;
+  ctx.fillStyle = 'rgba(255,208,120,0.92)';
+  ctx.fillRect(half - q - rim, half - q - rim, (q + rim) * 2, (q + rim) * 2);
+  ctx.fillStyle = 'rgba(255,250,224,1.0)';
+  ctx.fillRect(half - q, half - q, q * 2, q * 2);
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
@@ -124,39 +134,21 @@ function makeMoonTexture() {
   const ctx = cv.getContext('2d');
   // soft outer glow so the moon reads even against a lightening sky
   const glow = ctx.createRadialGradient(s / 2, s / 2, s * 0.24, s / 2, s / 2, s / 2);
-  glow.addColorStop(0.0, 'rgba(214,226,248,0.5)');
-  glow.addColorStop(0.55, 'rgba(210,222,245,0.14)');
+  glow.addColorStop(0.0, 'rgba(214,226,248,0.40)');
+  glow.addColorStop(0.55, 'rgba(210,222,245,0.12)');
   glow.addColorStop(1.0, 'rgba(210,222,245,0.0)');
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, s, s);
-  // solid pale disc with a soft limb
-  const disc = ctx.createRadialGradient(
-    s * 0.44, s * 0.44, s * 0.05,
-    s / 2, s / 2, s * 0.30,
-  );
-  disc.addColorStop(0.0, 'rgba(248,250,255,1.0)');
-  disc.addColorStop(0.80, 'rgba(220,229,247,1.0)');
-  disc.addColorStop(1.0, 'rgba(196,208,232,0.0)');
-  ctx.beginPath();
-  ctx.arc(s / 2, s / 2, s * 0.30, 0, TWO_PI);
-  ctx.fillStyle = disc;
-  ctx.fill();
-  // subtle craters (clipped to the disc)
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(s / 2, s / 2, s * 0.30, 0, TWO_PI);
-  ctx.clip();
-  ctx.fillStyle = 'rgba(158,172,200,0.38)';
-  const craters = [
-    [0.42, 0.40, 0.055], [0.58, 0.52, 0.075], [0.50, 0.63, 0.045],
-    [0.62, 0.38, 0.035], [0.40, 0.56, 0.040],
-  ];
-  for (const [cx, cy, cr] of craters) {
-    ctx.beginPath();
-    ctx.arc(s * cx, s * cy, s * cr, 0, TWO_PI);
-    ctx.fill();
-  }
-  ctx.restore();
+  // Square pale moon quad with a few darker pixel-block "maria".
+  const half = s / 2;
+  const q = Math.round(s * 0.17); // half-side (~22px)
+  ctx.fillStyle = 'rgba(228,236,250,1.0)';
+  ctx.fillRect(half - q, half - q, q * 2, q * 2);
+  ctx.fillStyle = 'rgba(198,210,234,1.0)';
+  const px = Math.round(q * 0.55); // chunky pixel blocks
+  ctx.fillRect(half - q + 3, half - q + 3, px, px);              // top-left
+  ctx.fillRect(half + q - px - 4, half - 2, px, px);             // mid-right
+  ctx.fillRect(half - px + 2, half + q - px - 3, px, px - 3);    // bottom
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
@@ -282,7 +274,7 @@ export class DynamicSky {
         uSunDiscCos: { value: Math.cos(3 * DEG) },
         uSunDiscSoft: { value: 0.0012 },
         uSunDiscIntensity: { value: 0 },
-        uGradPow: { value: 0.55 },
+        uGradPow: { value: 0.40 },
       },
       vertexShader: /* glsl */ `
         ${FAR_HUG_GLSL}
@@ -504,10 +496,12 @@ export class DynamicSky {
         ${FBM_GLSL}
         void main() {
           vec2 uvc = vUv - 0.5;
-          float edge = smoothstep(0.5, 0.28, length(uvc));
-          vec2 p = vUv * 5.0 + uWind * uTime;
+          float edge = smoothstep(0.5, 0.20, length(uvc));
+          // Higher noise frequency (x8) so several distinct puffs sit in the
+          // visible sky band above the island instead of one faint smear.
+          vec2 p = vUv * 8.0 + uWind * uTime;
           float n = fbm(p);
-          float density = smoothstep(uCoverage, uCoverage + 0.24, n);
+          float density = smoothstep(uCoverage, uCoverage + 0.16, n);
           float shade = smoothstep(0.25, 0.85, n);
           vec3 col = mix(uCloudShadow, uCloudLit, shade);
           float alpha = density * edge * uOpacity;
@@ -614,21 +608,22 @@ export class DynamicSky {
     this._zenithColor.copy(NIGHT_ZENITH).lerp(DAY_ZENITH, dayAmt);
     this._zenithColor.lerp(DUSK_ZENITH, tw * 0.4);
     this._domeMat.uniforms.uGlowStrength.value = tw * 0.85;
-    // Steeper gradient at twilight: blue arrives lower in the sky, so the
-    // zenith reads dark/blue while the warm band hugs the horizon.
-    this._domeMat.uniforms.uGradPow.value = lerp(0.55, 0.34, tw);
+    // Day baseline 0.40 pulls the rich zenith blue well down toward the
+    // horizon (the old 0.55 left the upper sky a featureless pale haze);
+    // steeper still at twilight so the warm band hugs the horizon.
+    this._domeMat.uniforms.uGradPow.value = lerp(0.40, 0.34, tw);
 
-    // ---- Sun glow + disc (dome shader).
+    // ---- Sun glow (dome shader). The dome's ROUND disc is disabled (kept in
+    // the shader for API stability): the sun disc is now the Minecraft-style
+    // SQUARE sprite quad; a round dome disc behind it would spoil the square
+    // silhouette. The tight dome halo still carries the horizon glow.
     const sunHi = smoothstep(a, 0.05, 0.45); // 0 at horizon -> 1 high sun
     this._sunGlowColor.copy(SUN_GLOW_WARM).lerp(SUN_GLOW_NOON, sunHi);
     this._domeMat.uniforms.uSunGlow.value = Math.max(dayAmt * 0.85, tw);
-    // Disc grows and warms near the horizon (big orange rising sun), shrinks
-    // and whitens overhead. Fades out once the sun is genuinely below.
     const discAng = lerp(4.4, 2.4, sunHi) * DEG;
     this._domeMat.uniforms.uSunDiscCos.value = Math.cos(discAng);
     this._domeMat.uniforms.uSunDiscSoft.value = lerp(0.0018, 0.0008, sunHi);
-    this._domeMat.uniforms.uSunDiscIntensity.value =
-      2.2 * smoothstep(a, -0.06, 0.0);
+    this._domeMat.uniforms.uSunDiscIntensity.value = 0.0;
 
     // ---- Moon glow (dome).
     const nightF = 1 - dayAmt;
@@ -648,10 +643,12 @@ export class DynamicSky {
     this._sunSprite.scale.set(ss, ss, 1);
     this._sunSprite.visible = this._sunSpriteMat.opacity > 0.001;
 
-    // ---- Moon sprite (up at night on its low -Z arc).
+    // ---- Moon sprite (up at night on its low -Z arc). Scaled by nightF with
+    // NO daytime floor: the old 0.12 floor left a faint pale disc hanging in
+    // the day sky (it read as a phantom second sun / bloom ghost in shots).
     this._moonSprite.position.copy(this.moonDir).multiplyScalar(this._spriteR);
     this._moonSpriteMat.opacity =
-      smoothstep(this.moonDir.y, -0.03, 0.06) * (0.12 + 0.88 * nightF);
+      smoothstep(this.moonDir.y, -0.03, 0.06) * nightF;
     this._moonSprite.visible = this._moonSpriteMat.opacity > 0.001;
 
     // ---- Cloud colours + opacity (sun-tinted).
@@ -727,6 +724,20 @@ export class DynamicSky {
       this.sun.color.lerp(this._scratch2, 0.35 * wf);
       this.hemi.intensity *= (1 - 0.2 * wf);
       this.hemi.color.lerp(this._scratch2, 0.5 * wf);
+
+      // Snow-specific COOL grade (subtler than the rain grey): pull the sky
+      // and light rig toward a clearly blue steel tone so snowfall reads cold
+      // and desaturated at a glance — measurably cooler (higher blue-vs-red)
+      // than the clear-day frame, not merely dimmer.
+      if (this._weather === 'snow') {
+        this._scratch2.setHex(0x93b9f0).multiplyScalar(greyScale);
+        this._horizonColor.lerp(this._scratch2, 0.60);
+        this._zenithColor.lerp(this._scratch2, 0.45);
+        this.hemi.color.lerp(this._scratch2, 0.60);
+        this.sun.color.lerp(this._scratch2, 0.45);
+        this._cloudLit.lerp(this._scratch2, 0.45);
+        this._cloudShadow.lerp(this._scratch2, 0.30);
+      }
     }
     this._cloudMat.uniforms.uCoverage.value = 0.46 - 0.2 * wf;
   }

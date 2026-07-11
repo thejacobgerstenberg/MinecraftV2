@@ -339,10 +339,13 @@ export class Water {
     }
 
     // --- Glint strength: full sun sparkle by day, a modest moon streak at
-    //     night; both fade through twilight so there is no pop. --------------
+    //     night; both fade through twilight so there is no pop. Underwater
+    //     the glints are nearly killed: bright speculars on the surface seen
+    //     from below would punch white holes in the murk. -------------------
     u.uSpecBoost.value = this._manualSun
       ? this._manualSunIntensity
       : dayAmt + nightAmt * 0.35;
+    if (ctx && ctx.underwater === true) u.uSpecBoost.value *= 0.15;
 
     // --- Glint colour: manual > light rig (sky sets a cool moon colour on its
     //     key light at night) > warm/cool blend fallback. --------------------
@@ -441,6 +444,15 @@ export class UnderwaterOverlay {
     return this._active;
   }
 
+  // Current underwater fog colour (already day/night graded). Hosts use this
+  // to tint other systems to the murk — e.g. the demo feeds it to ctx.skyColor
+  // while submerged so the water surface seen from below matches the fog.
+  // Pass a THREE.Color target to avoid the allocation.
+  getFogColor(target) {
+    if (target && target.isColor) return target.copy(this._underwaterFog.color);
+    return this._underwaterFog.color.clone();
+  }
+
   update(dt, ctx) {
     if (!this._enabled) {
       if (this._active) this._deactivate();
@@ -485,10 +497,11 @@ export class UnderwaterOverlay {
       background: this._scene.background || null,
     };
     this._scene.fog = this._underwaterFog;
-    // Only override a colour background (leave textures/cube-maps untouched).
-    if (this._scene.background && this._scene.background.isColor) {
-      this._scene.background = this._underwaterBg;
-    }
+    // ALWAYS take over the background (the snapshot restores it verbatim,
+    // including null). The demo scene has a null background: leaving it in
+    // place let the renderer clear / bright sky read through the murk as a
+    // white void wherever no geometry covered the frame.
+    this._scene.background = this._underwaterBg;
     this.object3d.visible = true;
     this._active = true;
   }

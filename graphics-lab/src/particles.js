@@ -27,7 +27,7 @@
 //
 // Every material carries a per-emitter SCREEN-SPACE size cap (uMaxSize) so a
 // near-camera particle can never balloon into a giant quad: rain <= 24px,
-// snow <= 12px, splash <= 20px, debris <= 28px, flame <= 80px (kept larger on
+// snow <= 14px, splash <= 20px, debris <= 28px, flame <= 80px (kept larger on
 // purpose so bloom picks up the halo at night).
 //
 // Blending: ADDITIVE for the flame (glow), NORMAL for smoke / rain / snow /
@@ -59,7 +59,7 @@ const FLAME_PER   = 12;   // flame points per torch
 const SMOKE_PER   = 5;    // smoke points per torch
 const BB_CAP      = 360;  // block-break debris ring buffer
 const RAIN_CAP    = 2000; // streaks at intensity 1
-const SNOW_CAP    = 1400; // flakes at intensity 1
+const SNOW_CAP    = 2600; // flakes at intensity 1 (dense enough to read as snow)
 const SPLASH_CAP  = 200;  // rain splash rings at the water surface
 
 // --- Shared point shader -----------------------------------------------------
@@ -228,7 +228,7 @@ export class Particles {
     this._smokeMat  = mat(this._texDot,    THREE.NormalBlending,   56);
     this._bbMat     = mat(this._texSquare, THREE.NormalBlending,   28);
     this._rainMat   = mat(this._texStreak, THREE.NormalBlending,   24);
-    this._snowMat   = mat(this._texDot,    THREE.NormalBlending,   12);
+    this._snowMat   = mat(this._texDot,    THREE.NormalBlending,   14);
     this._splashMat = mat(this._texRing,   THREE.NormalBlending,   20);
     // Lean the rain streaks into the wind.
     this._rainMat.uniforms.uRotation.value = Math.atan2(this._windX, 30) * 0.7;
@@ -348,8 +348,8 @@ export class Particles {
     for (let i = 0; i < SNOW_CAP; i++) {
       const i3 = i * 3;
       s.color[i3] = 1.0; s.color[i3 + 1] = 1.0; s.color[i3 + 2] = 1.0;
-      s.size[i] = 0.2 + rand() * 0.18;
-      s.alpha[i] = 0.85;
+      s.size[i] = 0.3 + rand() * 0.22;  // big soft flakes (screen-capped 14px)
+      s.alpha[i] = 0.95;
     }
     r.ca.needsUpdate = r.sa.needsUpdate = r.aa.needsUpdate = true;
     s.ca.needsUpdate = s.sa.needsUpdate = s.aa.needsUpdate = true;
@@ -452,6 +452,13 @@ export class Particles {
 
     const camObj = (ctx && ctx.camera) || this._camera || null;
     const cam = this._resolveCamPos(camObj);
+
+    // Underwater: hide the torch flames/smoke. Every torch in this scene sits
+    // above the surface, and their fog-exempt additive sprites would read as
+    // floating orange blobs punching through the submerged murk.
+    const uw = !!(ctx && ctx.underwater === true);
+    this._flame.pts.visible = !uw;
+    this._smoke.pts.visible = !uw;
 
     this._updateBlockBreak(dt);
     this._updateFlame(dt, elapsed);

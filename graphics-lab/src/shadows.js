@@ -70,6 +70,8 @@ export class ShadowController {
     this._lightDist = lightDistance;         // sun distance from the framed focus
     this._focusFallbackDist = 55;            // used if the look-ray misses the plane
     this._maxFocusDist = 260;
+    this._maxFocusRadius = 10;               // focus never strays further than this
+                                             // from the chunk center (see update)
 
     // Reused scratch (no per-frame allocation).
     this._sunDir = new THREE.Vector3(0, 1, 0.2).normalize(); // toward the sun
@@ -204,6 +206,23 @@ export class ShadowController {
       this._computeFocus(ctx.camera, this._focus);
     } else {
       this._focus.copy(this._center);
+    }
+
+    // 2b) CLAMP the focus to a small radius around the authored chunk center.
+    //     A shallow-pitched camera (the 'hero' view looks down only ~8 deg)
+    //     lands its ground-ray far BEYOND the island, which used to drag the
+    //     whole +-35u shadow frustum off the terrain — no visible shadows at
+    //     all. The island is only 48 wide, so the frustum must stay centred
+    //     on it; the follow-the-view offset is capped at maxFocusRadius.
+    {
+      const ox = this._focus.x - this._center.x;
+      const oz = this._focus.z - this._center.z;
+      const od = Math.sqrt(ox * ox + oz * oz);
+      if (od > this._maxFocusRadius) {
+        const s = this._maxFocusRadius / od;
+        this._focus.x = this._center.x + ox * s;
+        this._focus.z = this._center.z + oz * s;
+      }
     }
 
     // 3) Texel-snap the focus in the light's image plane to stop edge crawl.
