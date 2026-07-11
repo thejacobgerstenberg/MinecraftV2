@@ -99,7 +99,7 @@
         "tameable": true,
         "tameFood": "raw_skein",
         "mountRequires": "saddle_frame",
-        "note": "Taming is the one mechanic (tame_entity:spoolmare — base 15% per mount attempt, +10% per raw_skein fed between attempts, cap 75%). Per structures.json: wild mares grazing the ghost-banks of twice_ford are calmest there ('raised tame chance within the footprint'), and the spoolmare_picket corral holds 2-4 already-gentled mares at 'greatly raised tame chance' — the intended early path to tame_entity:spoolmare. Spoolmares do not foal: new mares are wound where the ghost-rivers run, and the Downs keep their own count. A saddle_frame is required to ride; the bond is required before the frame."
+        "note": "Taming is the one mechanic (tame_entity:spoolmare — base 15% per mount attempt, +10% per raw_skein fed between attempts, cap 75%). Per structures.json: wild mares that pause along the ghost-banks of twice_ford, six thread-legs stilled in the shallows, are calmest there ('raised tame chance within the footprint'), and the spoolmare_picket corral holds 2-4 already-gentled mares leaning at the pickets like spools at rest, at 'greatly raised tame chance' — the intended early path to tame_entity:spoolmare. Spoolmares are not foaled: new mares are spun where the ghost-rivers run, and the Downs keep their own count. A saddle_frame is required to ride; the bond is required before the frame."
       },
       "visual": {
         "palette": ["#C8B7E0", "#9E86C2", "#6B5694", "#F0EAF7", "#3A2E52"],
