@@ -15,13 +15,14 @@ import * as THREE from 'three';
 // chest seam — the last thread of warmth the Loom has begun to forget.
 // ---------------------------------------------------------------------------
 
-// Palette — dust-grey unravelled cloth, darker frayed seams, faint Thrum glow.
+// Palette (canonical Understruck bestiary palette) — desaturated grey-teal
+// unravelled cloth, darker frayed seams, pale Thrum glow.
 const PALETTE = {
-  cloth: 0x8a8577,      // main sagging bandage/thread cloth
-  clothShade: 0x716c60, // darker secondary cloth layer (asymmetry / depth read)
-  seam: 0x4e4a42,       // frayed seams / stitched trim / thread wisps
-  voidEye: 0x201e19,    // hollow stitched eye sockets / mouth seam
-  thrum: 0x5fa8b0,      // faint blue Thrum glow at the chest seam
+  cloth: 0x8fa39d,      // main sagging bandage/thread cloth
+  clothShade: 0x5e6e6a, // darker secondary cloth layer (asymmetry / depth read)
+  seam: 0x3c4a47,       // frayed seams / stitched trim / thread wisps
+  voidEye: 0x232c2a,    // hollow stitched eye sockets / mouth seam
+  thrum: 0xc4d4cf,      // faint pale Thrum glow at the chest seam
 };
 
 function makeMaterials() {
@@ -412,8 +413,15 @@ export function build() {
 export const meta = {
   archetype: 'groaner',
   species: 'Understruck',
+  canonicalId: 'understruck',
   dimensionDefault: 'warpwold',
-  palette: PALETTE,
+  palette: {
+    cloth: '#8FA39D',
+    clothShade: '#5E6E6A',
+    seam: '#3C4A47',
+    voidEye: '#232C2A',
+    thrum: '#C4D4CF',
+  },
   description:
     'A hostile, mournful Warpwold wraith woven from unravelling bandage-cloth. ' +
     'Tall, gaunt, and permanently hunched forward, the Understruck drags ' +

@@ -13,12 +13,12 @@ import * as THREE from 'three';
 // while the whole body swells and its seams glow warm, looking about to pop.
 // ============================================================================
 
-// ---- Palette ---------------------------------------------------------------
+// ---- Palette (canonical Waxling bestiary palette) --------------------------
 const PALETTE = {
-  tallow: 0xe8d8a0,   // pale tallow wax — main body mass
-  amberDrip: 0xd9a441, // amber wax drips — accent lobes
-  wick: 0x2a241c,      // blackened wick (unlit)
-  ember: 0xff7a2a,     // ember-orange the wick/seams glow toward as fuse rises
+  tallow: 0xf7e7b8,   // pale tallow wax — main body mass
+  amberDrip: 0xd4a94f, // amber wax drips — accent lobes
+  wick: 0x7a4e1c,      // blackened wick (unlit)
+  ember: 0xb37e2e,     // ember-orange the wick/seams glow toward as fuse rises
 };
 
 // Plain centered box mesh.
@@ -248,12 +248,14 @@ export function build() {
 export const meta = {
   archetype: 'exploder',
   species: 'Waxling',
+  canonicalId: 'waxling',
   dimensionDefault: 'cinderloom',
   palette: {
-    tallow: '#E8D8A0',
-    amberDrip: '#D9A441',
-    wick: '#2A241C',
-    ember: '#FF7A2A',
+    tallow: '#F7E7B8',
+    tallowShade: '#E8C87A',
+    amberDrip: '#D4A94F',
+    ember: '#B37E2E',
+    wick: '#7A4E1C',
   },
   description:
     'A hostile Cinderloom candle-creature: a squat, blobby mass of dripping ' +

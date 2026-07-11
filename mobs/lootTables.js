@@ -3,11 +3,19 @@
 //
 // Loomfall loot tables for mob archetypes.
 //
-// NOTE: item ids below are PLACEHOLDER STUBS (plain strings) derived from
-// Loomfall canon (content/naming.json) — Warpwold/Cinderloom/Nevermend
-// creatures dropping Thrum-touched materials. No content/items.json exists
-// yet in this repo; when it lands, these ids must be reconciled against the
-// real item registry (renamed/remapped as needed).
+// Item ids below are the REAL canonical ids from content/items.json /
+// content/naming.json (not placeholders). Full set of ids referenced here:
+//   raw_skein, thread_sinew, hide_cloth, knot_charm, lore_scroll,
+//   loose_thread, scorched_silk, tallowstone, cinderthread, emberskein_ore,
+//   needle_iron, voidknot
+// (mothdust is a valid item id but is not used by any table below.)
+//
+// 'unpicked' (The Unpicked) intentionally drops nothing — canonically it
+// leaves no corpse. 'lastneedle' (The Last Needle) intentionally drops
+// nothing — it is the final boss and is bound, not killed, so it has no
+// loot table. Do not add 'the_last_stitch' (does not exist in items.json)
+// or 'everthread' (drops from molthkin, an unimplemented Cinderloom boss,
+// not from the Last Needle) to either table.
 //
 // MobManager emits a 'mobDrop' event { mobId, itemId, pos, count } per
 // dropped stack when a mob dies — this module only computes *what* drops
@@ -20,42 +28,56 @@
 //   min/max: inclusive stack size range rolled uniformly on a hit
 // ----------------------------------------------------------------------
 export const LOOT_TABLES = {
+  // Warpwold
   grazer: [
     { itemId: 'raw_skein', chance: 0.9, min: 1, max: 2 },
   ],
+  bobbindeer: [
+    { itemId: 'thread_sinew', chance: 0.9, min: 1, max: 1 },
+    { itemId: 'hide_cloth', chance: 0.6, min: 1, max: 1 },
+  ],
   trader: [
-    { itemId: 'spare_button', chance: 0.1, min: 1, max: 1 },
+    { itemId: 'knot_charm', chance: 0.4, min: 1, max: 1 },
+    { itemId: 'lore_scroll', chance: 0.1, min: 1, max: 1 },
   ],
   groaner: [
-    { itemId: 'tattered_thread', chance: 0.7, min: 1, max: 2 },
-    { itemId: 'dawnthread', chance: 0.1, min: 1, max: 1 },
-  ],
-  exploder: [
-    { itemId: 'bindwax', chance: 0.85, min: 1, max: 1 },
-  ],
-  screecher: [
-    { itemId: 'mothdust', chance: 0.75, min: 1, max: 2 },
-  ],
-  bobbindeer: [
-    { itemId: 'thread_sinew', chance: 0.8, min: 1, max: 1 },
-    { itemId: 'hide_cloth', chance: 0.4, min: 1, max: 1 },
+    { itemId: 'loose_thread', chance: 0.8, min: 1, max: 2 },
   ],
   frayedhound: [
-    { itemId: 'fray_fang', chance: 0.5, min: 1, max: 1 },
-    { itemId: 'raw_skein', chance: 0.3, min: 1, max: 1 },
+    { itemId: 'thread_sinew', chance: 0.6, min: 1, max: 1 },
+    { itemId: 'hide_cloth', chance: 0.3, min: 1, max: 1 },
   ],
+  needlejack: [
+    { itemId: 'thread_sinew', chance: 0.7, min: 1, max: 1 },
+    { itemId: 'needle_iron', chance: 0.15, min: 1, max: 1 },
+  ],
+
+  // Cinderloom
   emberspinner: [
-    { itemId: 'ember_silk', chance: 0.7, min: 1, max: 2 },
-    { itemId: 'cinderthread', chance: 0.3, min: 1, max: 1 },
+    { itemId: 'scorched_silk', chance: 0.75, min: 1, max: 1 },
   ],
-  unpicked: [
-    { itemId: 'loose_thread', chance: 0.8, min: 1, max: 3 },
-    { itemId: 'voidknot', chance: 0.15, min: 1, max: 1 },
+  exploder: [
+    { itemId: 'tallowstone', chance: 0.5, min: 1, max: 1 },
   ],
-  lastneedle: [
-    { itemId: 'everthread', chance: 1.0, min: 3, max: 5 },
-    { itemId: 'the_last_stitch', chance: 1.0, min: 1, max: 1 },
+  screecher: [
+    { itemId: 'cinderthread', chance: 0.4, min: 1, max: 1 },
   ],
+  scaldwarden: [
+    { itemId: 'emberskein_ore', chance: 0.6, min: 1, max: 1 },
+    { itemId: 'scorched_silk', chance: 0.3, min: 1, max: 1 },
+  ],
+
+  // Nevermend
+  raveler: [
+    { itemId: 'loose_thread', chance: 0.7, min: 1, max: 2 },
+    { itemId: 'voidknot', chance: 0.2, min: 1, max: 1 },
+  ],
+
+  // No corpse / no loot (canonical)
+  unpicked: [],
+
+  // Final boss — bound, not killed; no loot table
+  lastneedle: [],
 };
 
 // ----------------------------------------------------------------------

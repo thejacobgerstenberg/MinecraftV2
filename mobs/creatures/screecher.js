@@ -15,12 +15,12 @@ import * as THREE from 'three';
 // even at a dead standstill (state.moving === false).
 // ============================================================================
 
-// ---- Palette ---------------------------------------------------------------
+// ---- Palette (canonical Slagmoth bestiary palette) --------------------------
 const PALETTE = {
-  wingMembrane: 0x3b2e3a, // charred, tattered wing membrane
-  emberVein: 0xe0632a,    // glowing ember veins streaked across the wings
-  fuzz: 0x6b6259,         // dusty grey fuzz covering the segmented body
-  eyeGlow: 0xf2e7b0,      // pale glowing under-eyes (emissive)
+  wingMembrane: 0x5c1e0a, // charred, tattered wing membrane
+  emberVein: 0xe86a28,    // glowing ember veins streaked across the wings
+  fuzz: 0xa83c14,         // scorched fuzz covering the segmented body
+  eyeGlow: 0xf7b24e,      // pale glowing under-eyes (emissive)
 };
 
 // Plain centered box mesh.
@@ -253,12 +253,14 @@ export function build() {
 export const meta = {
   archetype: 'screecher',
   species: 'Slagmoth',
+  canonicalId: 'slagmoth',
   dimensionDefault: 'cinderloom',
   palette: {
-    wingMembrane: '#3B2E3A',
-    emberVein: '#E0632A',
-    fuzz: '#6B6259',
-    eyeGlow: '#F2E7B0',
+    wingMembrane: '#5C1E0A',
+    wingShadow: '#2B0E06',
+    emberVein: '#E86A28',
+    fuzz: '#A83C14',
+    eyeGlow: '#F7B24E',
   },
   description:
     'A small Cinderloom moth with a fuzzy, segmented dusty-grey body and ' +

@@ -141,7 +141,7 @@
   <div class="row"><span class="k">boss phase</span><span id="hudBossPhase">&ndash;</span></div>
   <div class="row"><span class="k">boss hp</span><span id="hudBossHp">&ndash;</span></div>
   <button id="toggleDay">Toggle day/night</button>
-  <button id="forceSpawn">Force-spawn all 9</button>
+  <button id="forceSpawn">Force-spawn all 12</button>
   <button id="runBossSim" class="boss">Run Boss Sim (The Last Needle)</button>
 </div>
 
@@ -164,6 +164,9 @@
   import { build as buildEmberspinner, meta as metaEmberspinner } from './creatures/emberspinner.js';
   import { build as buildUnpicked, meta as metaUnpicked } from './creatures/unpicked.js';
   import { build as buildLastneedle, meta as metaLastneedle } from './creatures/lastneedle.js';
+  import { build as buildNeedlejack, meta as metaNeedlejack } from './creatures/needlejack.js';
+  import { build as buildScaldwarden, meta as metaScaldwarden } from './creatures/scaldwarden.js';
+  import { build as buildRaveler, meta as metaRaveler } from './creatures/raveler.js';
 
   // NOTE: order here is display order for the showcase row / isolate mode
   // dropdown-equivalent (?mob=<archetype>). 'lastneedle' (the boss) is
@@ -181,6 +184,9 @@
     frayedhound: { build: buildFrayedhound, meta: metaFrayedhound },
     emberspinner: { build: buildEmberspinner, meta: metaEmberspinner },
     unpicked: { build: buildUnpicked, meta: metaUnpicked },
+    needlejack: { build: buildNeedlejack, meta: metaNeedlejack },
+    scaldwarden: { build: buildScaldwarden, meta: metaScaldwarden },
+    raveler: { build: buildRaveler, meta: metaRaveler },
     lastneedle: { build: buildLastneedle, meta: metaLastneedle },
   };
   const ARCHETYPES = Object.keys(CREATURES);
@@ -196,6 +202,7 @@
   window.__bossState = { phase: 0, hp: 0, maxHp: 0 };
   window.__bossDefeated = false;
   window.__runBossSim = function () { return false; }; // overwritten in showcase mode
+  window.__testLoot = function () { return []; }; // overwritten in showcase mode
   Object.defineProperty(window, '__mobCount', {
     get() { return window.__manager ? window.__manager.mobs.length : 0; },
   });
@@ -239,10 +246,12 @@
 
   // ------------------------------------------------------------------
   // On-page event log (also mirrors to console + window.__events).
-  // Handles all seven MobManager event shapes:
-  //   mobSpawn/mobHurt/mobDeath/mobAttack/mobDespawn -- { archetype, species, mob, position, ... }
-  //   bossDefeated                                   -- as above, plus { bound: true }
-  //   mobDrop                                        -- { mobId, itemId, pos:{x,y,z}, count } (NO archetype/species/position)
+  // Handles all seven MobManager event shapes, every one of which now
+  // carries both `archetype` (spawn-table slot key) AND `canonicalId`
+  // (snake_case entity id, e.g. 'last_needle'):
+  //   mobSpawn/mobHurt/mobDeath/mobAttack/mobDespawn -- { archetype, canonicalId, species, mob, position, ... }
+  //   bossDefeated                                   -- as above, plus { bound:true, victoryTrigger, achievement }
+  //   mobDrop                                        -- { mobId, archetype, canonicalId, itemId, pos:{x,y,z}, count } (real content/items.json / naming.json ids, e.g. 'raw_skein'; NO species/position/mob field)
   // ------------------------------------------------------------------
   const logEl = document.getElementById('log');
   function fmtPos(p) {
@@ -254,18 +263,21 @@
     detail = detail || {};
     let line;
     if (name === 'mobDrop') {
-      line = `[event] mobDrop mob#${detail.mobId} item=${detail.itemId} x${detail.count} @ ${fmtPos(detail.pos)}`;
+      line = `[event] mobDrop mob#${detail.mobId} (${detail.canonicalId}) item=${detail.itemId} x${detail.count} @ ${fmtPos(detail.pos)}`;
     } else {
-      line = `[event] ${name} ${detail.archetype} ${detail.species} @ ${fmtPos(detail.position)}` +
+      line = `[event] ${name} ${detail.archetype}/${detail.canonicalId} ${detail.species} @ ${fmtPos(detail.position)}` +
         (detail.dmg !== undefined ? ` dmg=${detail.dmg}` : '') +
         (detail.explosion ? ' EXPLOSION' : '') +
         (detail.hitPlayer !== undefined ? ` hitPlayer=${detail.hitPlayer}` : '') +
-        (detail.bound ? ' BOUND' : '');
+        (detail.bound ? ' BOUND' : '') +
+        (detail.victoryTrigger ? ` victoryTrigger=${detail.victoryTrigger}` : '') +
+        (detail.achievement ? ` achievement=${detail.achievement}` : '');
     }
     console.log(line);
     window.__events.push({
       name,
       archetype: detail.archetype,
+      canonicalId: detail.canonicalId,
       species: detail.species,
       position: detail.position || detail.pos,
       dmg: detail.dmg,
@@ -274,6 +286,8 @@
       count: detail.count,
       mobId: detail.mobId,
       bound: !!detail.bound,
+      victoryTrigger: detail.victoryTrigger,
+      achievement: detail.achievement,
       t: performance.now(),
     });
     const div = document.createElement('div');
@@ -447,9 +461,10 @@
           state = { moving: true, grounded: false, fuse: 0, hurt: 0, attack, phase: 0, dimension: entry.meta.dimensionDefault };
         } else {
           // Hostile grounded archetypes (groaner/frayedhound/emberspinner/
-          // unpicked) also get a periodic attack-flash pulse; passive ones
-          // (grazer/trader/bobbindeer) just sit at attack:0.
-          const isHostileGrounded = ['groaner', 'frayedhound', 'emberspinner', 'unpicked'].includes(archetype);
+          // unpicked/needlejack/raveler) also get a periodic attack-flash
+          // pulse; passive/neutral ones (grazer/trader/bobbindeer/
+          // scaldwarden) just sit at attack:0.
+          const isHostileGrounded = ['groaner', 'frayedhound', 'emberspinner', 'unpicked', 'needlejack', 'raveler'].includes(archetype);
           const attack = isHostileGrounded ? Math.max(0, 1 - ((t % 2.2) / 0.35)) : 0;
           state = { moving: true, grounded: true, fuse: 0, hurt: 0, attack, phase: 0, dimension: entry.meta.dimensionDefault };
         }
@@ -476,7 +491,7 @@
     // SHOWCASE + LIVE SIM MODE
     // ==================================================================
     function runShowcaseMode() {
-      // ---- Static showcase row: all ten creatures side by side --------
+      // ---- Static showcase row: all thirteen creatures side by side ---
       const spacing = 2.2;
       const startX = -((ARCHETYPES.length - 1) * spacing) / 2;
       ARCHETYPES.forEach((archetype, i) => {
@@ -526,6 +541,36 @@
       });
       window.__manager = manager;
 
+      // ================================================================
+      // window.__testLoot(): spawns one grazer/Skeinling at a fixed,
+      // off-to-the-side position, kills it in one hit, and returns the
+      // 'mobDrop' event(s) it produced -- so a verifier can assert the
+      // dropped itemId is the REAL canonical id 'raw_skein' (from
+      // content/naming.json), not a placeholder/stub string. LOOT_TABLES.
+      // grazer rolls raw_skein at a 90% independent chance per kill (not
+      // guaranteed), so this retries with fresh grazers (each fully
+      // killed and cleaned up before the next) until a drop lands, capped
+      // at maxAttempts so a broken loot table fails fast instead of
+      // hanging. Returns [] only if every attempt whiffs (statistically
+      // ~1 in 25^-ish for the default cap, i.e. effectively "loot table is
+      // broken").
+      // ================================================================
+      window.__testLoot = function (maxAttempts) {
+        const attempts = Number.isFinite(maxAttempts) ? maxAttempts : 25;
+        const pos = { x: 500, y: 1, z: 500 }; // fixed, far outside the showcase/sim view
+        for (let i = 0; i < attempts; i++) {
+          const beforeLen = window.__events.length;
+          const mob = manager.spawn('grazer', pos);
+          if (!mob) return [];
+          mob.hurt(mob.maxHp + 1000); // guaranteed one-hit kill regardless of tuning
+          const drops = window.__events
+            .slice(beforeLen)
+            .filter((e) => e.name === 'mobDrop' && e.mobId === mob.id);
+          if (drops.length) return drops;
+        }
+        return [];
+      };
+
       manager.addEventListener('mobSpawn', (e) => attachLabelForMob(e.detail.mob));
 
       function attachLabelForMob(mob) {
@@ -535,7 +580,7 @@
         labelEls.push({ el: label, anchor: mob.headAnchor || mob.group });
       }
 
-      // Force an initial spawn of all nine non-boss archetypes so the
+      // Force an initial spawn of all twelve non-boss archetypes so the
       // scene is populated immediately rather than waiting on the random
       // spawn timer. The boss is never part of ambient/force spawning --
       // see __runBossSim() below.
@@ -562,9 +607,12 @@
       // of a dedicated boss MobManager -- and (2) the full 3-phase boss
       // encounter: spawns The Last Needle into a flat arena
       // (`new StubWorld({arena:true})`) and scripts repeated mob.hurt()
-      // calls on a timer over ~6-8s so hp crosses both phase thresholds
-      // (phase1HpFrac=0.66, phase2HpFrac=0.33) and finally reaches 0,
-      // firing 'bossDefeated' + one 'mobDrop' per loot roll.
+      // calls on a timer over ~6-8s so hp crosses both canonical phase
+      // thresholds (phase1HpFrac=0.60, phase2HpFrac=0.15) and finally
+      // reaches 0, firing exactly one 'bossDefeated' (canonicalId
+      // 'last_needle', victoryTrigger 'kill_entity:last_needle',
+      // achievement 'taught_to_mend', bound:true) and NO 'mobDrop' --
+      // canonically the Last Needle is bound, not killed, and has no loot.
       //
       // A SEPARATE MobManager is used for the boss rather than reusing
       // `manager`: MobManager's `world` is fixed at construction (there is
@@ -624,7 +672,7 @@
         window.__bossState = { phase: boss.bossPhase, hp: boss.hp, maxHp: boss.maxHp };
 
         // Script ~6-8s of player damage so hp sweeps through all 3 phases
-        // (frac>0.66 / 0.33<frac<=0.66 / frac<=0.33) and reaches 0. Fixed
+        // (frac>0.60 / 0.15<frac<=0.60 / frac<=0.15) and reaches 0. Fixed
         // tick count/interval derived from maxHp so this stays correct
         // even if boss tuning (maxHp) changes later.
         const totalDurationMs = 7000;
@@ -676,7 +724,7 @@
           document.getElementById('hudBossHp').textContent = `${Math.max(0, Math.round(bossMob.hp))}/${bossMob.maxHp}`;
         } else if (window.__bossDefeated) {
           document.getElementById('hudBossPhase').textContent = 'defeated';
-          document.getElementById('hudBossHp').textContent = '0/' + (window.__bossState.maxHp || 300);
+          document.getElementById('hudBossHp').textContent = '0/' + (window.__bossState.maxHp || 600);
         } else {
           document.getElementById('hudBossPhase').textContent = '–';
           document.getElementById('hudBossHp').textContent = '–';

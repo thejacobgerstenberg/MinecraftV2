@@ -5,59 +5,107 @@ import * as THREE from 'three';
 // Loomfall lore: when the Weaver's Loom frays past mending, the last stitch
 // pulls itself free and rises as a colossal floating needle-entity — the
 // Ravelling wearing the shape of the tool that made it. It has no legs; it
-// never touches ground, hanging instead inside a slow void-purple aura. A
-// tall tarnished-iron spire tapers to a killing point below, wrapped at its
-// waist in a band of grey-violet thread, and crowned above by a radiating
-// halo of writhing thread-tendrils around a single searing eye-of-thread —
-// the great needle-eye slot pierced through the crown just beneath it. As
-// the fight escalates through its three phases the eye reddens, the aura
-// swells, and the tendril-crown spins and lashes faster.
+// never touches ground, hanging instead inside a slow void-grey aura. A tall
+// PALE SILVER needle-spire (never dark iron) tapers to a glinting killing
+// point below, wrapped at its waist in a band of grey-blue thread, and
+// crowned above by a clear radiating ring of 8 writhing thread-tendrils
+// around a single searing eye-of-thread — the great rectangular needle-eye
+// slot, threaded with a dark strand, pierced through the crown just behind
+// it. As the fight escalates through its three phases the eye burns from a
+// bright searing white toward a dull blood-red, the aura swells, and the
+// tendril-crown spins and lashes faster.
 // ============================================================================
 
 export function build() {
   const root = new THREE.Group();
   root.name = 'The Last Needle';
 
-  // ---- Palette ---------------------------------------------------------
+  // ---- Palette (canonical Last Needle bestiary palette) -------------------
+  // A PALE SILVER needle, never dark iron: bright silver main, a mid
+  // grey-blue for shading/thread-wrap, a dark grey-blue shadow tone,
+  // near-black for punched-through voids, a bright near-white highlight for
+  // glinting metal, and a single dull blood-red accent reserved for the
+  // eye-of-thread and its dark thread strand.
   const palette = {
-    ironSpire: 0x4a4658,   // tarnished needle-iron — the spire core
-    threadWrap: 0x7a6e8c,  // thread-wrap — midsection band + tendrils
-    eye: 0xe0d24a,         // searing thread-eye — emissive, phase 1
-    eyeHot: 0xff5a5a,      // searing thread-eye — emissive, phase 3 target
-    aura: 0x8e6adf,        // void aura — faint emissive halo/motes
+    ironSpire: 0xd8dee8,   // pale silver needle — spire main
+    ironMid: 0x8a93a8,     // mid grey-blue — spire shading + thread-wrap
+    ironShadow: 0x3b4152,  // dark grey-blue — spire shadow + tendril tips
+    voidAccent: 0x0b0d14,  // near-black — punched-through slot / dark thread
+    highlight: 0xf2f5fa,   // bright near-white — glinting edges, cool eye state
+    accent: 0x5e1f1f,      // dull blood-red — eye/thread accent, hot eye state
   };
 
   // ---- Materials (shared per color so the box count stays lean) --------
+  // NOTE on metalness: this scene has no environment map, so
+  // MeshStandardMaterial's metallic response (which sources its color from
+  // specular/reflection, not diffuse) starves out to near-black across most
+  // of the surface with only bright import at direct specular highlights.
+  // Every other creature file in this package keeps metalness in the
+  // 0-0.2 band for exactly this reason; the Last Needle previously ran
+  // 0.5-0.75 here, which is why the pale-silver #D8DEE8 spire was rendering
+  // as dark slate-gray/near-black instead of its intended base color. Kept
+  // low so the actual pale-silver/grey-blue hex values read as lit diffuse
+  // color instead of being swallowed by unlit metallic falloff.
   const ironMat = new THREE.MeshStandardMaterial({
     color: palette.ironSpire,
-    roughness: 0.55,
-    metalness: 0.65,
+    roughness: 0.3,
+    metalness: 0.2,
+  });
+  const ironMidMat = new THREE.MeshStandardMaterial({
+    color: palette.ironMid,
+    roughness: 0.4,
+    metalness: 0.15,
+  });
+  const ironShadowMat = new THREE.MeshStandardMaterial({
+    color: palette.ironShadow,
+    roughness: 0.5,
+    metalness: 0.1,
+  });
+  const highlightMat = new THREE.MeshStandardMaterial({
+    color: palette.highlight,
+    roughness: 0.15,
+    metalness: 0.15,
+    emissive: new THREE.Color(palette.highlight),
+    emissiveIntensity: 0.4,
   });
   const threadMat = new THREE.MeshStandardMaterial({
-    color: palette.threadWrap,
+    color: palette.ironMid,
     roughness: 0.8,
     metalness: 0.1,
   });
   // Eye material's emissive color/intensity is mutated live by animate() to
-  // sell the phase shift from yellow-gold toward burning red.
+  // sell the phase shift from a bright searing white toward a dull burning
+  // blood-red, and to always read as strongly, searingly bright.
   const eyeMat = new THREE.MeshStandardMaterial({
-    color: palette.eye,
-    roughness: 0.25,
-    metalness: 0.2,
-    emissive: new THREE.Color(palette.eye),
-    emissiveIntensity: 1.4,
+    color: palette.highlight,
+    roughness: 0.2,
+    metalness: 0.15,
+    emissive: new THREE.Color(palette.highlight),
+    emissiveIntensity: 2.0,
   });
-  // Needle-eye slot: a darker punched-through hole beneath the crown.
+  // Needle-eye slot: a near-black punched-through hole beneath the crown.
   const slotMat = new THREE.MeshStandardMaterial({
-    color: 0x1c1a24,
-    roughness: 0.6,
-    metalness: 0.3,
+    color: palette.voidAccent,
+    roughness: 0.7,
+    metalness: 0.15,
+  });
+  // Static blood-red accent ring: sits behind/around the eye lens so the
+  // brief's "blood-red eye accent" is a real, always-visible structural
+  // color (not something that only appears once animate() has driven the
+  // eye's emissive lerp deep into its hot phase). The lens itself still
+  // phase-shifts white->red via eyeMat above.
+  const bloodRimMat = new THREE.MeshStandardMaterial({
+    color: palette.accent,
+    roughness: 0.5,
+    metalness: 0.1,
+    emissive: new THREE.Color(palette.accent),
+    emissiveIntensity: 0.6,
   });
   const auraMat = new THREE.MeshStandardMaterial({
-    color: palette.aura,
+    color: palette.ironMid,
     roughness: 1.0,
     metalness: 0.0,
-    emissive: new THREE.Color(palette.aura),
+    emissive: new THREE.Color(palette.ironMid),
     emissiveIntensity: 0.35,
     transparent: true,
     opacity: 0.35,
@@ -78,18 +126,37 @@ export function build() {
 
   const spireSegDefs = [
     // [w, h, d, centerY]
-    [0.62, 0.7, 0.62, 3.55],  // shoulders, just under the crown
+    [0.62, 0.7, 0.62, 3.55],   // shoulders, just under the neck/crown
     [0.5, 0.6, 0.5, 2.95],
     [0.4, 0.55, 0.4, 2.4],
-    [0.32, 0.5, 0.32, 1.9],   // waist — thread band wraps here (below)
+    [0.32, 0.5, 0.32, 1.9],    // waist — thread band wraps here (below)
     [0.24, 0.5, 0.24, 1.4],
     [0.16, 0.5, 0.16, 0.92],
-    [0.09, 0.45, 0.09, 0.48], // shaft narrowing to the tip
+    [0.09, 0.45, 0.09, 0.48],  // shaft narrowing to the tip
     [0.045, 0.26, 0.045, 0.13], // needle point, lowest box, bottom ~= y0
+    [0.5, 0.28, 0.5, 4.02],    // neck — bridges the shoulders up to the crown
   ];
-  const spireSegs = spireSegDefs.map(([w, h, d, cy]) => {
+  // Pale silver is the DOMINANT tone across the shaft (per brief: "never
+  // dark iron") — shoulders, neck, upper-mid and lower-mid shaft all read
+  // pale-silver — with only two thin mid grey-blue accent bands (at the
+  // waist thread-wrap and just below it) and a single dark grey-blue
+  // shadow segment right above the tip for grounding, then a bright
+  // glinting highlight at the needle's point. This keeps the silhouette
+  // reading pale-silver even when a camera/viewport crop clips the topmost
+  // shoulders/neck/crown, instead of concentrating all the bright material
+  // in the very top segments where it's most likely to be cropped out.
+  const spireMatFor = (i) => {
+    if (i === 8) return ironMat;        // neck, just under the crown — bright
+    if (i <= 2) return ironMat;         // shoulders/upper shaft — pale silver
+    if (i === 3) return ironMidMat;     // waist — mid grey-blue thread-wrap accent
+    if (i === 4) return ironMat;        // lower-mid shaft — back to pale silver
+    if (i === 5) return ironMidMat;     // brief mid-tone transition band
+    if (i === 6) return ironShadowMat;  // just above the tip — dark shadow accent
+    return highlightMat;                // needle point — bright glint
+  };
+  const spireSegs = spireSegDefs.map(([w, h, d, cy], i) => {
     const geo = new THREE.BoxGeometry(w, h, d);
-    const m = new THREE.Mesh(geo, ironMat);
+    const m = new THREE.Mesh(geo, spireMatFor(i));
     m.position.set(0, cy, 0);
     spireGroup.add(m);
     return m;
@@ -114,9 +181,11 @@ export function build() {
     return m;
   });
 
-  // ---- Crown group: sits atop the spire, rotates independently ----------
+  // ---- Crown group: sits clear ABOVE the spire's shoulder mass so the
+  // tendril ring and needle-eye read as their own silhouette instead of
+  // being swallowed into the wide shoulder box beneath them.
   const crownGroup = new THREE.Group();
-  crownGroup.position.set(0, 3.72, 0);
+  crownGroup.position.set(0, 4.15, 0);
   spireGroup.add(crownGroup);
 
   // Crown collar — a squat wide box the tendrils and eye mount to.
@@ -125,56 +194,85 @@ export function build() {
   collar.position.set(0, 0, 0);
   crownGroup.add(collar);
 
-  // Great needle-eye slot — the hole through the top of a real needle,
-  // suggested as a dark rectangular slot punched through the collar,
-  // facing +Z so it reads clearly from the front.
-  const slotGeo = new THREE.BoxGeometry(0.08, 0.14, 0.54);
+  // Great needle-eye slot — a CLEAR rectangular hole through the top of a
+  // real needle, punched through the collar and facing +Z so it reads
+  // unmistakably from the front as a slot, not a sliver.
+  const slotGeo = new THREE.BoxGeometry(0.16, 0.28, 0.52);
   const needleSlot = new THREE.Mesh(slotGeo, slotMat);
-  needleSlot.position.set(0, 0.02, 0);
+  needleSlot.position.set(0, -0.01, 0);
   crownGroup.add(needleSlot);
 
-  // Eye-of-thread — a glowing lens/knot mounted just below/front of the
-  // collar, the focal point of the whole design.
-  const eyeCoreGeo = new THREE.BoxGeometry(0.22, 0.22, 0.1);
-  const eyeCore = new THREE.Mesh(eyeCoreGeo, eyeMat);
-  eyeCore.position.set(0, -0.2, 0.3);
-  crownGroup.add(eyeCore);
-  const eyeRingGeo = new THREE.BoxGeometry(0.3, 0.3, 0.05);
-  const eyeRing = new THREE.Mesh(eyeRingGeo, threadMat);
-  eyeRing.position.set(0, -0.2, 0.25);
-  crownGroup.add(eyeRing);
+  // A dark thread strand physically threaded through the eye-slot, laid
+  // across the front opening and trailing out past both edges — the "last
+  // stitch" made literal.
+  const threadStrand = new THREE.Mesh(
+    new THREE.BoxGeometry(0.34, 0.035, 0.035),
+    slotMat
+  );
+  threadStrand.position.set(0, -0.03, 0.31);
+  crownGroup.add(threadStrand);
+  const threadDripGeo = new THREE.BoxGeometry(0.035, 0.09, 0.035);
+  const threadDripL = new THREE.Mesh(threadDripGeo, slotMat);
+  threadDripL.position.set(-0.17, -0.08, 0.31);
+  threadDripL.rotation.z = 0.2;
+  crownGroup.add(threadDripL);
+  const threadDripR = new THREE.Mesh(threadDripGeo, slotMat);
+  threadDripR.position.set(0.17, -0.08, 0.31);
+  threadDripR.rotation.z = -0.2;
+  crownGroup.add(threadDripR);
 
-  // Tendril-crown: 6 thin curved-suggesting box arms radiating around the
-  // collar, each built from two angled segments (root + tip pivot) so the
-  // writhe animation can bend them independently at the joint.
-  const tendrilCount = 6;
+  // Eye-of-thread — a glowing lens mounted right inside the slot opening,
+  // framed by a bright metal ring, so the eye visibly burns through the
+  // needle-eye hole rather than floating apart from it. A static blood-red
+  // rim sits just behind the bright ring — the brief's "blood-red eye
+  // accent" made a permanent structural feature so it reads in any single
+  // frame, not only once the phase-driven emissive lerp has gone hot.
+  const bloodRimGeo = new THREE.BoxGeometry(0.27, 0.39, 0.04);
+  const bloodRim = new THREE.Mesh(bloodRimGeo, bloodRimMat);
+  bloodRim.position.set(0, -0.01, 0.24);
+  crownGroup.add(bloodRim);
+  const eyeRingGeo = new THREE.BoxGeometry(0.22, 0.34, 0.05);
+  const eyeRing = new THREE.Mesh(eyeRingGeo, highlightMat);
+  eyeRing.position.set(0, -0.01, 0.27);
+  crownGroup.add(eyeRing);
+  const eyeCoreGeo = new THREE.BoxGeometry(0.13, 0.22, 0.08);
+  const eyeCore = new THREE.Mesh(eyeCoreGeo, eyeMat);
+  eyeCore.position.set(0, -0.01, 0.29);
+  crownGroup.add(eyeCore);
+
+  // Tendril-crown: a CLEAR RING of 8 thin box arms radiating up and outward
+  // around the collar/eye, each built from two angled segments (root + tip
+  // pivot) so the writhe animation can bend them independently at the
+  // joint. Root reads as mid grey-blue thread, tip fades to dark shadow so
+  // the whole ring stays legible against both bright sky and dark spire.
+  const tendrilCount = 8;
   const tendrils = [];
   for (let i = 0; i < tendrilCount; i++) {
     const ang = (i / tendrilCount) * Math.PI * 2;
-    const radius = 0.32;
+    const radius = 0.4;
 
     const tendrilPivot = new THREE.Group();
     tendrilPivot.position.set(
       Math.cos(ang) * radius,
-      0.06,
+      0.1,
       Math.sin(ang) * radius
     );
     tendrilPivot.rotation.y = -ang; // face outward from center
     crownGroup.add(tendrilPivot);
 
-    const rootGeo = new THREE.BoxGeometry(0.07, 0.07, 0.34);
+    const rootGeo = new THREE.BoxGeometry(0.08, 0.08, 0.36);
     const rootSeg = new THREE.Mesh(rootGeo, threadMat);
-    rootSeg.position.set(0, 0, 0.17);
-    rootSeg.rotation.x = -0.35; // angled up and out
+    rootSeg.position.set(0, 0, 0.18);
+    rootSeg.rotation.x = -0.4; // angled up and out
     tendrilPivot.add(rootSeg);
 
     const tipPivot = new THREE.Group();
-    tipPivot.position.set(0, 0.13, 0.32);
+    tipPivot.position.set(0, 0.15, 0.34);
     tendrilPivot.add(tipPivot);
 
-    const tipGeo = new THREE.BoxGeometry(0.05, 0.05, 0.28);
-    const tipSeg = new THREE.Mesh(tipGeo, threadMat);
-    tipSeg.position.set(0, 0, 0.14);
+    const tipGeo = new THREE.BoxGeometry(0.06, 0.06, 0.3);
+    const tipSeg = new THREE.Mesh(tipGeo, ironShadowMat);
+    tipSeg.position.set(0, 0, 0.15);
     tipSeg.rotation.x = -0.5;
     tipPivot.add(tipSeg);
 
@@ -201,7 +299,7 @@ export function build() {
 
   // ---- Head anchor (name-tag) above the crown ----------------------------
   const headAnchor = new THREE.Object3D();
-  headAnchor.position.set(0, 4.05, 0);
+  headAnchor.position.set(0, 4.65, 0);
   hoverGroup.add(headAnchor);
   root.userData.headAnchor = headAnchor;
 
@@ -215,9 +313,13 @@ export function build() {
     crownGroup,
     collar,
     needleSlot,
+    threadStrand,
+    threadDripL,
+    threadDripR,
     eyeCore,
     eyeRing,
     eyeMat,
+    bloodRim,
     tendrils,
     auraGroup,
     auraMotes,
@@ -266,14 +368,15 @@ export function build() {
     const crownSpeed = 0.25 + phaseT * 0.55 + attack * 0.3;
     parts.crownGroup.rotation.y = t * crownSpeed;
 
-    // Eye pulse: base idle pulse, plus color shift from gold (#E0D24A) at
-    // phase 0 toward hot red (#FF5A5A) at phase 2, plus brighter/faster
-    // pulsing under attack.
+    // Eye pulse: strong, always-searing base glow so the eye never reads as
+    // weak, plus a color shift from bright searing white (#F2F5FA) at phase
+    // 0 toward a dull burning blood-red (#5E1F1F) at phase 2, plus
+    // brighter/faster pulsing under attack.
     const pulseSpeed = 2.2 + phaseT * 2.0 + attack * 3.0;
     const pulse = 0.5 + 0.5 * Math.sin(t * pulseSpeed);
-    parts.eyeMat.emissiveIntensity = 1.1 + pulse * (1.1 + phaseT * 1.2) + attack * 1.5;
-    const eyeColdColor = 0xe0d24a;
-    const eyeHotColor = 0xff5a5a;
+    parts.eyeMat.emissiveIntensity = 1.8 + pulse * (1.3 + phaseT * 1.4) + attack * 1.8;
+    const eyeColdColor = 0xf2f5fa;
+    const eyeHotColor = 0x5e1f1f;
     const lerpT = Math.min(phaseT + attack * 0.5, 1);
     const cCold = ((eyeColdColor >> 16) & 255) / 255;
     const cCold2 = ((eyeColdColor >> 8) & 255) / 255;
@@ -341,20 +444,24 @@ export function build() {
 export const meta = {
   archetype: 'boss',
   species: 'The Last Needle',
+  canonicalId: 'last_needle',
   dimensionDefault: 'nevermend',
   palette: {
-    ironSpire: '#4A4658',
-    threadWrap: '#7A6E8C',
-    eye: '#E0D24A',
-    eyeHot: '#FF5A5A',
-    aura: '#8E6ADF',
+    ironSpire: '#D8DEE8',
+    ironMid: '#8A93A8',
+    ironShadow: '#3B4152',
+    voidAccent: '#0B0D14',
+    highlight: '#F2F5FA',
+    accent: '#5E1F1F',
   },
   description:
     'The final boss of Nevermend: the Ravelling given form as a colossal ' +
-    'floating needle-entity. A tarnished-iron spire tapers to a killing ' +
-    'point below with no legs to touch the ground, wrapped at the waist in ' +
-    'thread, and crowned above by a writhing halo of thread-tendrils around ' +
-    'a searing eye-of-thread and the great needle-eye slot. As the fight ' +
-    'escalates through three phases the eye burns from gold toward red, the ' +
-    'void aura swells, and the crown spins and lashes faster.',
+    'floating needle-entity. A tall, PALE SILVER needle-spire — never dark ' +
+    'iron — tapers to a glinting killing point below with no legs to touch ' +
+    'the ground, wrapped at the waist in grey-blue thread, and crowned ' +
+    'above by a clear ring of 8 writhing thread-tendrils around a searing ' +
+    'eye-of-thread set within the great rectangular needle-eye slot, ' +
+    'threaded with a dark strand. As the fight escalates through three ' +
+    'phases the eye burns from a bright searing white toward a dull ' +
+    'blood-red, the void aura swells, and the crown spins and lashes faster.',
 };

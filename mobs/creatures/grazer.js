@@ -15,12 +15,12 @@ export function build() {
   const root = new THREE.Group();
   root.name = 'Skeinling';
 
-  // ---- Palette -------------------------------------------------------------
+  // ---- Palette (canonical Skeinling bestiary palette) -----------------------
   const palette = {
-    wool: 0xede3cf,   // cream/oatmeal main coat (dominant material)
-    dun: 0xb49a78,    // soft dun legs
-    eye: 0x2b2b2b,    // charcoal button eyes
-    thread: 0xc96a6a, // dyed-red trailing thread tail
+    wool: 0xf2ead8,   // cream/oatmeal main coat (dominant material)
+    dun: 0xb8a47e,    // soft dun legs
+    eye: 0x8a7350,    // dark button eyes
+    thread: 0xc9938a, // dusty-red trailing thread tail
   };
 
   // ---- Materials (shared per color so the box count stays lean) ------------
@@ -265,12 +265,14 @@ export function build() {
 export const meta = {
   archetype: 'grazer',
   species: 'Skeinling',
+  canonicalId: 'skeinling',
   dimensionDefault: 'warpwold',
   palette: {
-    wool: '#EDE3CF',
-    dun: '#B49A78',
-    eye: '#2B2B2B',
-    thread: '#C96A6A',
+    wool: '#F2EAD8',
+    woolShade: '#DCCDB0',
+    dun: '#B8A47E',
+    eye: '#8A7350',
+    thread: '#C9938A',
   },
   description:
     'A plump, round ball of living wool that grazes the fields of Warpwold. ' +

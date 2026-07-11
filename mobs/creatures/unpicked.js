@@ -15,12 +15,13 @@ import * as THREE from 'three';
 // because the Loom's pattern for this Mender was never finished.
 // ---------------------------------------------------------------------------
 
+// Canonical The Unpicked bestiary palette — cold void grey-blue.
 const PALETTE = {
-  voidMass: 0x241a33,   // void indigo — main solid torso/head mass
-  voidShade: 0x1a1224,  // darker indigo shade — secondary mass / depth read
-  thread: 0x6a5a78,     // unravelled thread grey-violet — dangling strands
-  threadDark: 0x554865, // darker strand variant for depth
-  core: 0x8e6adf,       // cold void-glow core — chest cavity + eyes
+  voidMass: 0x525a68,   // void grey-blue — main solid torso/head mass
+  voidShade: 0x2b303b,  // darker grey-blue shade — secondary mass / depth read
+  thread: 0xb8c0ce,     // unravelled thread grey-blue — dangling strands
+  threadDark: 0x7a8494, // darker strand variant for depth
+  core: 0xe4e9f2,       // cold void-glow core — chest cavity + eyes
 };
 
 function makeMaterials() {
@@ -376,8 +377,15 @@ export function build() {
 export const meta = {
   archetype: 'groaner',
   species: 'The Unpicked',
+  canonicalId: 'unpicked',
   dimensionDefault: 'nevermend',
-  palette: PALETTE,
+  palette: {
+    voidMass: '#525A68',
+    voidShade: '#2B303B',
+    thread: '#B8C0CE',
+    threadDark: '#7A8494',
+    core: '#E4E9F2',
+  },
   description:
     'A hostile, slow, tanky void shambler that drifted loose from Nevermend, ' +
     'where the Loom\'s pattern for it was never finished. Its upper body is a ' +

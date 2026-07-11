@@ -15,12 +15,12 @@ export function build() {
   const root = new THREE.Group();
   root.name = 'Bobbin-deer';
 
-  // ---- Palette ---------------------------------------------------------
+  // ---- Palette (canonical Bobbin-deer bestiary palette) -----------------
   const palette = {
-    hide: 0xc7a67a,    // fawn thread-hide, main coat
-    cream: 0xe9dcc4,   // cream underbelly/rump
-    antler: 0x6b4e2e,  // dark spindle antlers
-    eye: 0x1a1a1a,     // black eyes
+    hide: 0xa5764a,    // fawn thread-hide, main coat
+    cream: 0xe0c9a8,   // cream underbelly/rump
+    antler: 0x7c5432,  // dark spindle antlers
+    eye: 0x52371e,     // dark eyes
   };
 
   // ---- Materials (shared per color) -------------------------------------
@@ -337,12 +337,14 @@ export function build() {
 export const meta = {
   archetype: 'grazer',
   species: 'Bobbin-deer',
+  canonicalId: 'bobbin_deer',
   dimensionDefault: 'warpwold',
   palette: {
-    hide: '#C7A67A',
-    cream: '#E9DCC4',
-    antler: '#6B4E2E',
-    eye: '#1A1A1A',
+    hide: '#A5764A',
+    hideLight: '#D9B98C',
+    cream: '#E0C9A8',
+    antler: '#7C5432',
+    eye: '#52371E',
   },
   description:
     'A skittish antlered thread-deer of the Sennmeadows, woven tall and thin ' +

@@ -14,11 +14,12 @@ import * as THREE from 'three';
 // the legs are long, thin, and radiate outward like spokes.
 // ---------------------------------------------------------------------------
 
+// Canonical Emberspinner bestiary palette.
 const PALETTE = {
-  carapace: 0x2e211c, // charred carapace — body & legs
-  abdomenGlow: 0xff6a1a, // molten abdomen glow (emissive, pulses)
-  eye: 0xffd27a, // ember eyes (emissive)
-  webThread: 0xc97a3a, // faint web-thread trailing strands
+  carapace: 0x3a1108, // charred carapace — body & legs
+  abdomenGlow: 0xd94f1e, // molten abdomen glow (emissive, pulses)
+  eye: 0xf2a03d, // ember eyes (emissive)
+  webThread: 0xffd98c, // faint web-thread trailing strands
 };
 
 function makeMaterials() {
@@ -339,12 +340,14 @@ export function build() {
 export const meta = {
   archetype: 'groaner',
   species: 'Emberspinner',
+  canonicalId: 'emberspinner',
   dimensionDefault: 'cinderloom',
   palette: {
-    carapace: '#2E211C',
-    abdomenGlow: '#FF6A1A',
-    eye: '#FFD27A',
-    webThread: '#C97A3A',
+    carapace: '#3A1108',
+    abdomenGlow: '#D94F1E',
+    abdomenShade: '#8C2B12',
+    eye: '#F2A03D',
+    webThread: '#FFD98C',
   },
   description:
     'A fast, fragile fire spider-weaver bred in the Cinderloom forges. A ' +

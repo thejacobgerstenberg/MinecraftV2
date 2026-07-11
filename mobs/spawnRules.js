@@ -40,7 +40,40 @@ export const SPECIES_BY_ARCHETYPE = {
   emberspinner: 'Emberspinner',
   unpicked: 'The Unpicked',
   lastneedle: 'The Last Needle',
+  needlejack: 'Needlejack',
+  scaldwarden: 'Scaldwarden',
+  raveler: 'Raveler',
 };
+
+// Archetype -> canonical snake_case entity id. This is the stable id used
+// for persistence/networking/asset lookups (distinct from the human-facing
+// SPECIES_BY_ARCHETYPE display name above, and distinct from the archetype
+// spawn-table slot key itself). Every key in SPECIES_BY_ARCHETYPE has a
+// corresponding entry here.
+export const CANONICAL_ID = {
+  grazer: 'skeinling',
+  bobbindeer: 'bobbin_deer',
+  trader: 'wickerkin',
+  groaner: 'understruck',
+  frayedhound: 'frayed_hound',
+  emberspinner: 'emberspinner',
+  exploder: 'waxling',
+  screecher: 'slagmoth',
+  unpicked: 'unpicked',
+  lastneedle: 'last_needle',
+  needlejack: 'needlejack',
+  scaldwarden: 'scaldwarden',
+  raveler: 'raveler',
+};
+
+/**
+ * canonicalIdFor(archetype) -> snake_case entity id string | null
+ * Looks up CANONICAL_ID[archetype]; returns null for unknown archetypes
+ * rather than throwing.
+ */
+export function canonicalIdFor(archetype) {
+  return CANONICAL_ID[archetype] ?? null;
+}
 
 // Per-dimension, per-period spawn tables. Each entry is
 // { archetype, weight } — weight is relative (not required to sum to any
@@ -56,8 +89,9 @@ export const SPAWN_TABLES = {
       { archetype: 'trader', weight: 2 },
     ],
     night: [
-      { archetype: 'groaner', weight: 5 },
+      { archetype: 'groaner', weight: 4 },
       { archetype: 'frayedhound', weight: 4 },
+      { archetype: 'needlejack', weight: 3 },
       { archetype: 'screecher', weight: 1 }, // occasional stray from Cinderloom
     ],
   },
@@ -68,27 +102,29 @@ export const SPAWN_TABLES = {
       { archetype: 'exploder', weight: 5 },
       { archetype: 'emberspinner', weight: 5 },
       { archetype: 'screecher', weight: 4 },
+      { archetype: 'scaldwarden', weight: 2 },
       { archetype: 'groaner', weight: 1 },
     ],
     night: [
       { archetype: 'exploder', weight: 5 },
       { archetype: 'emberspinner', weight: 5 },
       { archetype: 'screecher', weight: 4 },
+      { archetype: 'scaldwarden', weight: 2 },
       { archetype: 'groaner', weight: 1 },
     ],
   },
   nevermend: {
     day: [
       { archetype: 'unpicked', weight: 5 },
-      { archetype: 'screecher', weight: 3 },
+      { archetype: 'raveler', weight: 4 },
+      { archetype: 'screecher', weight: 2 },
       { archetype: 'groaner', weight: 2 },
-      { archetype: 'exploder', weight: 2 },
     ],
     night: [
       { archetype: 'unpicked', weight: 5 },
-      { archetype: 'screecher', weight: 3 },
+      { archetype: 'raveler', weight: 4 },
+      { archetype: 'screecher', weight: 2 },
       { archetype: 'groaner', weight: 2 },
-      { archetype: 'exploder', weight: 2 },
     ],
   },
 };
@@ -274,7 +310,10 @@ export function maxAliveFor(dimension) {
 // blocks from the player; mobs beyond it (and old enough) are eligible for
 // despawn. `exemptArchetypes` lists spawn-table archetype keys that should
 // never be despawned by distance/age (traders are persistent NPCs; the boss
-// is hand-managed by the encounter, not the ambient despawn sweep).
+// is hand-managed by the encounter, not the ambient despawn sweep; scaldwarden
+// is a stationary guardian tied to its Cinderloom post, so it's exempted too
+// -- letting the ambient despawn sweep clear it would let players wander far
+// away and have the guardian vanish instead of remaining on watch).
 // `bossExempt` is a belt-and-suspenders flag: even if a boss mob's
 // archetype key isn't literally 'lastneedle' (e.g. a future second boss, or
 // a mob object that flags itself with `isBoss`/`archetype === 'boss'`),
@@ -282,7 +321,7 @@ export function maxAliveFor(dimension) {
 export const DESPAWN_CONFIG = {
   radius: 48,
   minAgeSeconds: 12,
-  exemptArchetypes: ['trader', 'lastneedle'],
+  exemptArchetypes: ['trader', 'lastneedle', 'scaldwarden'],
   bossExempt: true,
 };
 
@@ -337,6 +376,8 @@ export function shouldDespawn(mob, playerPos, opts) {
 
 export default {
   SPECIES_BY_ARCHETYPE,
+  CANONICAL_ID,
+  canonicalIdFor,
   SPAWN_TABLES,
   BIOME_MODIFIERS,
   ALWAYS_HOSTILE_DIMENSIONS,

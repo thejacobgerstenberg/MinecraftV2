@@ -17,11 +17,12 @@ import * as THREE from 'three';
 // both read believably. NOT a Minecraft wolf — mangier, lower, meaner.
 // ---------------------------------------------------------------------------
 
+// Canonical Frayed Hound bestiary palette.
 const PALETTE = {
-  fur: 0x3a3630,     // charcoal thread-fur, main coat
-  underside: 0x26231f, // darker underside/belly
-  maw: 0x7a2e2e,      // sinew-red maw / inner mouth
-  eye: 0xc9b98a,      // pale stitched eyes, faint emissive
+  fur: 0x4a3f38,     // charcoal-brown thread-fur, main coat
+  underside: 0x2e2620, // darker underside/belly
+  maw: 0xb3453a,      // sinew-red maw / inner mouth
+  eye: 0x8c7d6e,      // pale stitched eyes, faint emissive
 };
 
 function makeMaterials() {
@@ -396,12 +397,14 @@ export function build() {
 export const meta = {
   archetype: 'groaner',
   species: 'Frayed Hound',
+  canonicalId: 'frayed_hound',
   dimensionDefault: 'warpwold',
   palette: {
-    fur: '#3A3630',
-    underside: '#26231F',
-    maw: '#7A2E2E',
-    eye: '#C9B98A',
+    fur: '#4A3F38',
+    underside: '#2E2620',
+    furShade: '#6E6055',
+    maw: '#B3453A',
+    eye: '#8C7D6E',
   },
   description:
     'A lean, hostile nocturnal pack-predator of Warpwold, knotted from a ' +

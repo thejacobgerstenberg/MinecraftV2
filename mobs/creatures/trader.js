@@ -13,13 +13,13 @@ import * as THREE from 'three';
 // no robe-block silhouette. This is a basket-woven person wearing a hat.
 // ============================================================================
 
-// ---- Palette ---------------------------------------------------------------
+// ---- Palette (canonical Wickerkin bestiary palette) -------------------------
 const PALETTE = {
-  wicker: 0xc8a165, // warm wicker tan — main weave material
-  weaveDark: 0x8a6a3a, // darker weave lines — alternating basket strips
-  sash: 0x4e7a4e, // green cloth sash
-  spool: 0xc96a6a, // red spool/satchel accent
-  eye: 0x2a2018, // small beady eyes
+  wicker: 0xe8d9b5, // warm wicker cream — main weave material
+  weaveDark: 0x7c6136, // darker weave lines — alternating basket strips
+  sash: 0xa5854e, // woven tan cloth sash
+  spool: 0xc9a86a, // wicker-tan spool/satchel accent
+  eye: 0x3e2f1c, // small beady eyes
 };
 
 // Plain centered box mesh.
@@ -274,13 +274,14 @@ function bodyGroupScale(group, x, y, z) {
 export const meta = {
   archetype: 'trader',
   species: 'Wickerkin',
+  canonicalId: 'wickerkin',
   dimensionDefault: 'warpwold',
   palette: {
-    wicker: '#C8A165',
-    weaveDark: '#8A6A3A',
-    sash: '#4E7A4E',
-    spool: '#C96A6A',
-    eye: '#2A2018',
+    wicker: '#E8D9B5',
+    weaveDark: '#7C6136',
+    sash: '#A5854E',
+    spool: '#C9A86A',
+    eye: '#3E2F1C',
   },
   description:
     'A friendly, neutral Warpwold trader woven entirely of wicker and ' +

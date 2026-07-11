@@ -7,7 +7,8 @@
 // creature instances (grazer/Skeinling, groaner/Understruck, exploder/Waxling,
 // screecher/Slagmoth, trader/Wickerkin, bobbindeer/Bobbin-deer,
 // frayedhound/Frayed Hound, emberspinner/Emberspinner, unpicked/The Unpicked,
-// and the lastneedle/The Last Needle boss). Creature *visuals* come from
+// needlejack/Needlejack, scaldwarden/Scaldwarden, raveler/Raveler, and the
+// lastneedle/The Last Needle boss). Creature *visuals* come from
 // ./creatures/<archetype>.js (owned by other agents) via their `build()` /
 // `meta` exports — this file only ever calls that contract, never reaches
 // into their internals beyond root.userData.headAnchor / root.userData.animate.
@@ -27,25 +28,39 @@
 //   .mobs                    -- addition, getter -> array snapshot
 //   .setDay(bool)             -- addition, override day/night without opts.isDay
 //
-// Events (CustomEvent via EventTarget, AND opts.onEvent(name, detail)):
+// Events (CustomEvent via EventTarget, AND opts.onEvent(name, detail)). Every
+// event detail below includes both `archetype` (spawn-table slot key) AND
+// `canonicalId` (spawnRules.canonicalIdFor(archetype) / mob.canonicalId --
+// the stable snake_case entity id, e.g. 'last_needle') so downstream code
+// can match against canonical entity ids (e.g. the boss victory trigger is
+// 'kill_entity:last_needle'):
 //   'mobSpawn', 'mobHurt', 'mobDeath', 'mobAttack', 'mobDrop', 'mobDespawn',
 //   'bossDefeated'
 //
-//   'mobDrop'      { mobId, itemId, pos:{x,y,z}, count } -- emitted once per
-//                  dropped stack, right after 'mobDeath' (or, for the boss,
-//                  right after 'bossDefeated'). Computed via
-//                  lootTables.rollLoot(archetype, rng).
-//   'mobDespawn'   { archetype, species, mob, position } -- ambient distance
-//                  /age despawn (spawnRules.shouldDespawn); quiet, no loot.
-//   'bossDefeated' { archetype, species, mob, position, bound:true } --
-//                  emitted instead of 'mobDeath' when a boss mob's hp reaches
-//                  0; loot still drops via 'mobDrop' right after.
+//   'mobDrop'      { mobId, archetype, canonicalId, itemId, pos:{x,y,z},
+//                  count } -- emitted once per dropped stack, right after
+//                  'mobDeath'. Computed via lootTables.rollLoot(archetype,
+//                  rng). Never emitted for a boss mob (see 'bossDefeated');
+//                  archetypes with an empty loot table (unpicked, and the
+//                  boss's own table) naturally produce zero 'mobDrop'
+//                  events since rollLoot() returns [].
+//   'mobDespawn'   { archetype, canonicalId, species, mob, position } --
+//                  ambient distance/age despawn (spawnRules.shouldDespawn);
+//                  quiet, no loot.
+//   'bossDefeated' { archetype, canonicalId, species, mob, position,
+//                  bound:true, victoryTrigger, achievement } -- emitted
+//                  INSTEAD OF 'mobDeath' when a boss mob's hp reaches 0.
+//                  The boss is bound, not killed, and has no loot table, so
+//                  NO 'mobDrop' is ever emitted for it. victoryTrigger
+//                  (e.g. 'kill_entity:last_needle') and achievement (e.g.
+//                  'taught_to_mend') let the builder wire the win
+//                  condition/ending without hardcoding archetype strings.
 // ============================================================================
 
 import * as THREE from 'three';
 import { getBlockDef as fallbackGetBlockDef } from './blocksAdapter.js';
 import * as AI from './ai.js';
-import { pickSpawn, maxAliveFor, normalizeDimension, DESPAWN_CONFIG, shouldDespawn } from './spawnRules.js';
+import { pickSpawn, maxAliveFor, normalizeDimension, DESPAWN_CONFIG, shouldDespawn, canonicalIdFor } from './spawnRules.js';
 import { rollLoot } from './lootTables.js';
 
 import { build as buildGrazer, meta as metaGrazer } from './creatures/grazer.js';
@@ -58,6 +73,9 @@ import { build as buildFrayedhound, meta as metaFrayedhound } from './creatures/
 import { build as buildEmberspinner, meta as metaEmberspinner } from './creatures/emberspinner.js';
 import { build as buildUnpicked, meta as metaUnpicked } from './creatures/unpicked.js';
 import { build as buildLastneedle, meta as metaLastneedle } from './creatures/lastneedle.js';
+import { build as buildNeedlejack, meta as metaNeedlejack } from './creatures/needlejack.js';
+import { build as buildScaldwarden, meta as metaScaldwarden } from './creatures/scaldwarden.js';
+import { build as buildRaveler, meta as metaRaveler } from './creatures/raveler.js';
 
 // ----------------------------------------------------------------------
 // Registry: archetype -> { build, meta }
@@ -81,6 +99,9 @@ const REGISTRY = {
   emberspinner: { build: buildEmberspinner, meta: metaEmberspinner },
   unpicked: { build: buildUnpicked, meta: metaUnpicked },
   lastneedle: { build: buildLastneedle, meta: metaLastneedle },
+  needlejack: { build: buildNeedlejack, meta: metaNeedlejack },
+  scaldwarden: { build: buildScaldwarden, meta: metaScaldwarden },
+  raveler: { build: buildRaveler, meta: metaRaveler },
 };
 
 // ----------------------------------------------------------------------
@@ -92,100 +113,159 @@ const REGISTRY = {
 // to (see below) — several new archetypes deliberately reuse an existing
 // behaviour (e.g. frayedhound/emberspinner/unpicked all reuse the 'groaner'
 // aggro/attack loop, just with different speed/hp/range numbers).
+//
+// Canonical stats note (speed reconciliation): the canon data table gives
+// ONE headline "spd" figure per creature (u/s). Several AI behaviours here
+// (grazer's flee, groaner-family's seek) differentiate a calmer ambient
+// wander pace from a more urgent combat/flee pace via two separate config
+// fields. Where that split exists, the canon spd is applied to the URGENT
+// field (fleeSpeed / seekSpeed -- the number that actually matters for
+// player-facing pacing/difficulty) and the calmer `speed` (ambient wander)
+// is derived proportionally below it, preserving each archetype's
+// pre-existing wander:urgent ratio (or ~1:2 for the brand-new archetypes,
+// matching groaner's own ratio). Archetypes with only a single `speed`
+// field used directly as their real movement speed (trader, exploder,
+// screecher -- screecher's AI already derates it internally for
+// approach/ambient) take the canon spd value directly.
 // ----------------------------------------------------------------------
 const ARCHETYPE_CONFIG = {
+  // Skeinling. canon: hp8 dmg0 spd2.5
   grazer: {
     aiBase: 'grazer',
-    maxHp: 6,
+    maxHp: 8,
     halfWidth: 0.3, height: 0.5,
-    speed: 1.0, fleeSpeed: 2.4,
+    speed: 1.05, fleeSpeed: 2.5,
     hostile: false, flies: false,
   },
+  // Wickerkin. canon: hp20 dmg0 spd3.5
   trader: {
     aiBase: 'trader',
-    maxHp: 8,
+    maxHp: 20,
     halfWidth: 0.3, height: 1.1,
-    speed: 0.8,
+    speed: 3.5,
     hostile: false, flies: false,
     tetherRadius: 5,
   },
+  // Understruck. canon: hp24 dmg5 spd3.5
   groaner: {
     aiBase: 'groaner',
-    maxHp: 10,
+    maxHp: 24,
     halfWidth: 0.3, height: 1.3,
-    speed: 0.8, seekSpeed: 1.6,
+    speed: 1.75, seekSpeed: 3.5,
     hostile: true, flies: false,
     aggroRange: 8, attackRange: 0.9,
-    contactDamage: 3, attackCooldown: 1.0,
+    contactDamage: 5, attackCooldown: 1.0,
   },
+  // Waxling. canon: hp10 dmg7 spd3.5 (dmg maps to blastDamage -- exploder
+  // has no contact-melee attack, only its detonation).
   exploder: {
     aiBase: 'exploder',
-    maxHp: 5,
+    maxHp: 10,
     halfWidth: 0.4, height: 0.6,
-    speed: 1.0,
+    speed: 3.5,
     hostile: true, flies: false,
     aggroRange: 7, fuseRange: 2.0, fuseDuration: 1.5,
-    blastRadius: 3.0, blastDamage: 6,
+    blastRadius: 3.0, blastDamage: 7,
   },
+  // Slagmoth. canon: hp12 dmg3 spd7
   screecher: {
     aiBase: 'screecher',
-    maxHp: 6,
+    maxHp: 12,
     halfWidth: 0.25, height: 0.3,
-    speed: 1.3,
+    speed: 7,
     hostile: true, flies: true,
     hoverHeight: 1.3,
     aggroRange: 10, attackRange: 1.2,
-    contactDamage: 2, attackCooldown: 1.2,
+    contactDamage: 3, attackCooldown: 1.2,
   },
 
   // ---- Phase 2 additions -------------------------------------------------
 
-  // Bobbin-deer: passive grazer, reuses 'grazer' AI. Tall and thin, tuned
-  // to be a notably faster/more skittish flee than a base grazer.
+  // Bobbin-deer: passive grazer, reuses 'grazer' AI. canon: hp14 dmg0 spd6
   bobbindeer: {
     aiBase: 'grazer',
-    maxHp: 6,
+    maxHp: 14,
     halfWidth: 0.28, height: 0.9,
-    speed: 1.1, fleeSpeed: 3.2,
+    speed: 2.1, fleeSpeed: 6,
     fleeDuration: 4.5,
     hostile: false, flies: false,
   },
 
-  // Frayed Hound: hostile pack-predator, reuses 'groaner' AI. Low hp, fast
-  // (both cruise + seek speed) and a short attack cooldown to read as a
-  // scrappy, quick striker rather than a plodding groaner.
+  // Frayed Hound: hostile pack-predator, reuses 'groaner' AI.
+  // canon: hp14 dmg3 spd6
   frayedhound: {
     aiBase: 'groaner',
-    maxHp: 7,
+    maxHp: 14,
     halfWidth: 0.28, height: 0.5,
-    speed: 1.4, seekSpeed: 2.6,
+    speed: 3.2, seekSpeed: 6,
     hostile: true, flies: false,
     aggroRange: 10, attackRange: 0.9,
     contactDamage: 3, attackCooldown: 0.8,
   },
 
-  // Emberspinner: hostile, reuses 'groaner' AI. Very fast, very fragile
-  // (low hp -- dies in 1-2 hits), wide stance (spider legs spread out).
+  // Emberspinner: hostile, reuses 'groaner' AI. canon: hp22 dmg5 spd4
   emberspinner: {
     aiBase: 'groaner',
-    maxHp: 4,
+    maxHp: 22,
     halfWidth: 0.5, height: 0.55,
-    speed: 1.3, seekSpeed: 2.4,
+    speed: 2.2, seekSpeed: 4,
+    hostile: true, flies: false,
+    aggroRange: 9, attackRange: 0.9,
+    contactDamage: 5, attackCooldown: 0.9,
+  },
+
+  // The Unpicked: hostile, reuses 'groaner' AI. Slow, tall, tanky bruiser.
+  // canon: hp26 dmg6 spd3. No corpse -- LOOT_TABLES.unpicked is empty.
+  unpicked: {
+    aiBase: 'groaner',
+    maxHp: 26,
+    halfWidth: 0.35, height: 1.7,
+    speed: 2.0, seekSpeed: 3.0,
+    hostile: true, flies: false,
+    aggroRange: 8, attackRange: 1.0,
+    contactDamage: 6, attackCooldown: 1.4,
+  },
+
+  // ---- New (Warpwold/Cinderloom/Nevermend) additions ---------------------
+
+  // Needlejack: hostile nocturnal Warpwold prowler, reuses 'groaner' AI.
+  // canon: hp18 dmg4 spd4.5
+  needlejack: {
+    aiBase: 'groaner',
+    maxHp: 18,
+    halfWidth: 0.25, height: 1.2,
+    speed: 2.25, seekSpeed: 4.5,
     hostile: true, flies: false,
     aggroRange: 9, attackRange: 0.9,
     contactDamage: 4, attackCooldown: 0.9,
   },
 
-  // The Unpicked: hostile, reuses 'groaner' AI. Slow, tall, tanky bruiser --
-  // high hp, low speed, but hits hard when it connects.
-  unpicked: {
+  // Scaldwarden: neutral Cinderloom guardian, reuses 'trader' AI (idles /
+  // tethers near its post, never initiates an attack -- the "passive
+  // unless provoked" retaliation behaviour is out of scope for this sim's
+  // AI set, so it's simplified down to a stationary neutral like trader;
+  // see DESPAWN_CONFIG.exemptArchetypes, it's also despawn-exempt).
+  // canon: hp40 dmg6 spd3 (contactDamage stored for future provoke logic).
+  scaldwarden: {
+    aiBase: 'trader',
+    maxHp: 40,
+    halfWidth: 0.4, height: 1.5,
+    speed: 3,
+    hostile: false, flies: false,
+    tetherRadius: 5,
+    contactDamage: 6,
+  },
+
+  // Raveler: fast Nevermend hostile, reuses 'groaner' AI. canon: hp18 dmg5
+  // spd8 (FAST -- summoned by the Last Needle as "a Shed of Ravelers").
+  raveler: {
     aiBase: 'groaner',
-    maxHp: 22,
-    halfWidth: 0.35, height: 1.7,
-    speed: 0.4, seekSpeed: 0.6,
+    maxHp: 18,
+    halfWidth: 0.35, height: 1.1,
+    speed: 4.0, seekSpeed: 8,
     hostile: true, flies: false,
-    aggroRange: 8, attackRange: 1.0,
-    contactDamage: 5, attackCooldown: 1.4,
+    aggroRange: 10, attackRange: 0.9,
+    contactDamage: 5, attackCooldown: 0.7,
   },
 
   // The Last Needle: Nevermend boss. Flies, huge hp pool, tall, slow but
@@ -194,10 +274,19 @@ const ARCHETYPE_CONFIG = {
   // (speed/attack cooldown/damage/attack range escalate across phases 0-2,
   // see _aiLastNeedle) lives in the phase* arrays below, indexed by
   // mob.bossPhase (0/1/2).
+  //
+  // canon: hp600(sim) dmg14, phase thresholds 60%/15%. NOTE: canonical
+  // content is internally inconsistent between sources here -- the
+  // bestiary lists 600 hp while boss.json lists 800 hp with a separate
+  // "stitching" mechanic; this sim uses a simplified raw-hp 3-phase model
+  // (maxHp:600) purely as a visualization, per the canon table supplied
+  // for this reconciliation. No canon `spd` figure was supplied for the
+  // boss, so its speed/seekSpeed/phaseSpeedMul are left as previously
+  // tuned. dmg14 already matched the existing phaseAttackDamage[2] value.
   lastneedle: {
     aiBase: 'boss',
     isBoss: true,
-    maxHp: 300,
+    maxHp: 600,
     halfWidth: 0.5, height: 3.8,
     speed: 0.6, seekSpeed: 1.0,
     hostile: true, flies: true,
@@ -209,12 +298,24 @@ const ARCHETYPE_CONFIG = {
     phaseAttackRanges: [7, 10, 5],
     phaseAttackCooldowns: [2.2, 1.7, 0.6],
     phaseAttackDamage: [6, 8, 14],
-    phase1HpFrac: 0.66,
-    phase2HpFrac: 0.33,
-    // Add-summoning (phase 1 only).
-    summonArchetype: 'unpicked',
+    // Canonical phase thresholds: >60% = phase0, 15%-60% = phase1,
+    // <=15% = phase2.
+    phase1HpFrac: 0.60,
+    phase2HpFrac: 0.15,
+    // Add-summoning: phase 1 summons a "Shed of Ravelers" (all 'raveler');
+    // phase 2 (most aggressive) summons a mix, mostly 'raveler' with an
+    // occasional 'unpicked' mixed in. maxAdds caps alive adds (counted via
+    // spawnedBy) across both phases combined.
+    summonArchetype: 'raveler',
+    summonArchetypePhase2: 'raveler',
+    summonArchetypePhase2Alt: 'unpicked',
+    summonArchetypePhase2AltChance: 0.25,
     summonCooldown: 6,
     maxAdds: 4,
+    // Victory wiring for the builder: kill_entity:last_needle is the
+    // canonical victory trigger id; achievement is granted alongside it.
+    victoryTrigger: 'kill_entity:last_needle',
+    achievement: 'taught_to_mend',
   },
 };
 
@@ -375,6 +476,7 @@ export class MobManager extends EventTarget {
       id: this._nextId++,
       archetype,
       species: (entry.meta && entry.meta.species) || archetype,
+      canonicalId: canonicalIdFor(archetype),
       group,
       headAnchor: (group.userData && group.userData.headAnchor) || null,
       hp: config.maxHp ?? 6,
@@ -409,6 +511,7 @@ export class MobManager extends EventTarget {
     this._mobs.push(mob);
     this._emit('mobSpawn', {
       archetype,
+      canonicalId: mob.canonicalId,
       species: mob.species,
       mob,
       position: { ...mob.position },
@@ -561,6 +664,7 @@ export class MobManager extends EventTarget {
     mob.dead = true;
     this._emit('mobDespawn', {
       archetype: mob.archetype,
+      canonicalId: mob.canonicalId,
       species: mob.species,
       mob,
       position: { ...mob.position },
@@ -746,14 +850,20 @@ export class MobManager extends EventTarget {
     }
   }
 
-  // Boss: The Last Needle. Three hp-fraction-driven phases:
-  //   phase 0 (frac > phase1HpFrac):  slow hover-drift + periodic ranged
-  //                                   thread-lash attack.
-  //   phase 1 (phase2HpFrac < frac <= phase1HpFrac): faster, wider attacks,
-  //                                   periodically summons 'unpicked' adds
+  // Boss: The Last Needle. Three hp-fraction-driven phases (canonical
+  // thresholds: 60% / 15%):
+  //   phase 0 (frac > phase1HpFrac, i.e. > 60%):  slow hover-drift +
+  //                                   periodic ranged thread-lash attack.
+  //   phase 1 (phase2HpFrac < frac <= phase1HpFrac, i.e. 15%-60%): faster,
+  //                                   wider attacks, periodically summons a
+  //                                   "Shed of Ravelers" ('raveler' adds)
   //                                   near itself (capped at maxAdds alive).
-  //   phase 2 (frac <= phase2HpFrac): fast, aggressive, rapid short-cooldown
-  //                                   high-damage stabs.
+  //   phase 2 (frac <= phase2HpFrac, i.e. <= 15%): fast, aggressive, rapid
+  //                                   short-cooldown high-damage stabs, and
+  //                                   (most aggressive phase) keeps
+  //                                   summoning too -- mostly 'raveler'
+  //                                   with an occasional 'unpicked' mixed
+  //                                   in.
   // mob.bossPhase is updated every tick and fed into animate() as
   // state.phase; mob.attackFlash (generic, see _doAttack) is fed in as
   // state.attack so the model can react to hits landing.
@@ -764,8 +874,8 @@ export class MobManager extends EventTarget {
 
     const frac = mob.maxHp > 0 ? Math.max(0, mob.hp) / mob.maxHp : 0;
     let phase = 0;
-    if (frac <= (config.phase2HpFrac ?? 0.33)) phase = 2;
-    else if (frac <= (config.phase1HpFrac ?? 0.66)) phase = 1;
+    if (frac <= (config.phase2HpFrac ?? 0.15)) phase = 2;
+    else if (frac <= (config.phase1HpFrac ?? 0.60)) phase = 1;
     mob.bossPhase = phase;
 
     const speedMul = (config.phaseSpeedMul && config.phaseSpeedMul[phase]) ?? 1.0;
@@ -800,22 +910,33 @@ export class MobManager extends EventTarget {
       }
     }
 
-    // Phase 1 only: periodically summon 'unpicked' adds near the boss,
-    // capped so the arena doesn't flood.
-    if (phase === 1 && mob.summonCooldownTimer <= 0) {
+    // Phase 1 + phase 2: periodically summon adds near the boss, capped so
+    // the arena doesn't flood. Phase 1 summons a straight "Shed of
+    // Ravelers" (all 'raveler'); phase 2 summons a mix, mostly 'raveler'
+    // with an occasional 'unpicked' (summonArchetypePhase2AltChance).
+    if ((phase === 1 || phase === 2) && mob.summonCooldownTimer <= 0) {
       const maxAdds = config.maxAdds ?? 4;
       const aliveAdds = this._mobs.reduce(
         (n, m) => n + ((!m.dead && m.spawnedBy === mob.id) ? 1 : 0), 0
       );
       if (aliveAdds < maxAdds) {
         mob.summonCooldownTimer = config.summonCooldown ?? 6;
+        let summonArchetype;
+        if (phase === 1) {
+          summonArchetype = config.summonArchetype || 'raveler';
+        } else {
+          const altChance = config.summonArchetypePhase2AltChance ?? 0.25;
+          summonArchetype = (this._rng() < altChance)
+            ? (config.summonArchetypePhase2Alt || 'unpicked')
+            : (config.summonArchetypePhase2 || config.summonArchetype || 'raveler');
+        }
         const angle = this._rng() * Math.PI * 2;
         const ringDist = 2 + this._rng() * 2.5;
         const spawnX = mob.position.x + Math.cos(angle) * ringDist;
         const spawnZ = mob.position.z + Math.sin(angle) * ringDist;
         const groundY = this._findGroundY(spawnX, mob.position.y + 2, spawnZ);
         const spawnY = groundY !== null ? groundY : Math.max(0, mob.position.y - (config.hoverHeight ?? 3));
-        const add = this.spawn(config.summonArchetype || 'unpicked', { x: spawnX, y: spawnY, z: spawnZ });
+        const add = this.spawn(summonArchetype, { x: spawnX, y: spawnY, z: spawnZ });
         if (add) add.spawnedBy = mob.id;
       } else {
         // Already capped -- recheck soon rather than waiting a full cycle.
@@ -885,6 +1006,7 @@ export class MobManager extends EventTarget {
     safeCall1(this._opts.onPlayerHurt, dmg, undefined);
     this._emit('mobAttack', {
       archetype: mob.archetype,
+      canonicalId: mob.canonicalId,
       species: mob.species,
       mob,
       position: { ...mob.position },
@@ -902,6 +1024,7 @@ export class MobManager extends EventTarget {
     mob.attackFlash = 1.0;
     this._emit('mobAttack', {
       archetype: mob.archetype,
+      canonicalId: mob.canonicalId,
       species: mob.species,
       mob,
       position: { ...mob.position },
@@ -927,6 +1050,7 @@ export class MobManager extends EventTarget {
 
     this._emit('mobHurt', {
       archetype: mob.archetype,
+      canonicalId: mob.canonicalId,
       species: mob.species,
       mob,
       position: { ...mob.position },
@@ -951,6 +1075,7 @@ export class MobManager extends EventTarget {
     mob.dead = true;
     this._emit('mobDeath', {
       archetype: mob.archetype,
+      canonicalId: mob.canonicalId,
       species: mob.species,
       mob,
       position: { ...mob.position },
@@ -959,24 +1084,37 @@ export class MobManager extends EventTarget {
     this._pendingRemoval.push(mob);
   }
 
-  /** Boss defeat: 'bossDefeated' instead of 'mobDeath', loot still drops. */
+  /** Boss defeat: 'bossDefeated' instead of 'mobDeath'. The boss's loot
+   * table is intentionally empty (bound, not killed -- see lootTables.js),
+   * and this never calls _dropLoot for a boss mob, so no 'mobDrop' is ever
+   * emitted here even if a future edit accidentally populated one.
+   * victoryTrigger/achievement come from ARCHETYPE_CONFIG (falling back to
+   * sensible defaults derived from the mob's canonicalId) so the builder
+   * can wire the win condition / ending without hardcoding archetype
+   * strings. */
   _killBoss(mob) {
     if (!mob || mob.dead) return;
     mob.dead = true;
+    const config = ARCHETYPE_CONFIG[mob.archetype] || {};
     this._emit('bossDefeated', {
       archetype: mob.archetype,
+      canonicalId: mob.canonicalId,
       species: mob.species,
       mob,
       position: { ...mob.position },
       bound: true,
+      victoryTrigger: config.victoryTrigger || `kill_entity:${mob.canonicalId}`,
+      achievement: config.achievement || null,
     });
-    this._dropLoot(mob);
     this._pendingRemoval.push(mob);
   }
 
   /** Rolls lootTables.rollLoot(mob.archetype, rng) and emits one 'mobDrop'
-   * per resulting stack. Called after mobDeath/bossDefeated, never on
-   * despawn. Defensive against a throwing/misbehaving loot table. */
+   * per resulting stack. Called after mobDeath, never on despawn and never
+   * for a boss (see _killBoss). Empty tables (unpicked/lastneedle) simply
+   * produce an empty `drops` array, so the loop below emits nothing --
+   * no special-casing needed. Defensive against a throwing/misbehaving
+   * loot table. */
   _dropLoot(mob) {
     let drops;
     try {
@@ -988,6 +1126,8 @@ export class MobManager extends EventTarget {
       if (!drop) continue;
       this._emit('mobDrop', {
         mobId: mob.id,
+        archetype: mob.archetype,
+        canonicalId: mob.canonicalId,
         itemId: drop.itemId,
         pos: { ...mob.position },
         count: drop.count,
