@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Voxelheim — engine harness</title>
+  <link rel="icon" href="data:," />
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+    canvas { display: block; }
+  </style>
+  <script type="importmap">
+    { "imports": { "three": "../vendor/three.module.js" } }
+  </script>
+</head>
+<body>
+  <script type="module">
+    // Engine dev harness: World + ChunkRenderer + Sky with an INLINE fake
+    // generator and an INLINE solid-color atlas. Deliberately does NOT import
+    // TerrainGenerator or TextureAtlas (owned by other phases).
+    import * as THREE from 'three';
+    import { World } from '../src/engine/World.js';
+    import { ChunkRenderer } from '../src/engine/ChunkRenderer.js';
+    import { Sky } from '../src/engine/Sky.js';
+
+    // ---- inline color-tile atlas -------------------------------------------
+    const TILES = [
+      'fallback', 'grass_top', 'grass_side', 'dirt', 'stone',
+      'cobblestone', 'water', 'glass', 'bedrock', 'glowstone',
+    ];
+    function makeInlineAtlas() {
+      const px = 16;
+      const cols = TILES.length;
+      const canvas = document.createElement('canvas');
+      canvas.width = cols * px;
+      canvas.height = px;
+      const ctx = canvas.getContext('2d');
+      const painters = {
+        fallback(c) { c.fillStyle = '#ff00ff'; c.fillRect(0, 0, px, px); },
+        grass_top(c) {
+          c.fillStyle = '#5cae3a'; c.fillRect(0, 0, px, px);
+          c.fillStyle = '#4f9c31';
+          for (let i = 0; i < 40; i++) c.fillRect((i * 7) % px, (i * 5) % px, 1, 1);
+        },
+        grass_side(c) {
+          c.fillStyle = '#8a5a2b'; c.fillRect(0, 0, px, px);
+          c.fillStyle = '#5cae3a'; c.fillRect(0, 0, px, 4); // fringe at canvas top
+        },
+        dirt(c) {
+          c.fillStyle = '#8a5a2b'; c.fillRect(0, 0, px, px);
+          c.fillStyle = '#7a4e24';
+          for (let i = 0; i < 30; i++) c.fillRect((i * 11) % px, (i * 3) % px, 2, 1);
+        },
+        stone(c) {
+          c.fillStyle = '#8d8d8d'; c.fillRect(0, 0, px, px);
+          c.fillStyle = '#7c7c7c';
+          for (let i = 0; i < 24; i++) c.fillRect((i * 13) % px, (i * 7) % px, 2, 2);
+        },
+        cobblestone(c) {
+          c.fillStyle = '#6f7070'; c.fillRect(0, 0, px, px);
+          c.strokeStyle = '#54585a'; c.lineWidth = 1;
+          c.strokeRect(1, 1, 6, 6); c.strokeRect(9, 1, 6, 6);
+          c.strokeRect(1, 9, 6, 6); c.strokeRect(9, 9, 6, 6);
+        },
+        water(c) {
+          c.fillStyle = 'rgba(30, 90, 210, 0.65)'; c.fillRect(0, 0, px, px);
+          c.fillStyle = 'rgba(120, 170, 255, 0.5)';
+          c.fillRect(2, 3, 6, 1); c.fillRect(8, 9, 6, 1);
+        },
+        glass(c) {
+          c.clearRect(0, 0, px, px);
+          c.strokeStyle = 'rgba(230, 245, 250, 0.95)'; c.lineWidth = 2;
+          c.strokeRect(1, 1, px - 2, px - 2);
+          c.beginPath(); c.moveTo(3, 12); c.lineTo(12, 3); c.stroke();
+        },
+        bedrock(c) {
+          c.fillStyle = '#2f2f33'; c.fillRect(0, 0, px, px);
+          c.fillStyle = '#1d1d20';
+          for (let i = 0; i < 20; i++) c.fillRect((i * 9) % px, (i * 5) % px, 3, 2);
+        },
+        glowstone(c) {
+          c.fillStyle = '#ffd75e'; c.fillRect(0, 0, px, px);
+          c.fillStyle = '#fff2b0';
+          for (let i = 0; i < 16; i++) c.fillRect((i * 7) % px, (i * 11) % px, 2, 2);
+        },
+      };
+      TILES.forEach((name, i) => {
+        ctx.save();
+        ctx.translate(i * px, 0);
+        ctx.beginPath(); ctx.rect(0, 0, px, px); ctx.clip();
+        (painters[name] || painters.fallback)(ctx);
+        ctx.restore();
+      });
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.magFilter = THREE.NearestFilter;
+      texture.minFilter = THREE.NearestFilter;
+      texture.generateMipmaps = false;
+      texture.colorSpace = THREE.SRGBColorSpace;
+      const W = canvas.width;
+      const H = canvas.height;
+      function tileUV(name) {
+        let i = TILES.indexOf(name);
+        if (i < 0) i = 0;
+        // Same convention as the real atlas: flipY texture, v bottom-up,
+        // half-texel inset.
+        return {
+          u0: (i * px + 0.5) / W,
+          v0: 0.5 / H,
+          u1: (i * px + px - 0.5) / W,
+          v1: (H - 0.5) / H,
+        };
+      }
+      return { canvas, texture, tileUV, cols, tilePx: px };
+    }
+
+    // ---- inline fake generator: flat grass world -----------------------------
+    const SURFACE_Y = 24; // grass at y=24, air above
+    const fakeGenerator = {
+      generateChunk() {
+        const data = new Uint8Array(16 * 16 * 128);
+        const idx = (x, y, z) => x + z * 16 + y * 256;
+        for (let z = 0; z < 16; z++) {
+          for (let x = 0; x < 16; x++) {
+            data[idx(x, 0, z)] = 17; // bedrock
+            for (let y = 1; y < 20; y++) data[idx(x, y, z)] = 3; // stone
+            for (let y = 20; y < SURFACE_Y; y++) data[idx(x, y, z)] = 2; // dirt
+            data[idx(x, SURFACE_Y, z)] = 1; // grass
+          }
+        }
+        return data;
+      },
+    };
+
+    // ---- scene ----------------------------------------------------------------
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(1);
+    document.body.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(28, 37, 26);
+    camera.lookAt(12, 26, 7);
+
+    const atlas = makeInlineAtlas();
+    const world = new World(fakeGenerator);
+
+    // ---- test structures (world coords, placed via setBlock) ------------------
+    const G = SURFACE_Y + 1; // first air row above the grass = 25
+    // Stone tower, 3x3 x 14 tall.
+    for (let y = G; y < G + 14; y++)
+      for (let x = 2; x <= 4; x++)
+        for (let z = 2; z <= 4; z++) world.setBlock(x, y, z, 4); // cobblestone
+    // Overhang plate jutting +x from the tower at y=G+5 (shows AO underneath).
+    for (let x = 5; x <= 10; x++)
+      for (let z = 2; z <= 4; z++) world.setBlock(x, G + 5, z, 3); // stone
+    // Pillar under the overhang tip creating an inner corner.
+    for (let y = G; y < G + 5; y++) world.setBlock(10, y, 4, 3);
+    // "AO court": light stone floor with an L-shaped wall on two edges —
+    // the inner corner and wall-base strips show the baked AO clearly.
+    for (let x = 12; x <= 17; x++)
+      for (let z = 9; z <= 14; z++) world.setBlock(x, G, z, 3); // floor
+    for (let x = 12; x <= 17; x++)
+      for (let y = G + 1; y <= G + 2; y++) world.setBlock(x, y, 9, 3);
+    for (let z = 9; z <= 14; z++)
+      for (let y = G + 1; y <= G + 2; y++) world.setBlock(12, y, z, 3);
+    // 4x4 water pool sunk into the grass, light stone floor + a submerged
+    // cobblestone block so the translucency is obvious.
+    for (let x = 22; x <= 25; x++)
+      for (let z = 4; z <= 7; z++) {
+        world.setBlock(x, SURFACE_Y - 2, z, 3); // bright pool floor
+        world.setBlock(x, SURFACE_Y, z, 8);
+        world.setBlock(x, SURFACE_Y - 1, z, 8);
+      }
+    world.setBlock(23, SURFACE_Y - 1, 5, 24); // glowstone just under the surface
+    // Glass wall continuing the court wall line.
+    for (let x = 18; x <= 21; x++)
+      for (let y = G; y < G + 4; y++) world.setBlock(x, y, 9, 12);
+    // A glowstone block (emissive = full-bright vertex color).
+    world.setBlock(9, G, 12, 24);
+
+    const chunkRenderer = new ChunkRenderer(scene, world, atlas);
+    const sky = new Sky(scene);
+
+    let timeOfDay = 0.35; // late morning default
+    window.setTimeOfDay = (t) => { timeOfDay = t; };
+    // Dev hook for harness scripts (aim the camera, poke the sky, etc.).
+    window.__engine = { scene, camera, world, chunkRenderer, sky };
+
+    const playerPos = new THREE.Vector3(12, 27, 7);
+    const RENDER_DISTANCE = 4;
+
+    let frames = 0;
+    let statsLogged = false;
+    window.__statsLogged = false;
+
+    function frame() {
+      requestAnimationFrame(frame);
+      chunkRenderer.update(playerPos, RENDER_DISTANCE);
+      sky.update(timeOfDay, playerPos);
+      renderer.render(scene, camera);
+      frames++;
+      const stats = chunkRenderer.stats;
+      if (!statsLogged && frames >= 40 && stats.queueLength === 0) {
+        statsLogged = true;
+        console.log(
+          'CONSOLE_STATS: ' +
+            JSON.stringify({
+              calls: renderer.info.render.calls,
+              triangles: renderer.info.render.triangles,
+              chunks: stats,
+            })
+        );
+        window.__statsLogged = true;
+      }
+    }
+    frame();
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>

@@ -3,9 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <!-- GAME TITLE — also set in the main-menu <h1 id="game-title"> below.
+       Rename the game by editing exactly those two lines. -->
   <title>Voxelheim</title>
   <!-- Inline SVG favicon (a green voxel) — avoids a /favicon.ico request. -->
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230d0f14'/%3E%3Crect x='3' y='3' width='10' height='10' fill='%235fd35f'/%3E%3Crect x='3' y='3' width='10' height='3' fill='%237bee7b'/%3E%3C/svg%3E" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230a0d13'/%3E%3Crect x='3' y='3' width='10' height='10' fill='%235ecb6a'/%3E%3Crect x='3' y='3' width='10' height='3' fill='%238af095'/%3E%3C/svg%3E" />
   <link rel="stylesheet" href="./css/style.css" />
   <!-- Vendored Three.js resolved as bare specifier `three`. No bundler, no build step. -->
   <script type="importmap">
@@ -20,78 +22,32 @@
   <!-- Main render target. The WebGLRenderer draws into this canvas. -->
   <canvas id="game"></canvas>
 
-  <!-- ================= In-game HUD ================= -->
-  <div id="hud" class="hud">
-    <div id="crosshair" class="crosshair"></div>
-    <div id="hotbar" class="hotbar"><!-- hotbar slots injected by ui/hotbar.js --></div>
-    <div id="health" class="health"><!-- health bar injected by ui/hud.js --></div>
+  <!-- ====================================================================
+       UI containers. Each is populated (and given its styling classes) by
+       its owning module in src/ui/ at init time, so they stay invisible
+       until the game boots:
+         #hud       — ui/hud.js       (crosshair, health shards, break bar)
+         #hotbar    — ui/hotbar.js    (9 slots + selection)
+         #debug     — ui/debug.js     (F3 overlay)
+         #chat      — ui/chat.js      (log + input row)
+         #inventory — ui/inventory.js (creative block palette)
+         #menu-root — ui/menu.js      (main / worlds / settings / pause)
+       ==================================================================== -->
+  <div id="hud"></div>
+  <div id="hotbar"></div>
+  <div id="debug"></div>
+  <div id="chat"></div>
+  <div id="inventory"></div>
+
+  <div id="menu-root">
+    <!-- GAME TITLE — adopted into the main menu by ui/menu.js. -->
+    <h1 id="game-title" class="game-title" hidden>VOXELHEIM</h1>
   </div>
 
-  <!-- F3 debug overlay (fps, xyz, chunk, biome, facing). Populated by ui/debug.js -->
-  <div id="debug" class="debug"></div>
-
-  <!-- Chat log + input. Populated / toggled by ui/chat.js -->
-  <div id="chat" class="chat"></div>
-  <input id="chat-input" class="chat-input" type="text" maxlength="256" autocomplete="off" placeholder="Press Enter to chat…" />
-
-  <!-- Inventory / creative palette (E). Populated by ui/inventory.js -->
-  <div id="inventory-screen" class="overlay inventory-screen">
-    <div class="panel">
-      <h2>Inventory</h2>
-      <div class="inventory-grid"><!-- block palette injected by ui/inventory.js --></div>
-    </div>
-  </div>
-
-  <!-- ================= Menus ================= -->
-  <div id="main-menu" class="overlay main-menu visible">
-    <div class="menu-panel">
-      <h1 class="game-title">VOXELHEIM</h1>
-      <p class="tagline">An original voxel sandbox</p>
-      <div class="menu-buttons">
-        <button id="btn-play" class="menu-button" data-action="play">Play</button>
-        <button id="btn-settings" class="menu-button" data-action="settings">Settings</button>
-      </div>
-      <p class="version">v0.1.0</p>
-    </div>
-  </div>
-
-  <div id="world-select" class="overlay world-select">
-    <div class="menu-panel">
-      <h2>Select World</h2>
-      <div class="world-list"><!-- world entries injected by ui/menu.js --></div>
-      <div class="menu-buttons">
-        <button id="btn-create-world" class="menu-button" data-action="create-world">Create New World</button>
-        <button id="btn-world-back" class="menu-button secondary" data-action="back">Back</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="settings-menu" class="overlay settings-menu">
-    <div class="menu-panel">
-      <h2>Settings</h2>
-      <div class="settings-body"><!-- settings controls injected by ui/menu.js --></div>
-      <div class="menu-buttons">
-        <button id="btn-settings-back" class="menu-button secondary" data-action="back">Back</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="pause-menu" class="overlay pause-menu">
-    <div class="menu-panel">
-      <h2>Paused</h2>
-      <div class="menu-buttons">
-        <button id="btn-resume" class="menu-button" data-action="resume">Resume</button>
-        <button id="btn-pause-settings" class="menu-button" data-action="settings">Settings</button>
-        <button id="btn-quit" class="menu-button secondary" data-action="quit">Quit to Menu</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Loading splash shown until the game loop starts. -->
+  <!-- Loading splash: visible pre-boot; main.js / ui/menu.js manage it. -->
   <div id="loading" class="overlay loading visible">
     <div class="loading-inner">
-      <div class="loading-title">VOXELHEIM</div>
-      <div class="loading-spinner"></div>
+      <div class="loading-cube"><i></i><i></i><i></i></div>
       <div class="loading-text">Loading…</div>
     </div>
   </div>

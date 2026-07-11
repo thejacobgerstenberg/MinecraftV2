@@ -82,6 +82,8 @@ export const BLOCKS = [
   def(26, 'end_stone', { all: 'end_stone', hardness: 3.0, tool: 'pickaxe' }),
   def(27, 'purpur', { all: 'purpur', hardness: 1.5, tool: 'pickaxe' }),
   def(28, 'lava', { all: 'lava', solid: false, transparent: true, liquid: true, emissive: 15, hardness: -1, tool: 'none' }),
+  // ids >= 29 appended by later phases (worldgen/dimensions).
+  def(29, 'portal', { all: 'portal', solid: false, transparent: true, liquid: false, emissive: 12, hardness: -1, tool: 'none' }),
 ];
 
 // Fast id -> name and name -> id lookups.
