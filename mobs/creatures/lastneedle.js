@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import * as rig from '../anim/rig.js';
 
 // ============================================================================
 // THE LAST NEEDLE — final boss of Nevermend, the Ravelling given form.
@@ -7,13 +8,17 @@ import * as THREE from 'three';
 // Ravelling wearing the shape of the tool that made it. It has no legs; it
 // never touches ground, hanging instead inside a slow void-grey aura. A tall
 // PALE SILVER needle-spire (never dark iron) tapers to a glinting killing
-// point below, wrapped at its waist in a band of grey-blue thread, and
-// crowned above by a clear radiating ring of 8 writhing thread-tendrils
-// around a single searing eye-of-thread — the great rectangular needle-eye
-// slot, threaded with a dark strand, pierced through the crown just behind
-// it. As the fight escalates through its three phases the eye burns from a
-// bright searing white toward a dull blood-red, the aura swells, and the
-// tendril-crown spins and lashes faster.
+// point below, flared at the shoulders into an asymmetric crossguard,
+// stitch-barbed down its length, wrapped at its waist in a band of grey-blue
+// thread, and crowned above by a clear radiating ring of 8 writhing,
+// red-barbed thread-tendrils around a single searing eye-of-thread — the
+// great rectangular needle-eye slot, threaded with a dark strand out front
+// and a second slack thread unraveling loose off the back of the crown. As
+// the fight escalates through its three phases the eye burns from a bright
+// searing white toward a dull blood-red, the aura swells, and the
+// tendril-crown spins and lashes faster. It is bound, not killed: when
+// beaten it does not shatter or bleed — it stills, dims, and withdraws back
+// into the dark it came from.
 // ============================================================================
 
 export function build() {
@@ -41,11 +46,9 @@ export function build() {
   // specular/reflection, not diffuse) starves out to near-black across most
   // of the surface with only bright import at direct specular highlights.
   // Every other creature file in this package keeps metalness in the
-  // 0-0.2 band for exactly this reason; the Last Needle previously ran
-  // 0.5-0.75 here, which is why the pale-silver #D8DEE8 spire was rendering
-  // as dark slate-gray/near-black instead of its intended base color. Kept
-  // low so the actual pale-silver/grey-blue hex values read as lit diffuse
-  // color instead of being swallowed by unlit metallic falloff.
+  // 0-0.2 band for exactly this reason; kept low here so the actual
+  // pale-silver/grey-blue hex values read as lit diffuse color instead of
+  // being swallowed by unlit metallic falloff.
   const ironMat = new THREE.MeshStandardMaterial({
     color: palette.ironSpire,
     roughness: 0.3,
@@ -89,11 +92,13 @@ export function build() {
     roughness: 0.7,
     metalness: 0.15,
   });
-  // Static blood-red accent ring: sits behind/around the eye lens so the
-  // brief's "blood-red eye accent" is a real, always-visible structural
-  // color (not something that only appears once animate() has driven the
-  // eye's emissive lerp deep into its hot phase). The lens itself still
-  // phase-shifts white->red via eyeMat above.
+  // Static blood-red accent: sits behind/around the eye lens, on one
+  // stitch-barb low on the shaft, and on every tendril's needle-tip barb —
+  // so the brief's "blood-red accent" is a real, always-visible structural
+  // color scattered through the whole silhouette (not something that only
+  // appears once animate() has driven the eye's emissive lerp deep into its
+  // hot phase). The eye lens itself still phase-shifts white->red via
+  // eyeMat above.
   const bloodRimMat = new THREE.MeshStandardMaterial({
     color: palette.accent,
     roughness: 0.5,
@@ -110,6 +115,18 @@ export function build() {
     transparent: true,
     opacity: 0.35,
   });
+
+  // Defensive numeric coercion — mirrors rig.js's own internal guards, for
+  // arithmetic that happens directly in this file (rig's own exports
+  // already self-guard their own inputs).
+  function n(v, fallback = 0) {
+    const x = typeof v === 'number' ? v : Number(v);
+    return Number.isFinite(x) ? x : fallback;
+  }
+  function clamp01(v) {
+    const x = n(v, 0);
+    return x < 0 ? 0 : x > 1 ? 1 : x;
+  }
 
   // ---- Root hover rig ----------------------------------------------------
   // Everything hangs off hoverGroup so animate() can bob/rotate/lunge the
@@ -160,6 +177,46 @@ export function build() {
     m.position.set(0, cy, 0);
     spireGroup.add(m);
     return m;
+  });
+
+  // ---- Shoulder crossguard flares -----------------------------------------
+  // Two outward-canted wing-flares at the shoulder line, asymmetric (left
+  // canted higher than right) so the read isn't a perfectly mirrored,
+  // generic spike. This is the single biggest silhouette upgrade available:
+  // it turns the shoulder box from "wide taper" into a real crossguard,
+  // reading as a weapon/entity rather than a plain sharpened pole even at
+  // thumbnail scale.
+  const flareGeo = new THREE.BoxGeometry(0.34, 0.14, 0.26);
+  const flareL = new THREE.Mesh(flareGeo, ironMidMat);
+  flareL.position.set(-0.46, 3.6, 0);
+  flareL.rotation.z = 0.24;
+  spireGroup.add(flareL);
+  const flareR = new THREE.Mesh(flareGeo, ironMidMat);
+  flareR.position.set(0.46, 3.52, 0);
+  flareR.rotation.z = -0.15;
+  spireGroup.add(flareR);
+
+  // ---- Stitch-barbs --------------------------------------------------------
+  // Small alternating tabs punched into the mid-shaft, reading as
+  // stitch-holes/hooked barbs at thumbnail scale — the clearest possible
+  // secondary-detail cue that this silhouette is a sewing needle, not a
+  // spike or a Minecraft blaze rod. The lowest barb, nearest the point, uses
+  // the blood-red accent material so the palette's red pops as a real
+  // structural read scattered down the body, not just at the eye — "the
+  // last stitch," made literal right above the killing point.
+  const barbGeo = new THREE.BoxGeometry(0.14, 0.045, 0.045);
+  const barbDefs = [
+    [0.27, 2.4, 0.1, ironShadowMat],
+    [-0.19, 1.4, -0.08, ironShadowMat],
+    [0.15, 0.92, 0.12, ironShadowMat],
+    [-0.115, 0.48, -0.1, bloodRimMat],
+  ];
+  const barbs = barbDefs.map(([x, y, rotZ, m]) => {
+    const barb = new THREE.Mesh(barbGeo, m);
+    barb.position.set(x, y, 0);
+    barb.rotation.z = rotZ;
+    spireGroup.add(barb);
+    return barb;
   });
 
   // ---- Midsection thread-wrap band: overlapping rings just below waist --
@@ -221,6 +278,26 @@ export function build() {
   threadDripR.rotation.z = -0.2;
   crownGroup.add(threadDripR);
 
+  // ---- Trailing unravel-thread ---------------------------------------------
+  // The "last stitch pulling free" made literal a second time — a separate,
+  // slack thread trailing off the BACK of the collar (independent of the
+  // front eye-slot thread), built as a two-joint hanging chain so it can
+  // drift on its own idle sway and go limp/still during the death withdraw.
+  const unravelPivot = new THREE.Group();
+  unravelPivot.position.set(-0.12, 0.02, -0.22);
+  crownGroup.add(unravelPivot);
+  const unravelSeg1 = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.22), slotMat);
+  unravelSeg1.position.set(0, 0, -0.11);
+  unravelSeg1.rotation.x = 0.3;
+  unravelPivot.add(unravelSeg1);
+  const unravelTipPivot = new THREE.Group();
+  unravelTipPivot.position.set(0, -0.06, -0.22);
+  unravelPivot.add(unravelTipPivot);
+  const unravelSeg2 = new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.024, 0.16), slotMat);
+  unravelSeg2.position.set(0, 0, -0.08);
+  unravelSeg2.rotation.x = 0.5;
+  unravelTipPivot.add(unravelSeg2);
+
   // Eye-of-thread — a glowing lens mounted right inside the slot opening,
   // framed by a bright metal ring, so the eye visibly burns through the
   // needle-eye hole rather than floating apart from it. A static blood-red
@@ -243,13 +320,20 @@ export function build() {
   // Tendril-crown: a CLEAR RING of 8 thin box arms radiating up and outward
   // around the collar/eye, each built from two angled segments (root + tip
   // pivot) so the writhe animation can bend them independently at the
-  // joint. Root reads as mid grey-blue thread, tip fades to dark shadow so
-  // the whole ring stays legible against both bright sky and dark spire.
+  // joint, plus a small blood-red needle-barb capping every tip. Root reads
+  // as mid grey-blue thread, tip fades to dark shadow so the whole ring
+  // stays legible against both bright sky and dark spire, and the red
+  // tip-barbs scatter the palette's accent color around the whole crown
+  // silhouette instead of leaving it pooled only at the eye. Tip lengths
+  // vary slightly per-tendril (every third one a touch shorter) so the
+  // ring reads as organically writhing rather than a mechanically uniform
+  // fan even before any animation runs.
   const tendrilCount = 8;
   const tendrils = [];
   for (let i = 0; i < tendrilCount; i++) {
     const ang = (i / tendrilCount) * Math.PI * 2;
     const radius = 0.4;
+    const lenScale = i % 3 === 0 ? 0.82 : 1;
 
     const tendrilPivot = new THREE.Group();
     tendrilPivot.position.set(
@@ -270,13 +354,21 @@ export function build() {
     tipPivot.position.set(0, 0.15, 0.34);
     tendrilPivot.add(tipPivot);
 
-    const tipGeo = new THREE.BoxGeometry(0.06, 0.06, 0.3);
+    const tipLen = 0.3 * lenScale;
+    const tipGeo = new THREE.BoxGeometry(0.06, 0.06, tipLen);
     const tipSeg = new THREE.Mesh(tipGeo, ironShadowMat);
-    tipSeg.position.set(0, 0, 0.15);
+    tipSeg.position.set(0, 0, tipLen / 2);
     tipSeg.rotation.x = -0.5;
     tipPivot.add(tipSeg);
 
-    tendrils.push({ pivot: tendrilPivot, tip: tipPivot, phase: i * 0.9 });
+    // Needle-barb cap at the very end of the tip — the blood-red accent,
+    // scattered eight times around the crown's outer rim.
+    const tipBarbGeo = new THREE.BoxGeometry(0.055, 0.055, 0.055);
+    const tipBarb = new THREE.Mesh(tipBarbGeo, bloodRimMat);
+    tipBarb.position.set(0, 0, tipLen);
+    tipPivot.add(tipBarb);
+
+    tendrils.push({ pivot: tendrilPivot, tip: tipPivot, barb: tipBarb, phase: i * 0.9 });
   }
 
   // ---- Void aura: faint translucent motes drifting around the spire -----
@@ -308,6 +400,9 @@ export function build() {
     hoverGroup,
     spireGroup,
     spireSegs,
+    flareL,
+    flareR,
+    barbs,
     wrapGroup,
     wrapRings,
     crownGroup,
@@ -316,6 +411,8 @@ export function build() {
     threadStrand,
     threadDripL,
     threadDripR,
+    unravelPivot,
+    unravelTipPivot,
     eyeCore,
     eyeRing,
     eyeMat,
@@ -326,115 +423,275 @@ export function build() {
     auraMat,
   };
 
-  // ---- Animation -----------------------------------------------------------
-  // t = seconds elapsed. state = { moving, grounded, fuse, hurt, dimension }
-  // and MAY carry boss-only extras { phase:0..2, attack:0..1 } — both are
-  // treated as 0/undefined-safe so the module never throws if they're absent.
+  // ---- Animation -------------------------------------------------------
+  // Built on mobs/anim/rig.js's procedural-motion helpers.
+  // Idle:      rig.sway layers two independent-frequency drifts into the
+  //            hover-bob/yaw-sway (the boss never sits dead still) and
+  //            rig.breathe pulses a faint living scale through the spire
+  //            segments; the crown spins and the tendrils writhe on their
+  //            own per-tendril phase offsets.
+  // Glide:     no legs, so state.speed01/moving drive a rig.walkPhase-based
+  //            hover-lurch (small positional drift + extra tendril lag)
+  //            instead of a leg cycle, scaled by speed01 like every other
+  //            creature's walk.
+  // Telegraph: rig.windUp draws the whole spire UP and BACK (a stab
+  //            wind-up) while the tendril-crown coils inward and the eye
+  //            flares — a real anticipation pose, not an instant strike.
+  // Attack:    rig.strike snaps the spire down into a fast plunging stab
+  //            with a squash/stretch impact, the tendrils lash outward,
+  //            and the eye flashes at its brightest.
+  // Phase:     phase 0->2 warms the eye from searing white toward dull
+  //            blood-red, speeds the crown spin, and swells the void aura.
+  // Hurt:      rig.damp drives a sharp, fast-decaying lateral jolt.
+  // Turn:      rig.damp/lerpAngle bank + yaw the whole boss into
+  //            state.turn (signed yaw rate), damped so it never snaps.
+  // Death:     bound-not-killed — rig.dissolve's scale/drop/spread still
+  //            drive the pose, but aimed inward: tendrils fold DOWN against
+  //            the shaft instead of flinging outward, the eye and aura dim
+  //            to near-dark, all writhe/spin/pulse motion damps to stillness,
+  //            and the whole boss sinks and shrinks — a slow stilling
+  //            withdrawal back into the dark it came from, no gore.
+  // -------------------------------------------------------------------
+  let prevT = null;
+  let lean = 0;
+  let yawOffset = 0;
+  let flinch = 0;
+  let crownRot = 0;   // accumulated crown-spin angle, integrated frame to
+                       // frame so it can be damped smoothly to a stop on
+                       // death instead of freezing/cutting off dead
+  let crownSpeed = 0.25;
+
   root.userData.animate = (t, state) => {
-    const s = state || {};
-    const parts = root.userData.parts;
-    const hurt = Math.min(Math.max(s.hurt || 0, 0), 1);
-    const phase = Math.min(Math.max(s.phase || 0, 0), 2); // 0..2
-    const attack = Math.min(Math.max(s.attack || 0, 0), 1); // 0..1
-    const phaseT = phase / 2; // 0..1 normalized escalation
+    try {
+      const s = state || {};
+      const parts = root.userData.parts;
+      const time = n(t, 0);
+      let dt = 0;
+      if (prevT !== null) dt = Math.max(0, Math.min(0.12, time - prevT));
+      prevT = time;
 
-    // Slow menacing hover-bob for the whole boss — big, heavy, unhurried.
-    const bob = Math.sin(t * 0.9) * 0.14 + Math.sin(t * 0.37) * 0.05;
-    parts.hoverGroup.position.y = bob;
+      const moving = !!s.moving;
+      const speed01 = clamp01(s.speed01 != null ? s.speed01 : (moving ? 1 : 0));
+      const hurt = clamp01(s.hurt);
+      const attack = clamp01(s.attack);
+      const telegraph = clamp01(s.telegraph);
+      const dying = clamp01(s.dying);
+      const turn = n(s.turn, 0);
+      const phase = Math.max(0, Math.min(2, n(s.phase, 0))); // 0..2
+      const phaseT = phase / 2; // 0..1 normalized escalation
 
-    // Slow overall sway/rotation so the spire never sits dead still, plus a
-    // little more restlessness as phase climbs.
-    const swaySpeed = 0.35 + phaseT * 0.25;
-    parts.hoverGroup.rotation.y = Math.sin(t * swaySpeed) * (0.06 + phaseT * 0.05);
-    parts.hoverGroup.rotation.z = Math.sin(t * 0.5 + 1.1) * 0.025;
+      // Turn lean/yaw: bank and nose the boss into its yaw rate, damped so
+      // it never snaps from frame to frame.
+      const leanTarget = dying > 0 ? 0 : Math.max(-1, Math.min(1, -turn)) * 0.14;
+      lean = rig.damp(lean, leanTarget, 6, dt || 0.016);
+      const yawTarget = dying > 0 ? yawOffset : Math.max(-1, Math.min(1, turn)) * 0.3;
+      yawOffset = rig.lerpAngle(yawOffset, yawTarget, Math.min(1, (dt || 0.016) * 5));
 
-    // Downward stab lunge driven by state.attack: the whole spire plunges
-    // and snaps back, easing out like a struck spring.
-    const stab = Math.sin(attack * Math.PI) * attack;
-    parts.spireGroup.position.y = -stab * 0.55;
-    parts.spireGroup.rotation.x = stab * 0.18;
-    parts.spireGroup.scale.set(1 - stab * 0.04, 1 + stab * 0.08, 1 - stab * 0.04);
+      if (dying > 0) {
+        // --- DEATH: bound, not killed — slow stilling withdrawal, no gore ---
+        const d = rig.dissolve(dying);
+        // Shrinks, but never to nothing — it withdraws into the dark, it
+        // doesn't get destroyed.
+        const sc = 1 - d.scale * 0.82;
+        parts.hoverGroup.scale.setScalar(Math.max(0.16, sc));
+        parts.hoverGroup.position.y = -d.drop * 1.1 + Math.sin(time * 0.4) * 0.03 * (1 - dying);
+        parts.hoverGroup.rotation.z = lean * (1 - dying);
+        parts.hoverGroup.rotation.y = yawOffset;
 
-    // Hurt jolt: a sharp lateral snap that decays with the hurt value.
-    if (hurt > 0) {
-      parts.spireGroup.position.x = Math.sin(t * 40) * 0.06 * hurt;
-      parts.spireGroup.rotation.z = Math.sin(t * 33) * 0.05 * hurt;
-    } else {
-      parts.spireGroup.position.x = 0;
-    }
+        parts.spireGroup.position.set(0, 0, 0);
+        parts.spireGroup.rotation.set(0, 0, 0);
+        parts.spireGroup.scale.set(1, 1, 1);
 
-    // Crown rotation: slow constant spin of the tendril-crown+eye, speeding
-    // up noticeably at higher phases to read as escalating menace.
-    const crownSpeed = 0.25 + phaseT * 0.55 + attack * 0.3;
-    parts.crownGroup.rotation.y = t * crownSpeed;
+        // Tendrils fold DOWN and IN against the shaft — withdrawing, not
+        // flinging apart — and stop lashing sideways as the boss goes limp.
+        parts.tendrils.forEach(({ pivot, tip }) => {
+          pivot.rotation.x = -0.1 - d.spread * 0.5;
+          pivot.rotation.z *= (1 - dying);
+          tip.rotation.x = d.spread * 0.25;
+        });
+        // Crown spin winds down to a stop rather than cutting off dead —
+        // damp the angular RATE toward 0 and keep integrating the angle
+        // from that decaying rate, so it visibly decelerates.
+        crownSpeed = rig.damp(crownSpeed, 0, 1.5, dt || 0.016);
+        crownRot += crownSpeed * (dt || 0.016);
+        parts.crownGroup.rotation.y = crownRot;
 
-    // Eye pulse: strong, always-searing base glow so the eye never reads as
-    // weak, plus a color shift from bright searing white (#F2F5FA) at phase
-    // 0 toward a dull burning blood-red (#5E1F1F) at phase 2, plus
-    // brighter/faster pulsing under attack.
-    const pulseSpeed = 2.2 + phaseT * 2.0 + attack * 3.0;
-    const pulse = 0.5 + 0.5 * Math.sin(t * pulseSpeed);
-    parts.eyeMat.emissiveIntensity = 1.8 + pulse * (1.3 + phaseT * 1.4) + attack * 1.8;
-    const eyeColdColor = 0xf2f5fa;
-    const eyeHotColor = 0x5e1f1f;
-    const lerpT = Math.min(phaseT + attack * 0.5, 1);
-    const cCold = ((eyeColdColor >> 16) & 255) / 255;
-    const cCold2 = ((eyeColdColor >> 8) & 255) / 255;
-    const cCold3 = (eyeColdColor & 255) / 255;
-    const cHot = ((eyeHotColor >> 16) & 255) / 255;
-    const cHot2 = ((eyeHotColor >> 8) & 255) / 255;
-    const cHot3 = (eyeHotColor & 255) / 255;
-    parts.eyeMat.emissive.setRGB(
-      cCold + (cHot - cCold) * lerpT,
-      cCold2 + (cHot2 - cCold2) * lerpT,
-      cCold3 + (cHot3 - cCold3) * lerpT
-    );
-    const eyeScale = 1 + pulse * 0.12 + attack * 0.15;
-    parts.eyeCore.scale.set(eyeScale, eyeScale, 1);
+        // The unravel-thread and eye-slot thread go slack and still.
+        parts.unravelPivot.rotation.x *= (1 - dying);
+        parts.unravelTipPivot.rotation.x *= (1 - dying);
 
-    // Tendrils writhe: each on its own sine phase so the crown reads alive
-    // rather than mechanically uniform; writhing speeds up with phase and
-    // spikes further on attack (lashing out).
-    const writheSpeed = 1.6 + phaseT * 1.8 + attack * 2.5;
-    parts.tendrils.forEach(({ pivot, tip, phase: ph }) => {
-      pivot.rotation.x = -0.1 + Math.sin(t * writheSpeed + ph) * (0.22 + phaseT * 0.12);
-      pivot.rotation.z = Math.sin(t * writheSpeed * 0.7 + ph * 1.3) * 0.12;
-      tip.rotation.x = Math.sin(t * writheSpeed * 1.4 + ph + 0.6) * (0.4 + attack * 0.3);
-    });
+        // The light goes out of it — no gore, just dimming — and the void
+        // aura contracts and fades as it closes back up around the boss.
+        const dim = 1 - dying;
+        parts.eyeMat.emissiveIntensity = Math.max(0.15, 1.8 * dim);
+        parts.eyeCore.scale.set(1 - dying * 0.35, 1 - dying * 0.35, 1);
+        parts.auraMat.opacity = Math.max(0.02, 0.32 * dim);
+        parts.auraMat.emissiveIntensity = Math.max(0.03, 0.3 * dim);
+        parts.auraMotes.forEach(({ mesh }) => {
+          mesh.scale.setScalar(Math.max(0.08, dim));
+        });
+        return; // death pose overrides everything below
+      }
 
-    // Void aura: motes drift on slow independent orbits, and both their
-    // orbit radius and glow swell as phase climbs — the aura "grows".
-    const auraGrow = 1 + phaseT * 0.6 + attack * 0.25;
-    parts.auraMotes.forEach(({ mesh, phase: ph, baseR, baseY }) => {
-      const orbitSpeed = 0.4 + phaseT * 0.3;
-      const r = baseR * auraGrow;
-      mesh.position.x = Math.cos(t * orbitSpeed + ph) * r;
-      mesh.position.z = Math.sin(t * orbitSpeed + ph) * r;
-      mesh.position.y = baseY + Math.sin(t * 0.8 + ph) * 0.15;
-      mesh.scale.setScalar(auraGrow);
-    });
-    parts.auraMat.opacity = 0.28 + phaseT * 0.22 + attack * 0.15;
-    parts.auraMat.emissiveIntensity = 0.3 + phaseT * 0.5 + attack * 0.4;
+      // Reset any death-mutated transforms in case a previous frame was
+      // mid-withdrawal and the boss got revived/recycled (defensive;
+      // animate() must never assume ordering with the manager's own
+      // removal/respawn timing).
+      if (parts.hoverGroup.scale.x !== 1) parts.hoverGroup.scale.set(1, 1, 1);
 
-    // Thread-wrap band: slow independent counter-rotation of alternating
-    // rings so the midsection reads as "wound" thread, not a static cuff.
-    parts.wrapRings.forEach((ring, i) => {
-      ring.rotation.y = t * (i % 2 === 0 ? 0.4 : -0.4) + i;
-    });
+      // ---- Idle hover-writhe: two independent-frequency sways layered for
+      // a big, heavy, unhurried bob that never repeats exactly. ----
+      const bob = rig.sway(time, 2.3, 1.3, 0) + rig.sway(time, 0.85, 0.53, 0.6);
+      parts.hoverGroup.position.y = bob;
 
-    // Idle-breathe on the spire segments — always running, subtle, gives
-    // the iron mass a faint living pulse even when nothing else is active.
-    const breathe = Math.sin(t * 1.1) * 0.015;
-    parts.spireSegs.forEach((seg, i) => {
-      const k = 1 + breathe * (0.4 + (i / parts.spireSegs.length) * 0.6);
-      seg.scale.set(k, 1, k);
-    });
+      // Slow overall yaw/roll so the spire never sits dead still, plus a
+      // little more restlessness as phase climbs, plus the turn-lean/yaw.
+      const yawAmpMul = (0.06 + phaseT * 0.05) / 0.06;
+      const yawFreqMul = (0.35 + phaseT * 0.25) / 0.7;
+      parts.hoverGroup.rotation.y = rig.sway(time, yawAmpMul, yawFreqMul, 0) + yawOffset;
+      parts.hoverGroup.rotation.z = rig.sway(time, 0.42, 0.71, 1.1) + lean;
 
-    // Slight extra drift while "moving" (boss repositioning between
-    // attacks) so it doesn't look like it's sliding on rails.
-    if (s.moving) {
-      parts.hoverGroup.position.x += Math.sin(t * 1.3) * 0.01;
-      parts.hoverGroup.position.z += Math.cos(t * 1.1) * 0.01;
+      // Hover-lurch: no legs to walk on, so state.speed01 drives a subtle
+      // rig.walkPhase-based repositioning drift instead of a leg cycle —
+      // amplitude/cadence both scale with speed01 exactly like a real walk
+      // cycle would, so the boss never "slides on rails" while moving and
+      // never lurches at full amplitude while holding still.
+      const wp = rig.walkPhase(time, speed01, 0.6);
+      // Assign (not accumulate) — these are absolute offsets derived from
+      // the current instant, so += here would drift the boss away from
+      // origin forever instead of oscillating around it.
+      parts.hoverGroup.position.x = (wp.FR - wp.FL) * 0.02;
+      parts.hoverGroup.position.z = Math.sin(time * 1.1) * 0.012 * speed01;
+
+      // ---- Telegraph / attack: rig.windUp draws the spire up and back in
+      // anticipation, rig.strike snaps it down into the plunge. ----
+      const attackActive = telegraph > 0 || attack > 0;
+      const blend = Math.max(telegraph, attack);
+      if (attackActive) {
+        const windAmt = rig.windUp(telegraph); // 0 -> ~-1.1 -> -1 (pull-back)
+        const strikeAmt = rig.strike(attack); // 0 -> 1, fast release
+        const rise = -windAmt; // 0 .. ~1.1 .. 1 (positive = rearing up/back)
+
+        // Rear up and back through the wind-up, then plunge down fast
+        // through the strike, easing out like a struck spring at impact.
+        const plunge = Math.sin(strikeAmt * Math.PI) * strikeAmt;
+        parts.spireGroup.position.y = rise * 0.3 * (1 - strikeAmt) - plunge * 0.55;
+        parts.spireGroup.rotation.x = -rise * 0.14 * (1 - strikeAmt) + plunge * 0.2;
+        const sq = 1 - plunge * 0.05;
+        parts.spireGroup.scale.set(sq, 1 + plunge * 0.09, sq);
+
+        // Tendril-crown coils inward through the wind-up (anticipation),
+        // then lashes outward hard on the strike (release).
+        parts.tendrils.forEach(({ pivot, tip, phase: ph }) => {
+          pivot.rotation.x = -0.1 - rise * 0.25 * (1 - strikeAmt) + plunge * 0.35 + Math.sin(time * 2 + ph) * 0.06;
+          pivot.rotation.z = Math.sin(time * 2 + ph * 1.3) * 0.1 + plunge * Math.sin(ph) * 0.2;
+          tip.rotation.x = plunge * 0.6 + Math.sin(time * 2.6 + ph) * 0.15;
+        });
+
+        // Eye flares sharply through the wind-up and flashes hottest at
+        // the strike's impact.
+        parts.eyeMat.emissiveIntensity = 1.8 + blend * 2.2 + plunge * 1.6;
+        const eyeScale = 1 + blend * 0.18 + plunge * 0.2;
+        parts.eyeCore.scale.set(eyeScale, eyeScale, 1);
+      } else {
+        parts.spireGroup.position.y = 0;
+        parts.spireGroup.rotation.x = 0;
+        parts.spireGroup.scale.set(1, 1, 1);
+
+        // Tendrils writhe: each on its own sine phase so the crown reads
+        // alive rather than mechanically uniform; speeds up with phase.
+        const writheSpeed = 1.6 + phaseT * 1.8;
+        parts.tendrils.forEach(({ pivot, tip, phase: ph }) => {
+          pivot.rotation.x = -0.1 + Math.sin(time * writheSpeed + ph) * (0.22 + phaseT * 0.12);
+          pivot.rotation.z = Math.sin(time * writheSpeed * 0.7 + ph * 1.3) * 0.12;
+          tip.rotation.x = Math.sin(time * writheSpeed * 1.4 + ph + 0.6) * 0.4;
+        });
+      }
+
+      // Hurt jolt: a sharp lateral snap, damped so it decays smoothly
+      // regardless of how long state.hurt is held.
+      flinch = rig.damp(flinch, hurt, 20, dt || 0.016);
+      if (flinch > 0.001) {
+        parts.spireGroup.position.x = Math.sin(time * 40) * 0.06 * flinch;
+        parts.spireGroup.rotation.z = Math.sin(time * 33) * 0.05 * flinch;
+      } else {
+        parts.spireGroup.position.x = 0;
+        parts.spireGroup.rotation.z = 0;
+      }
+
+      // Crown rotation: slow constant spin of the tendril-crown+eye,
+      // speeding up noticeably at higher phases and further under attack.
+      // Rate is damped (not snapped) toward its target and the angle is
+      // integrated from that rate so death can decelerate it smoothly
+      // instead of cutting the spin off dead.
+      const crownSpeedTarget = 0.25 + phaseT * 0.55 + blend * 0.35;
+      crownSpeed = rig.damp(crownSpeed, crownSpeedTarget, 4, dt || 0.016);
+      crownRot += crownSpeed * (dt || 0.016);
+      parts.crownGroup.rotation.y = crownRot;
+
+      // Eye pulse (idle/non-attack baseline): strong, always-searing base
+      // glow so the eye never reads as weak, plus a color shift from
+      // bright searing white (#F2F5FA) at phase 0 toward a dull burning
+      // blood-red (#5E1F1F) at phase 2.
+      if (!attackActive) {
+        const pulseSpeed = 2.2 + phaseT * 2.0;
+        const pulse = 0.5 + 0.5 * Math.sin(time * pulseSpeed);
+        parts.eyeMat.emissiveIntensity = 1.8 + pulse * (1.3 + phaseT * 1.4);
+        const eyeScale = 1 + pulse * 0.12;
+        parts.eyeCore.scale.set(eyeScale, eyeScale, 1);
+      }
+      const eyeColdColor = 0xf2f5fa;
+      const eyeHotColor = 0x5e1f1f;
+      const lerpT = Math.min(phaseT + blend * 0.5, 1);
+      const cCold = ((eyeColdColor >> 16) & 255) / 255;
+      const cCold2 = ((eyeColdColor >> 8) & 255) / 255;
+      const cCold3 = (eyeColdColor & 255) / 255;
+      const cHot = ((eyeHotColor >> 16) & 255) / 255;
+      const cHot2 = ((eyeHotColor >> 8) & 255) / 255;
+      const cHot3 = (eyeHotColor & 255) / 255;
+      parts.eyeMat.emissive.setRGB(
+        cCold + (cHot - cCold) * lerpT,
+        cCold2 + (cHot2 - cCold2) * lerpT,
+        cCold3 + (cHot3 - cCold3) * lerpT
+      );
+
+      // Void aura: motes drift on slow independent orbits, and both their
+      // orbit radius and glow swell as phase climbs — the aura "grows".
+      const auraGrow = 1 + phaseT * 0.6 + blend * 0.25;
+      parts.auraMotes.forEach(({ mesh, phase: ph, baseR, baseY }) => {
+        const orbitSpeed = 0.4 + phaseT * 0.3;
+        const r = baseR * auraGrow;
+        mesh.position.x = Math.cos(time * orbitSpeed + ph) * r;
+        mesh.position.z = Math.sin(time * orbitSpeed + ph) * r;
+        mesh.position.y = baseY + Math.sin(time * 0.8 + ph) * 0.15;
+        mesh.scale.setScalar(auraGrow);
+      });
+      parts.auraMat.opacity = 0.28 + phaseT * 0.22 + blend * 0.15;
+      parts.auraMat.emissiveIntensity = 0.3 + phaseT * 0.5 + blend * 0.4;
+
+      // Thread-wrap band: slow independent counter-rotation of alternating
+      // rings so the midsection reads as "wound" thread, not a static cuff.
+      parts.wrapRings.forEach((ring, i) => {
+        ring.rotation.y = time * (i % 2 === 0 ? 0.4 : -0.4) + i;
+      });
+
+      // Idle-breathe on the spire segments — always running, subtle, gives
+      // the iron mass a faint living pulse even when nothing else is
+      // active. Driven by rig.breathe so its cadence stays consistent with
+      // every other creature's idle breath.
+      const breatheAmt = rig.breathe(time, 0.6, 0.5);
+      parts.spireSegs.forEach((seg, i) => {
+        const k = 1 + breatheAmt * (0.4 + (i / parts.spireSegs.length) * 0.6);
+        seg.scale.set(k, 1, k);
+      });
+
+      // Trailing unravel-thread: an independent slow sway so it drifts on
+      // its own, distinct from the tendrils and the front eye-thread.
+      parts.unravelPivot.rotation.x = 0.15 + rig.sway(time, 0.8, 0.5, 2.4);
+      parts.unravelPivot.rotation.z = rig.sway(time, 0.6, 0.4, 0.7);
+      parts.unravelTipPivot.rotation.x = rig.sway(time, 1, 0.65, 1.3) * 0.6;
+    } catch (e) {
+      // animate() must never throw and take the whole mob manager down.
     }
   };
 
@@ -457,11 +714,16 @@ export const meta = {
   description:
     'The final boss of Nevermend: the Ravelling given form as a colossal ' +
     'floating needle-entity. A tall, PALE SILVER needle-spire — never dark ' +
-    'iron — tapers to a glinting killing point below with no legs to touch ' +
-    'the ground, wrapped at the waist in grey-blue thread, and crowned ' +
-    'above by a clear ring of 8 writhing thread-tendrils around a searing ' +
-    'eye-of-thread set within the great rectangular needle-eye slot, ' +
-    'threaded with a dark strand. As the fight escalates through three ' +
-    'phases the eye burns from a bright searing white toward a dull ' +
-    'blood-red, the void aura swells, and the crown spins and lashes faster.',
+    'iron — flares at the shoulders into an asymmetric crossguard, tapers ' +
+    'through stitch-barbed shaft segments to a glinting killing point ' +
+    'below with no legs to touch the ground, wrapped at the waist in ' +
+    'grey-blue thread, and crowned above by a clear ring of 8 writhing, ' +
+    'red-barbed thread-tendrils around a searing eye-of-thread set within ' +
+    'the great rectangular needle-eye slot, threaded with a dark strand in ' +
+    'front and a second loose thread unraveling off the back of the ' +
+    'crown. As the fight escalates through three phases the eye burns from ' +
+    'a bright searing white toward a dull blood-red, the void aura swells, ' +
+    'and the crown spins and lashes faster. It is bound, not killed: when ' +
+    'defeated it does not shatter or bleed — it stills, dims, and slowly ' +
+    'withdraws back into the dark it came from.',
 };
