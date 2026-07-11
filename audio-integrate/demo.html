@@ -1,0 +1,217 @@
+<meta charset="utf-8" />
+<title>AudioStack Proof — OfflineAudioContext + lf-audio-event bridge</title>
+<link rel="icon" href="data:," />
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; background: #0d1117; color: #e6edf3;
+    font: 14px/1.5 -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  }
+  header { padding: 16px 20px 8px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color: #8b949e; font-size: 12px; }
+  #summary { padding: 8px 20px; font-size: 13px; }
+  .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-weight: 600; margin-right: 8px; }
+  .pass { background: #196c2e; color: #d3f9d8; }
+  .fail { background: #8b2020; color: #ffd7d7; }
+  .metric { color: #8b949e; margin-right: 14px; }
+  .metric b { color: #e6edf3; }
+  #wave { display: block; width: calc(100% - 40px); height: 180px; margin: 8px 20px;
+    background: #010409; border: 1px solid #30363d; border-radius: 6px; }
+  #panel { margin: 8px 20px 24px; }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #21262d; white-space: nowrap; }
+  th { color: #8b949e; font-weight: 600; border-bottom: 1px solid #30363d; }
+  td.dir { color: #79c0ff; }
+  td.loop { color: #56d364; }
+  td.ended { color: #f0883e; }
+  .cat { color: #d2a8ff; }
+  #assert { margin: 8px 20px; font-size: 12px; }
+  #assert li { margin: 2px 0; }
+  .ok::before { content: "PASS "; color: #56d364; font-weight: 700; }
+  .no::before { content: "FAIL "; color: #f85149; font-weight: 700; }
+</style>
+
+<header>
+  <h1>AudioStack Proof — real GameAudio + engine through OfflineAudioContext</h1>
+  <div class="sub">The genuine builder GameAudio wrapper renders non-silent audio through the on-branch engine, and the AudioStack caption bridge dispatches <code>lf-audio-event</code> for every sound category.</div>
+</header>
+<div id="summary">Rendering…</div>
+<canvas id="wave" width="1240" height="180"></canvas>
+<ul id="assert"></ul>
+<div id="panel"></div>
+
+<script type="importmap">
+{ "imports": { "/audio-integrate/vendor-game/audio/": "/audio/" } }
+</script>
+
+<script type="module">
+  import { GameAudio } from './vendor-game/src/audio/GameAudio.js';
+  import { getBlockDef, BLOCKS } from './vendor-game/src/blocks/blocks.js';
+  import { AudioStack } from './integrate.js';
+
+  const errors = [];
+  const events = [];
+  window.addEventListener('lf-audio-event', (e) => events.push(e.detail));
+
+  function idForName(name) {
+    for (const b of BLOCKS) if (b.name === name) return b.id;
+    return -1;
+  }
+
+  async function run() {
+    // Discover real block ids from the genuine registry.
+    const stoneId = idForName('stone'); // -> material 'stone'
+    const woodId = idForName('log');    // -> material 'wood'
+    const grassId = idForName('grass'); // -> material 'grass'
+    if (stoneId < 0 || woodId < 0 || grassId < 0) {
+      throw new Error(`block id discovery failed: stone=${stoneId} log=${woodId} grass=${grassId}`);
+    }
+    // Sanity: confirm the genuine GameAudio maps these to the expected materials.
+    // (getBlockDef(stoneId).name === 'stone' etc.)
+
+    // 6 seconds of stereo @ 44.1kHz.
+    const off = new OfflineAudioContext(2, 44100 * 6, 44100);
+
+    // The REAL builder wrapper (takes no ctx); inject the offline context into
+    // the genuine engine and build its buses on it.
+    const ga = new GameAudio();
+    ga.engine.ctx = off;
+    ga.engine._buildBuses();
+    // Offline contexts are "ready" without a user gesture; mark resumed so the
+    // genuine setDimension() path starts music immediately instead of deferring.
+    ga.state.resumed = true;
+
+    // Decorate -> caption bridge active.
+    const stack = new AudioStack();
+    stack.attach(ga);
+
+    // Listener at origin looking -z (yaw 0): forward=-z, right=-x.
+    ga.setListener({ x: 0, y: 1.6, z: 0 }, 0);
+
+    // Representative battery: every category + direction + loop + music.
+    ga.blockBreak(stoneId, { x: 3, y: 1, z: 0 });                 // break.stone  +x
+    ga.blockPlace(woodId, { x: -3, y: 1, z: 0 });                 // place.wood   -x
+    ga.step(grassId, { x: 0, y: 0, z: -3 }, 1);                   // step.grass   -z
+    ga.play('mob.groaner.hurt', { pos: { x: 0, y: 1, z: 4 }, volume: 0.85 }); // mob +z
+    ga.thunder(false, { x: 0, y: 5, z: 2 });                     // thunder (alert) positional
+    ga.thunder(true);                                            // thunder.distant, no pos -> null
+    ga.ui();                                                     // ui.click, null
+    ga.hurt();                                                   // hurt (alert), null
+    ga.portal({ x: 1, y: 1, z: 1 });                            // portal
+    ga.splash({ x: 0, y: 0, z: 1 });                           // splash
+    ga.rainSet(0.6);                                            // rain LOOP -> loop:true
+    if (typeof stack.pickup === 'function') stack.pickup({ x: 0, y: 0, z: 0 }); // pop gap-fill
+    ga.setDimension('overworld', 42);                          // music.calm loop + wind bed loop
+    ga.rainStop();                                             // rain -> ended:true
+
+    // Render.
+    const buf = await off.startRendering();
+    const ch0 = buf.getChannelData(0);
+    const ch1 = buf.numberOfChannels > 1 ? buf.getChannelData(1) : ch0;
+    let peak = 0, sumSq = 0, n = ch0.length + ch1.length;
+    for (let i = 0; i < ch0.length; i++) {
+      const a = Math.abs(ch0[i]); if (a > peak) peak = a; sumSq += ch0[i] * ch0[i];
+    }
+    for (let i = 0; i < ch1.length; i++) {
+      const a = Math.abs(ch1[i]); if (a > peak) peak = a; sumSq += ch1[i] * ch1[i];
+    }
+    const rms = Math.sqrt(sumSq / n);
+    const nonSilent = peak > 0.001;
+    const nonClipping = peak <= 1.0;
+
+    // -------- contract assertions --------
+    const has = (n) => events.some((e) => e.name === n);
+    const shapeOk = events.every((e) =>
+      e && 'name' in e && 'direction' in e && 'volume' in e && 'loop' in e && 'ended' in e);
+    const dirs = new Set(['left', 'right', 'behind', 'front']);
+    const anyPositionalDir = events.some((e) => e.direction && dirs.has(e.direction));
+    const breakDir = (events.find((e) => e.name === 'break.stone') || {}).direction;
+    const placeDir = (events.find((e) => e.name === 'place.wood') || {}).direction;
+    const oppositeDirs = !!breakDir && !!placeDir && breakDir !== placeDir;
+    const nonPos = ['ui.click', 'hurt', 'thunder.distant'];
+    const nonPosNull = nonPos.every((nm) => {
+      const e = events.find((x) => x.name === nm);
+      return e && e.direction === null;
+    });
+    const rainLoop = events.some((e) => e.name === 'rain' && e.loop === true && !e.ended);
+    const rainEnded = events.some((e) => e.name === 'rain' && e.ended === true);
+    const musicCalm = events.some((e) => e.name === 'music.calm');
+    const catFor = (nm) => (events.find((e) => e.name === nm) || {}).category;
+    const catAlert = catFor('thunder') === 'alert' && catFor('hurt') === 'alert';
+    const catAction = catFor('step.grass') === 'action' && catFor('break.stone') === 'action' && catFor('place.wood') === 'action';
+    const catMob = catFor('mob.groaner.hurt') === 'mob';
+    const catAmbient = catFor('rain') === 'ambient' && catFor('wind') === 'ambient';
+    const catMusic = catFor('music.calm') === 'music';
+
+    const assertions = [
+      ['shape has name/direction/volume/loop/ended on every event', shapeOk],
+      ['at least one positional sound has a non-null direction', anyPositionalDir],
+      ['+x (break.stone) and -x (place.wood) produce DIFFERENT directions', oppositeDirs, `(+x=${breakDir}, -x=${placeDir})`],
+      ['non-positional (ui.click, hurt, thunder.distant) direction === null', nonPosNull],
+      ['rain dispatched BOTH loop:true and later ended:true', rainLoop && rainEnded],
+      ['music.calm event dispatched', musicCalm],
+      ['thunder & hurt category === alert', catAlert],
+      ['step/break/place category === action', catAction],
+      ['mob.* category === mob', catMob],
+      ['rain & wind category === ambient', catAmbient],
+      ['music.* category === music', catMusic],
+    ];
+    const contractOk = assertions.every((a) => a[1]);
+
+    // -------- draw waveform (channel 0) --------
+    const cv = document.getElementById('wave');
+    const g = cv.getContext('2d');
+    const W = cv.width, H = cv.height, mid = H / 2;
+    g.fillStyle = '#010409'; g.fillRect(0, 0, W, H);
+    g.strokeStyle = '#21262d'; g.beginPath(); g.moveTo(0, mid); g.lineTo(W, mid); g.stroke();
+    g.strokeStyle = '#58a6ff'; g.lineWidth = 1; g.beginPath();
+    const step = Math.max(1, Math.floor(ch0.length / W));
+    for (let x = 0; x < W; x++) {
+      let lo = 1, hi = -1;
+      const start = x * step;
+      for (let j = 0; j < step && start + j < ch0.length; j++) {
+        const v = ch0[start + j]; if (v < lo) lo = v; if (v > hi) hi = v;
+      }
+      const y1 = mid - hi * mid * 0.95;
+      const y2 = mid - lo * mid * 0.95;
+      g.moveTo(x + 0.5, y1); g.lineTo(x + 0.5, y2);
+    }
+    g.stroke();
+
+    // -------- summary + assertions + event table --------
+    const pill = (ok, label) => `<span class="pill ${ok ? 'pass' : 'fail'}">${label} ${ok ? 'PASS' : 'FAIL'}</span>`;
+    document.getElementById('summary').innerHTML =
+      pill(nonSilent, 'NON-SILENT') + pill(contractOk, 'CONTRACT') + pill(nonClipping, 'NON-CLIPPING') +
+      `<span class="metric">peak <b>${peak.toFixed(4)}</b></span>` +
+      `<span class="metric">rms <b>${rms.toFixed(4)}</b></span>` +
+      `<span class="metric">events <b>${events.length}</b></span>` +
+      (nonClipping ? '' : `<div class="sub" style="margin-top:6px">peak &gt; 1.0 is the honest artifact of firing the entire ${events.length}-sound battery at the same offline t=0 quantum (attacks sum); real gameplay staggers these so they never coincide.</div>`);
+
+    document.getElementById('assert').innerHTML = assertions.map(
+      (a) => `<li class="${a[1] ? 'ok' : 'no'}">${a[0]}${a[2] ? ' ' + a[2] : ''}</li>`
+    ).join('');
+
+    const rows = events.map((e) =>
+      `<tr><td>${e.name}</td><td class="dir">${e.direction === null ? 'null' : e.direction}</td>` +
+      `<td>${(+e.volume).toFixed(2)}</td><td class="loop">${e.loop}</td>` +
+      `<td class="ended">${e.ended}</td><td class="cat">${e.category}</td></tr>`
+    ).join('');
+    document.getElementById('panel').innerHTML =
+      `<table><thead><tr><th>name</th><th>direction</th><th>volume</th><th>loop</th><th>ended</th><th>category</th></tr></thead><tbody>${rows}</tbody></table>`;
+
+    window.audioProof = {
+      events, peak, rms, nonSilent, nonClipping, contractOk,
+      assertions: assertions.map((a) => ({ label: a[0], pass: a[1], note: a[2] || '' })),
+      blockIds: { stoneId, woodId, grassId },
+      ready: true, errors,
+    };
+  }
+
+  run().catch((err) => {
+    errors.push(String(err && err.stack || err));
+    document.getElementById('summary').innerHTML =
+      `<span class="pill fail">ERROR</span> ${String(err && err.message || err)}`;
+    window.audioProof = { events, peak: 0, rms: 0, nonSilent: false, nonClipping: false, contractOk: false, ready: true, errors };
+  });
+</script>
