@@ -1,0 +1,49 @@
+# BuildKit reads "<dockerfile>.dockerignore" (this file) in preference to the
+# root .dockerignore when building with `-f deploy/Dockerfile .`.
+# Everything here is evaluated relative to the build context = the REPO ROOT.
+#
+# Goal: keep the build context (and resulting image) small and free of
+# secrets/junk. The Dockerfile installs its own node_modules and copies only
+# server/, public/, and the manifest — so exclude the rest aggressively.
+
+# Version control
+.git
+.gitignore
+.github
+
+# Dependencies — reinstalled cleanly inside the builder stage
+node_modules
+**/node_modules
+
+# Persisted world data — must never bake into the image (it is a volume)
+saves
+
+# The deploy build artifacts themselves (this Dockerfile lives here; no need
+# to ship it into the context/image)
+deploy
+
+# Tests and their tooling (playwright etc. are dev-only)
+tests
+playwright-report
+test-results
+
+# Local env / secrets
+.env
+*.env
+.env.*
+!.env.example
+
+# Editor / OS / scratch cruft
+.vscode
+.idea
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+*.tmp
+tmp
+scratch
+
+# Docs — keep the top-level README, drop the rest to trim the context
+*.md
+!README.md
