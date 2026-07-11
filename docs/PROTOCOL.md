@@ -113,6 +113,9 @@ Within a room, messages are scoped as follows:
 | `move`       | peers in the same **dimension** only           |
 | `edit`       | peers in the same **dimension** only           |
 | `chat`       | whole room (all dimensions), **including** sender |
+| `emote`      | peers in the same **dimension** only, excluding sender |
+| `whisper`    | the **target only** (+ an `echo:true` copy to the sender) |
+| `presence`   | whole room (all dimensions), sent on join/leave |
 
 **Heartbeat.** Every 30 s the server pings each socket (WebSocket ping
 frame). A socket that has not answered the previous ping with a pong is
@@ -137,6 +140,15 @@ pings automatically; no client action is needed.
   deduped by appending a numeral (`Kai` -> `Kai2`). The sanitized name is the
   one echoed in `welcome.peers`, `peer-join`, and `chat`.
 - `dim` (optional): starting dimension, defaults to `overworld`.
+- `skin` (optional): the player's **encoded skin descriptor** — the compact
+  dotted-base36 string produced by `avatars-plus/skin-descriptor.js`
+  `encodeDescriptor()` (e.g. `"0.3c.0.a8.32"`). Validated server-side against
+  charset `[a-z0-9.]` and a **128-char** cap; anything oversized, off-charset
+  or non-string is **dropped** (the join still succeeds — the player simply
+  has no synced skin and peers render the deterministic hash-of-id fallback).
+  A valid skin is stored on the player and **echoed verbatim** in
+  `welcome.peers[]` entries and every `peer-join` for that player, so all
+  clients decode the same descriptor and render an identical look.
 - A second `join` on an already-joined socket is answered with an `error`
   frame and ignored.
 
@@ -248,6 +260,37 @@ pings automatically; no client action is needed.
 - Broadcast to the whole room **including the sender** (the sender renders
   its own line when the echo arrives, guaranteeing consistent ordering).
 
+### `emote`
+```json
+{ "t": "emote", "emote": "wave" }
+```
+- `emote` is a short id token matching `[a-z0-9_-]{1,16}` (the avatars-plus
+  registry ids: `wave nod sit cheer point dance bow facepalm`); malformed ids
+  are silently dropped.
+- Rate limited to **2 emotes/s** per connection (token bucket, burst 2 —
+  the same helper as the edit bucket); excess emotes are silently dropped
+  (no error frame, no amplification).
+- Accepted emotes are broadcast to same-world **same-dimension** peers as
+  `{t:'emote', id, emote}` (see §5), excluding the sender (the sender's
+  client plays its own emote locally).
+
+### `whisper`
+```json
+{ "t": "whisper", "to": "Alex-ish", "text": "meet me at the portal" }
+```
+- A **directed private message**. `to` is a player display name (the
+  server-minted, deduped name — matched case-insensitively, capped at 24
+  chars); `text` is validated and sanitized **exactly like chat** (control
+  chars stripped, trimmed, 256-char cap, HTML-escaped on delivery).
+- Rate limited through the **same sliding window as chat** (3 messages per
+  2 s combined chat+whisper — whispering cannot bypass the chat limiter);
+  a breach answers the sender with `error: chat_rate`.
+- Delivery: the target receives `{t:'whisper', from, text}`; the sender
+  receives an `{t:'whisper', echo:true, to, text}` confirmation copy;
+  **no other socket ever sees the frame** — this is what makes `/w`
+  actually private (privacy is locked by a three-client regression test).
+- An unknown target answers the sender with `error: whisper_unknown`.
+
 ---
 
 ## 5. Server → Client messages
@@ -331,14 +374,47 @@ additive); rate-capped edits send `editReject` only.
 ```
 Delivered to the whole room including the original sender.
 
+### `emote`
+```json
+{ "t": "emote", "id": "p2", "emote": "wave" }
+```
+A peer played an emote; only delivered to clients in the **same dimension**,
+excluding the sender. Clients play `emote` on peer `id`'s avatar
+(`PlayerStack.receivePeerEmote`).
+
+### `whisper`
+```json
+{ "t": "whisper", "from": "Alex-ish", "text": "meet me at the portal" }
+{ "t": "whisper", "echo": true, "to": "Alex-ish", "text": "meet me at the portal" }
+```
+First form: a directed message delivered **only to the target**. `from` is the
+sender's (HTML-escaped) display name — render via `textContent`, honor local
+mute/block lists. Second form: the sender's own delivery-confirmation echo
+(clients typically ignore it — the outgoing line was already rendered
+locally by the whisper controller).
+
+### `presence`
+```json
+{ "t": "presence", "players": [
+  { "id": "p1", "name": "Alex-ish", "dim": "overworld", "ping": 12 },
+  { "id": "p2", "name": "Kai", "dim": "nether", "ping": null } ] }
+```
+Event-driven roster snapshot of the **whole room** (all dimensions),
+broadcast on every join and leave. `ping` is the player's last WebSocket
+heartbeat RTT in milliseconds (`null` until the first pong, which arrives
+within one 30 s heartbeat interval). Clients use it to reconcile the
+player-list roster and surface pings; it is advisory and never replaces
+`peer-join`/`peer-leave` handling.
+
 ### `error`
 ```json
 { "t": "error", "code": "bad_edit", "message": "block id out of range" }
 ```
 Advisory only; the connection stays open. Codes currently used:
-`bad_join`, `already_joined`, `bad_edit`, `bad_world`, `chat_rate`,
-`move_rejected`, `server_full` (sent right before a 1013 close when the
-`MAX_PLAYERS` connection cap is hit). (Malformed `move` frames are dropped
+`bad_join`, `already_joined`, `bad_edit`, `bad_world`, `chat_rate`
+(shared by chat and whisper), `whisper_unknown` (whisper target name not in
+the room), `move_rejected`, `server_full` (sent right before a 1013 close
+when the `MAX_PLAYERS` connection cap is hit). (Malformed `move` frames are dropped
 **silently**;
 rate-capped edits get no `error` frame but DO get an `editReject` rollback
 frame — one per inbound edit, so no amplification; speed-budget violations
@@ -352,15 +428,21 @@ why its position froze.)
 
 `NetClient` wraps the above for the game:
 
-- `connect(url, worldId, name)` → Promise resolving after `welcome`
-  (`{ id, world, peers }`); stores `selfId` and `world` (incl. edits).
-  `url` may be `ws://…/ws`, `wss://…/ws`, or an `http(s)` origin (converted).
-- Callback registration (each takes one function, replacing any previous):
+- `connect(url, worldId, name, dim?, skin?)` → Promise resolving after
+  `welcome` (`{ id, world, peers }`); stores `selfId` and `world` (incl.
+  edits). `url` may be `ws://…/ws`, `wss://…/ws`, or an `http(s)` origin
+  (converted). `skin` is the optional encoded skin-descriptor string sent in
+  the join frame (§4).
+- Callback registration (each takes one function, replacing any previous —
+  in-game, `PlayerStack` (public/avatars-integrate/integrate.js) is the
+  single owner of the peer/chat/disconnect slots and fans events out):
   `onState(cb)` — fired with the `welcome` payload;
   `onPeerJoin(cb)`, `onPeerLeave(cb)`, `onPeerMove(cb)`, `onEdit(cb)`,
   `onEditReject(cb)` (one of OUR edits was rejected — roll the cell back,
-  see the `editReject` message in §5), `onChat(cb)`, `onDisconnect(cb)`
-  (receives `{code, reason, intentional}`).
+  see the `editReject` message in §5), `onChat(cb)`, `onEmote(cb)`
+  (`{id, emote}`), `onWhisper(cb)` (`{from, text}` or the sender echo
+  `{echo:true, to, text}`), `onPresence(cb)` (`{players}` roster snapshot),
+  `onDisconnect(cb)` (receives `{code, reason, intentional}`).
 - `sendMove(pos, yaw, pitch)` — throttled to **20 Hz**, latest-wins: calls
   during the 50 ms window overwrite the pending frame; nothing is sent when
   idle.
@@ -371,6 +453,9 @@ why its position froze.)
   teleport back to the spawn anchor (see the `respawn` message in §4).
 - `sendEdit(x, y, z, blockId)` — immediate (uses the current dimension).
 - `sendChat(text)` — immediate.
+- `sendEmote(emoteId)` — immediate; server rate-caps at 2/s (§4).
+- `sendWhisper(toName, text)` — immediate directed message; delivered only
+  to the target (§4).
 - Outgoing frames are queued until the socket is open, then flushed after
   the `join` frame.
 - `close()` — intentional shutdown; `onDisconnect` still fires, with
@@ -401,6 +486,9 @@ regression test in `tests/security.test.mjs`, run via `npm test`):
 | 12 | Names | strip control chars + `<>&"'`, cap 24, fallback `Wanderer-xxxx`, dedup per room with numeral suffix | sanitized transparently at join |
 | 13 | Chat | strip control chars, cap 256, HTML-escape `&<>"'` on broadcast (name too); **3 msgs / 2 s** | over-limit dropped + `error: chat_rate` to sender |
 | 14 | Consistency | same-cell edits resolve **last-writer-wins**; all observers converge | n/a (locked by tests) |
+| 15 | Skin descriptor | join `skin` must match `[a-z0-9.]{1,128}`; anything else (oversize, off-charset, non-string) is dropped — never stored, never echoed | join succeeds skinless (hash-swatch fallback) |
+| 16 | Emote | id must match `[a-z0-9_-]{1,16}`; **2 emotes/s** per connection (token bucket, burst 2); same-dimension broadcast only | malformed/over-limit silently dropped |
+| 17 | Whisper | sanitized exactly like chat (strip/trim/256/HTML-escape); **shares the 3-per-2 s chat window**; delivered to the resolved target ONLY (+ `echo:true` to sender) | over-limit `error: chat_rate`; unknown target `error: whisper_unknown`; third parties never receive the frame (three-client test) |
 
 The old "resync" grace (an over-budget move accepted at most once per 2 s,
 which used to cover client respawn) is **gone**: respawn now has an explicit

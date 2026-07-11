@@ -55,8 +55,12 @@ const MAX_WS_PAYLOAD_BYTES = 65536;
 const MSG_RATE = { perSec: 60, burst: 120, maxStrikes: 3 };
 /** Block-edit rate per connection. */
 const EDIT_RATE = { perSec: 20, burst: 20 };
-/** Chat rate per connection (sliding window). */
+/** Chat rate per connection (sliding window). Whispers share this window —
+ * a directed message is still a chat message, so the combined chat+whisper
+ * rate is 3 per 2 s (whispers cannot bypass the chat limiter). */
 const CHAT_RATE = { msgs: 3, perMs: 2000 };
+/** Emote rate per connection (token bucket, 2/s sustained, burst 2). */
+const EMOTE_RATE = { perSec: 2, burst: 2 };
 /** Max sustained "controllable" movement speed (horizontal + upward), b/s.
  * Creative sprint-fly is 21.78 b/s; 25 leaves headroom for jitter. */
 const MAX_MOVE_SPEED = 25;
@@ -89,6 +93,13 @@ const PLAYER_HEIGHT = 1.8;
 const PLAYER_WIDTH = 0.6;
 const NAME_MAX = 24;
 const CHAT_MAX = 256;
+/** Encoded skin descriptor: dotted base36 fields (avatars-plus grammar).
+ * Anything longer than 128 chars or off-charset is DROPPED at join (the
+ * player simply has no synced skin; clients fall back to the hash swatch). */
+const SKIN_MAX = 128;
+const SKIN_RE = /^[a-z0-9.]{1,128}$/;
+/** Emote ids are short lowercase tokens (wave, nod, dance, ...). */
+const EMOTE_RE = /^[a-z0-9_-]{1,16}$/;
 
 const CONTROL_CHARS_RE = /[\u0000-\u001f\u007f-\u009f]/g;
 const NAME_STRIP_RE = /[<>&"']/g;
@@ -399,7 +410,18 @@ function broadcast(room, msg, { dim = null, except = null } = {}) {
 
 function peerSnapshot(player) {
   const { id, name, x, y, z, yaw, pitch, dim } = player;
-  return { id, name, x, y, z, yaw, pitch, dim };
+  // `skin` (validated at join) is echoed so peers can render the same look;
+  // players without a valid skin get no field at all (clients hash-fallback).
+  return { id, name, x, y, z, yaw, pitch, dim, ...(player.skin ? { skin: player.skin } : {}) };
+}
+
+/** Roster broadcast {t:'presence'} — sent to the whole room on join/leave.
+ * `ping` is the last heartbeat RTT in ms (null until the first pong). */
+function broadcastPresence(room) {
+  const players = [...room.clients.values()].map((p) => ({
+    id: p.id, name: p.name, dim: p.dim, ping: p.ping ?? null,
+  }));
+  broadcast(room, { t: 'presence', players });
 }
 
 async function handleJoin(ws, msg) {
@@ -434,6 +456,10 @@ async function handleJoin(ws, msg) {
   // "Wanderer-xxxx", and dedup within the room by appending a numeral.
   const name = uniqueName(room, sanitizeName(msg.name) || `Wanderer-${randomSuffix()}`);
   const dim = DIMENSIONS.includes(msg.dim) ? msg.dim : 'overworld';
+  // Skin descriptor: strict charset + length validation; anything invalid
+  // (oversized, off-charset, non-string) is dropped — never stored or echoed.
+  const skin = typeof msg.skin === 'string' && msg.skin.length <= SKIN_MAX &&
+    SKIN_RE.test(msg.skin) ? msg.skin : null;
 
   const player = {
     id: `p${nextClientId++}`,
@@ -441,6 +467,8 @@ async function handleJoin(ws, msg) {
     ws,
     x: 0, y: 80, z: 0, yaw: 0, pitch: 0,
     dim,
+    skin,
+    ping: null, // last heartbeat RTT (ms); surfaced in presence frames
     // Anti-cheat / rate-limit state (server-side only; never serialized —
     // peerSnapshot picks its fields explicitly).
     pendingGrace: true, // the first move after join is a free teleport
@@ -452,6 +480,7 @@ async function handleJoin(ws, msg) {
     ctrlBudget: makeBucket(MAX_MOVE_SPEED * MOVE_BURST_S, MAX_MOVE_SPEED),
     fallBudget: makeBucket(MAX_FALL_SPEED * MOVE_BURST_S, MAX_FALL_SPEED),
     editBucket: makeBucket(EDIT_RATE.burst, EDIT_RATE.perSec),
+    emoteBucket: makeBucket(EMOTE_RATE.burst, EMOTE_RATE.perSec),
     chatTimes: [],
   };
   ws.player = player;
@@ -474,6 +503,7 @@ async function handleJoin(ws, msg) {
     peers,
   });
   broadcast(room, { t: 'peer-join', ...peerSnapshot(player) }, { except: player.id });
+  broadcastPresence(room); // event-driven roster snapshot (docs/PROTOCOL.md §5)
   console.log(`[ws] ${player.id} "${name}" joined ${worldId} (${dim})`);
 }
 
@@ -704,6 +734,67 @@ function handleChat(ws, msg) {
   });
 }
 
+/**
+ * Emote: a short id token (validated against EMOTE_RE) broadcast to same-
+ * world, same-DIMENSION peers as {t:'emote', id, emote} (the sender's avatar
+ * plays it locally; peers play it on the sender's remote avatar). Rate
+ * limited to 2/s per connection (token bucket — same helper as edits);
+ * excess and malformed emotes are silently dropped (no amplification).
+ */
+function handleEmote(ws, msg) {
+  const { player, room } = ws;
+  const emote = typeof msg.emote === 'string' ? msg.emote : '';
+  if (!EMOTE_RE.test(emote)) return;
+  if (!takeTokens(player.emoteBucket)) return;
+  broadcast(room, { t: 'emote', id: player.id, emote },
+    { dim: player.dim, except: player.id });
+}
+
+/**
+ * Whisper: a directed private message. Validated + sanitized exactly like
+ * chat (control chars stripped, trimmed, 256 cap, HTML-escaped on delivery)
+ * and rate-limited through the SAME sliding window as chat (3 per 2 s
+ * combined — a whisper is still a chat message). Delivered ONLY to the
+ * target (matched by exact server-minted name, case-insensitive), plus an
+ * {echo:true} copy back to the sender for delivery confirmation. Unknown
+ * targets answer the sender with `error: whisper_unknown`.
+ */
+function handleWhisper(ws, msg) {
+  const { player, room } = ws;
+  const text = String(msg.text ?? '')
+    .replace(CONTROL_CHARS_RE, '')
+    .trim()
+    .slice(0, CHAT_MAX);
+  const toName = String(msg.to ?? '').trim().slice(0, NAME_MAX);
+  if (!text || !toName) return;
+  const now = Date.now();
+  player.chatTimes = player.chatTimes.filter((t) => now - t < CHAT_RATE.perMs);
+  if (player.chatTimes.length >= CHAT_RATE.msgs) {
+    return send(ws, {
+      t: 'error',
+      code: 'chat_rate',
+      message: `chat limited to ${CHAT_RATE.msgs} messages per ${CHAT_RATE.perMs / 1000}s`,
+    });
+  }
+  player.chatTimes.push(now);
+  const key = toName.toLowerCase();
+  let target = null;
+  for (const p of room.clients.values()) {
+    if (p.name.toLowerCase() === key) { target = p; break; }
+  }
+  if (!target) {
+    return send(ws, {
+      t: 'error', code: 'whisper_unknown', message: `no player named ${escapeHtml(toName)}`,
+    });
+  }
+  const safeText = escapeHtml(text);
+  // Target-only delivery — this is what makes /w actually private.
+  send(target.ws, { t: 'whisper', from: escapeHtml(player.name), text: safeText });
+  if (target.id !== player.id) {
+    send(ws, { t: 'whisper', echo: true, to: escapeHtml(target.name), text: safeText });
+  }
+}
+
 wss.on('connection', (ws) => {
   // MAX_PLAYERS cap (deploy env): wss.clients already includes this socket.
   if (wss.clients.size > MAX_PLAYERS) {
@@ -716,12 +807,16 @@ wss.on('connection', (ws) => {
     return;
   }
   ws.isAlive = true;
+  ws.pingSentAt = 0; // heartbeat RTT probe (surfaced as presence ping)
   // Global inbound rate limit: 60 msg/s sustained, burst 120. Each message
   // over the limit is dropped and counts a strike; 3 strikes close the
   // socket with 1008 "rate limit".
   ws.msgBucket = makeBucket(MSG_RATE.burst, MSG_RATE.perSec);
   ws.strikes = 0;
-  ws.on('pong', () => { ws.isAlive = true; });
+  ws.on('pong', () => {
+    ws.isAlive = true;
+    if (ws.player && ws.pingSentAt) ws.player.ping = Date.now() - ws.pingSentAt;
+  });
 
   ws.on('message', (raw) => {
     if (!takeTokens(ws.msgBucket)) {
@@ -751,6 +846,8 @@ wss.on('connection', (ws) => {
       case 'respawn': handleRespawn(ws); break;
       case 'edit': handleEdit(ws, msg); break;
       case 'chat': handleChat(ws, msg); break;
+      case 'emote': handleEmote(ws, msg); break;
+      case 'whisper': handleWhisper(ws, msg); break;
       default: break; // unknown types ignored
     }
   });
@@ -760,6 +857,7 @@ wss.on('connection', (ws) => {
     if (!player || !room) return;
     room.clients.delete(player.id);
     broadcast(room, { t: 'peer-leave', id: player.id });
+    broadcastPresence(room); // roster snapshot after the departure
     console.log(`[ws] ${player.id} "${player.name}" left ${room.world.id}`);
     // Persist immediately when the last client of a world leaves.
     unloadRoomIfEmpty(room);
@@ -775,6 +873,7 @@ const heartbeat = setInterval(() => {
   for (const ws of wss.clients) {
     if (!ws.isAlive) { ws.terminate(); continue; }
     ws.isAlive = false;
+    ws.pingSentAt = Date.now();
     ws.ping();
   }
 }, HEARTBEAT_MS);

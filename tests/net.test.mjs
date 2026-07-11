@@ -35,12 +35,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // Raw ws client helper
 // ---------------------------------------------------------------------------
 
-function connectClient(worldId, name, dim) {
+function connectClient(worldId, name, dim, skin) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(WS_URL);
     const client = { ws, name, welcome: null, msgs: [], waiters: [] };
     const timer = setTimeout(() => reject(new Error(`${name}: welcome timeout`)), 5000);
-    ws.on('open', () => ws.send(JSON.stringify({ t: 'join', worldId, name, dim })));
+    ws.on('open', () => ws.send(JSON.stringify({
+      t: 'join', worldId, name, dim, ...(skin !== undefined ? { skin } : {}),
+    })));
     ws.on('message', (raw) => {
       const msg = JSON.parse(raw.toString());
       if (msg.t === 'welcome' && !client.welcome) {
@@ -259,6 +261,108 @@ async function main() {
     A2.welcome.world.edits.overworld['3,68,-2'] === 3 &&
     A2.welcome.world.edits.nether['1,50,1'] === 22);
   await closeClient(A2);
+
+  // --- Social wire additions: skin echo / presence / emote / whisper ---------
+  // (docs/PROTOCOL.md §4-5; adopted by PlayerStack client-side.)
+  {
+    const SKIN = '0.3c.0.a8.32'; // valid encoded descriptor (dotted base36)
+    const D1 = await connectClient(worldId, 'Dara', 'overworld', SKIN);
+    const D2 = await connectClient(worldId, 'Ravi', 'overworld', 'x'.repeat(200));
+    const D3 = await connectClient(worldId, 'Noor', 'nether', 'abc<script>');
+
+    // Skin echo: D2/D3 see D1's skin in welcome.peers; peer-join carries it too.
+    const d2SeesD1 = D2.welcome.peers.find((p) => p.id === D1.welcome.id);
+    check('valid join skin is echoed in welcome.peers', !!d2SeesD1 && d2SeesD1.skin === SKIN,
+      JSON.stringify(d2SeesD1));
+    const d1JoinD2 = await waitFor(D1, (m) => m.t === 'peer-join' && m.id === D2.welcome.id);
+    check('oversized skin (200 chars) is rejected — peer-join has no skin field',
+      !('skin' in d1JoinD2), JSON.stringify(d1JoinD2));
+    const d3SeenByD1 = await waitFor(D1, (m) => m.t === 'peer-join' && m.id === D3.welcome.id);
+    check('off-charset skin is rejected — peer-join has no skin field',
+      !('skin' in d3SeenByD1), JSON.stringify(d3SeenByD1));
+
+    // Presence roster: D3's join broadcast a {t:'presence'} snapshot to all.
+    const d1Presence = await waitFor(D1,
+      (m) => m.t === 'presence' && Array.isArray(m.players) && m.players.length === 3);
+    const pNames = d1Presence.players.map((p) => p.name).sort();
+    const pNoor = d1Presence.players.find((p) => p.name === 'Noor');
+    check('presence roster lists all three players with dims',
+      pNames.join(',') === 'Dara,Noor,Ravi' && pNoor.dim === 'nether' && 'ping' in pNoor,
+      JSON.stringify(d1Presence.players));
+
+    // Emote: same-dim broadcast, sender excluded, cross-dim excluded.
+    sendJson(D1, { t: 'emote', emote: 'wave' });
+    const d2Emote = await waitFor(D2, (m) => m.t === 'emote');
+    check('emote reaches same-dim peer with sender id',
+      d2Emote.id === D1.welcome.id && d2Emote.emote === 'wave', JSON.stringify(d2Emote));
+    await sleep(250);
+    check('emote is NOT delivered cross-dimension', !D3.msgs.some((m) => m.t === 'emote'));
+    check('sender does not receive its own emote', !D1.msgs.some((m) => m.t === 'emote'));
+
+    // Emote rate cap: bucket is 2/s burst 2 — a burst of 6 delivers at most 3
+    // (2 tokens + fractional refill during the delivery window).
+    const emotesBefore = D2.msgs.filter((m) => m.t === 'emote').length;
+    for (let i = 0; i < 6; i++) sendJson(D1, { t: 'emote', emote: 'dance' });
+    await sleep(400);
+    const emotesDelivered = D2.msgs.filter((m) => m.t === 'emote').length - emotesBefore;
+    check('emote rate cap (2/s bucket): burst of 6 delivers at most 3',
+      emotesDelivered >= 1 && emotesDelivered <= 3, `delivered=${emotesDelivered}`);
+
+    // Malformed emote ids are dropped.
+    const emotesBefore2 = D2.msgs.filter((m) => m.t === 'emote').length;
+    await sleep(1200); // refill the bucket so a VALID id would pass
+    sendJson(D1, { t: 'emote', emote: 'WAVE!!<>' });
+    await sleep(250);
+    check('malformed emote id is dropped',
+      D2.msgs.filter((m) => m.t === 'emote').length === emotesBefore2);
+
+    // Whisper: target-only delivery + sender echo; third client never sees it.
+    sendJson(D1, { t: 'whisper', to: 'Ravi', text: '  secret path behind the falls  ' });
+    const d2Whisper = await waitFor(D2, (m) => m.t === 'whisper');
+    check('whisper reaches the target (sanitized, from = sender name)',
+      d2Whisper.from === 'Dara' && d2Whisper.text === 'secret path behind the falls' &&
+      !d2Whisper.echo, JSON.stringify(d2Whisper));
+    const d1Echo = await waitFor(D1, (m) => m.t === 'whisper');
+    check('sender receives the echo:true confirmation copy',
+      d1Echo.echo === true && d1Echo.to === 'Ravi' &&
+      d1Echo.text === 'secret path behind the falls', JSON.stringify(d1Echo));
+    await sleep(300);
+    check('whisper privacy: third client NEVER receives the frame',
+      !D3.msgs.some((m) => m.t === 'whisper'));
+
+    // Unknown whisper target answers the sender only.
+    sendJson(D1, { t: 'whisper', to: 'Nobody', text: 'hello?' });
+    const wErr = await waitFor(D1, (m) => m.t === 'error' && m.code === 'whisper_unknown');
+    check('whisper to unknown target answers error: whisper_unknown', !!wErr);
+
+    // Whisper shares the chat rate window (3 per 2 s combined).
+    await sleep(2100); // clear the window (1 whisper + 1 unknown attempt used it)
+    sendJson(D2, { t: 'whisper', to: 'Dara', text: 'one' });
+    sendJson(D2, { t: 'chat', text: 'two' });
+    sendJson(D2, { t: 'whisper', to: 'Dara', text: 'three' });
+    sendJson(D2, { t: 'whisper', to: 'Dara', text: 'four — over the limit' });
+    const rateErr = await waitFor(D2, (m) => m.t === 'error' && m.code === 'chat_rate');
+    check('whispers share the chat rate window (4th message in 2s -> chat_rate)', !!rateErr);
+    await sleep(300);
+    check('over-limit whisper is not delivered',
+      D1.msgs.filter((m) => m.t === 'whisper' && !m.echo).length === 2,
+      JSON.stringify(D1.msgs.filter((m) => m.t === 'whisper')));
+
+    // Presence on leave: a FRESH roster snapshot (D2's join already produced
+    // an earlier 2-player frame, so count frames rather than match shapes).
+    const presBefore = D1.msgs.filter((m) => m.t === 'presence').length;
+    await closeClient(D3);
+    await waitFor(D1, () => D1.msgs.filter((m) => m.t === 'presence').length > presBefore);
+    const leavePresence = D1.msgs.filter((m) => m.t === 'presence').pop();
+    check('presence roster is re-broadcast on leave (without the leaver)',
+      leavePresence.players.length === 2 &&
+      leavePresence.players.every((p) => p.name !== 'Noor'),
+      JSON.stringify(leavePresence.players));
+
+    await closeClient(D1);
+    await closeClient(D2);
+    await sleep(300);
+  }
 
   // --- MAX_PLAYERS connection cap (spawned with MAX_PLAYERS=4) ----------------
   {

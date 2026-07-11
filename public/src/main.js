@@ -25,7 +25,17 @@ import { PortalSystem, PORTAL_BLOCK, FRAME_TARGETS } from './gameplay/portals.js
 import { DIMENSIONS } from './dimensions/dimensions.js';
 import { prngSample } from './qa/prng.js';
 import { NetClient } from './net/NetClient.js';
-import { PeerAvatars } from './net/PeerAvatars.js';
+// PlayerStack facade (avatars-integrate): single owner of the NetClient's
+// single-slot peer/chat/disconnect callbacks. Replaces the old PeerAvatars
+// boxes with skinned animated avatars + nameplates and fans every net event
+// out to the social layer (presence roster, hold-Tab player list, whisper /
+// mute, join/leave toasts, spectator cam) and the third-person camera rig.
+import { PlayerStack } from '../avatars-integrate/integrate.js';
+import { createAvatarPlus } from '../avatars-plus/avatar-plus.js';
+import {
+  encodeDescriptor, decodeDescriptor, normalizeDescriptor, THEME_IDS,
+} from '../avatars-plus/skin-descriptor.js';
+import { EMOTES } from '../avatars-plus/emotes.js';
 import { isInLiquid } from './gameplay/physics.js';
 // GraphicsStack facade (graphics-lab): single owner of the PostFX chain,
 // distance fog, particles, animated water and the pooled torch lights.
@@ -169,6 +179,47 @@ function getPlayerName() {
     try { localStorage.setItem(NAME_KEY, name); } catch { /* storage off */ }
   }
   return name;
+}
+
+const SKIN_KEY = 'loomfall.skin';
+
+/** FNV-1a 32-bit string hash (the same family the avatar packages seed with). */
+function fnv1a(str) {
+  let h = 0x811c9dc5;
+  const s = String(str ?? '');
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+/**
+ * The local player's skin descriptor. A persisted `loomfall.skin` JSON wins
+ * (future customizer hook); otherwise it is derived DETERMINISTICALLY from
+ * the player name, so the same player renders the same look every session —
+ * and, because the encoded string rides the join frame and is echoed by the
+ * server, identically on every peer's screen.
+ */
+function getLocalSkinDescriptor() {
+  let desc = null;
+  try {
+    const raw = localStorage.getItem(SKIN_KEY);
+    if (raw) desc = normalizeDescriptor(JSON.parse(raw));
+  } catch { /* corrupt/absent — derive from the name */ }
+  if (!desc) {
+    const h = fnv1a(getPlayerName());
+    desc = normalizeDescriptor({
+      theme: THEME_IDS[h % THEME_IDS.length],
+      threadHue: h % 360,
+      weave: (h >>> 4) % 6,
+      accent: (h >>> 8) % 360,
+      accentStrength: ((h >>> 16) & 0xff) / 255,
+    });
+  }
+  // Round-trip through the wire encoding so the LOCAL render uses byte-exact
+  // the same descriptor peers decode (accentStrength quantizes to 1/100).
+  return decodeDescriptor(encodeDescriptor(desc));
 }
 
 /** Pointer lock without unhandled-rejection noise (needs a user gesture). */
@@ -429,10 +480,49 @@ ui.hud = initHUD();
 ui.hotbar = initHotbar({ iconFor: (id) => (G ? G.iconFor(id) : null) });
 ui.chat = initChat({
   onSend: (text) => {
-    G?.net.sendChat(text);
+    handleChatSend(text); // whisper//emote command routing (PlayerStack)
     gameEvents.emit('chat:sent', { length: text.length });
   },
 });
+
+/**
+ * Chat submit routing. `/emote <id>` plays + broadcasts an emote; `/w`,
+ * `/msg`, `/r`, `/mute`, `/unmute`, `/block`, `/unblock` route through the
+ * PlayerStack whisper controller (which renders DM/status lines itself and
+ * sends directed whispers over the net); anything else goes out as public
+ * chat and renders when the server echo returns.
+ */
+function handleChatSend(text) {
+  const S = G;
+  if (!S) return;
+  if (!S.stack) { S.net.sendChat(text); return; }
+  const em = /^\/(?:e|emote)\s+(\S+)\s*$/i.exec(text);
+  if (em) {
+    const id = em[1].toLowerCase();
+    if (EMOTES.some((e) => e.id === id)) {
+      S.stack.emote(id); // plays on the local avatar + net.sendEmote
+      ui.chat.addMessage({ system: true, text: `* You ${id}` });
+    } else {
+      ui.chat.addMessage({
+        system: true,
+        text: `Unknown emote — try: ${EMOTES.map((e) => e.id).join(', ')}`,
+      });
+    }
+    return;
+  }
+  const r = S.stack.whisper.handleInput(text);
+  if (r && r.type === 'chat' && typeof r.text === 'string') S.net.sendChat(r.text);
+}
+
+// PlayerStack/SocialLayer expect an addEventListener-capable chat handle
+// (they normally bind an lf-chat element's 'lf-send' event). Our chat is a
+// plain module API and submits through handleChatSend above instead, so the
+// listener hooks are inert no-ops — addMessage is the live render path.
+const chatForStack = {
+  addMessage: (m) => ui.chat.addMessage(m),
+  addEventListener: () => {},
+  removeEventListener: () => {},
+};
 ui.inventoryUI = initInventory({
   iconFor: (id) => (G ? G.iconFor(id) : null),
   onPick: (id) => {
@@ -726,7 +816,11 @@ async function bootSession(worldMeta) {
   // --- World + network -------------------------------------------------------
   ui.menus.setLoading('Joining world…');
   const net = new NetClient();
-  const welcome = await net.connect(location.origin, worldMeta.id, getPlayerName(), dim);
+  // The encoded skin rides the join frame; the server validates + echoes it
+  // on welcome.peers / peer-join so every client renders this player's look.
+  const localSkinDesc = getLocalSkinDescriptor();
+  const welcome = await net.connect(
+    location.origin, worldMeta.id, getPlayerName(), dim, encodeDescriptor(localSkinDesc));
   const editsByDim = normalizeEditRecord(welcome.world.edits);
 
   const generator = new TerrainGenerator(welcome.world.seed, dim);
@@ -838,7 +932,44 @@ async function bootSession(worldMeta) {
   });
   const inventory = new Inventory();
   const iconFor = makeIconFactory(atlas);
-  const peers = new PeerAvatars(scene);
+
+  // --- PlayerStack facade (public/avatars-integrate/integrate.js) -----------
+  // Replaces `new PeerAvatars(scene)`. Single owner of the NetClient's
+  // single-slot onState/onPeerJoin/onPeerLeave/onPeerMove/onChat/onDisconnect
+  // callbacks; fans them out to the avatar renderer (PeerAvatarsPlus) AND the
+  // social layer (presence roster, hold-Tab list, whisper/mute, toasts,
+  // spectator). Built AFTER net.connect (its isSolid needs the live world),
+  // so the already-resolved welcome is replayed through the stack's own
+  // onState fan-out in the network-handlers section below (the documented
+  // INTEGRATION.md fallback path).
+  const stack = PlayerStack.init({
+    net, scene, camera,
+    chat: chatForStack,
+    // Live world proxy: S.world is REPLACED on dimension travel, and the
+    // facade derives isSolid as getBlockDef(world.getBlock(...)).solid —
+    // the exact physics.js formula (camera-block collision oracle).
+    world: { getBlock: (x, y, z) => (G && G.world ? G.world : world).getBlock(x, y, z) },
+    getBlockDef,
+    mount: document.body,
+    canvas,
+    localName: getPlayerName(),
+    localSkin: localSkinDesc,
+    getLocalFeet: () => ({ x: S.player.position.x, y: S.player.position.y, z: S.player.position.z }),
+    getLocalLook: () => ({ yaw: S.controls.yaw, pitch: S.controls.pitch }),
+    getLocalDim: () => S.dim,
+    sendWhisper: ({ to, text }) => net.sendWhisper(to, text), // /w -> private relay
+  });
+  stack.onEmoteTransport((id) => net.sendEmote(id)); // OUTGOING emote wire
+  const peers = stack.peersManager; // PeerAvatarsPlus — superset of PeerAvatars
+
+  // Local avatar: hidden in first person, rendered by the F5 third-person rig;
+  // plays our own /emote gestures so peers and self see the same motion.
+  const localAvatar = createAvatarPlus({
+    name: getPlayerName(), descriptor: localSkinDesc, self: true,
+  });
+  localAvatar.group.name = 'player:self';
+  scene.add(localAvatar.group);
+  stack.setLocalAvatar(localAvatar);
 
   // --- Mobs (public/mobs/ package) --------------------------------------------
   // Per-world achievement bucket keys off the server world id.
@@ -908,7 +1039,10 @@ async function bootSession(worldMeta) {
     chunkRenderer,
     inventory,
     iconFor,
-    peers,
+    stack, // PlayerStack facade (peer avatars + social layer + 3rd-person cam)
+    peers, // = stack.peersManager (PeerAvatarsPlus) — kept for QA-hook parity
+    localAvatar, // own body: third-person view + local emote playback
+    onViewKeys: null, // session F5/F6 keydown handler (assigned below)
     portals,
     outline,
     fx,
@@ -1045,15 +1179,29 @@ async function bootSession(worldMeta) {
   });
 
   // --- Network handlers -------------------------------------------------------
-  for (const p of welcome.peers || []) peers.upsert(p);
-  peers.setDimension(S.dim);
+  // PlayerStack owns onState / onPeerJoin / onPeerLeave / onPeerMove / onChat
+  // / onDisconnect (the NetClient callbacks are SINGLE-SLOT — re-binding any
+  // of them here would clobber the facade; read roster state from
+  // stack.presence instead). The welcome resolved before the stack existed,
+  // so replay it once through the stack's own onState fan-out (seeds both
+  // the avatar renderer and the presence roster), then pin our own dim.
+  stack._netCbs.onState(welcome);
+  stack.social.presence.setSelfDim(S.dim);
 
-  net.onPeerJoin((msg) => {
-    peers.upsert(msg);
-    peers.setDimension(S.dim);
+  // Emote / whisper / presence wire additions (docs/PROTOCOL.md §4–5).
+  net.onEmote((msg) => stack.receivePeerEmote(msg.id, msg.emote));
+  net.onWhisper((msg) => {
+    if (msg.echo) return; // our own delivery confirmation — already rendered
+    stack.whisper.receiveWhisper({ from: msg.from, text: msg.text });
   });
-  net.onPeerLeave((msg) => peers.remove(msg.id));
-  net.onPeerMove((msg) => peers.move(msg));
+  net.onPresence((msg) => {
+    for (const p of msg.players || []) {
+      // Reconcile the roster (covers any missed peer-join) + live pings.
+      if (p.id !== net.selfId && !stack.presence.get(p.id)) stack.presence.upsertPeer(p);
+      if (Number.isFinite(p.ping)) stack.presence.setPing(p.id, p.ping);
+    }
+  });
+
   net.onEdit((msg) => {
     recordEdit(msg.dim, msg.x, msg.y, msg.z, msg.block);
     if (msg.dim === S.dim) {
@@ -1096,12 +1244,9 @@ async function bootSession(worldMeta) {
       });
     }
   });
-  net.onChat((msg) => ui.chat.addMessage({ name: msg.name, text: msg.text }));
-  net.onDisconnect((info) => {
-    if (S.active && !info.intentional) {
-      ui.chat.addMessage({ system: true, text: 'Disconnected from server.' });
-    }
-  });
+  // (onChat / onDisconnect are PlayerStack-owned: public chat renders through
+  // the whisper block-list into our chat module; an unintentional disconnect
+  // raises the warn toast + the same system chat line as before.)
 
   // --- Controls events ---------------------------------------------------------
   controls.on('break', onBreak); // per-click instant actions (attack/portal/fly)
@@ -1149,6 +1294,34 @@ async function bootSession(worldMeta) {
     if (S.paused) resumeGame();
     else pauseGame();
   });
+
+  // --- View keys (PlayerStack) ------------------------------------------------
+  // F5 cycles first -> third-back -> third-front (rig ray-marches the boom
+  // against our isSolid, so the camera never clips into blocks). F6 toggles
+  // the free-fly spectator camera (WASD + Space/Ctrl, Shift boost; collides
+  // with blocks via the same isSolid oracle). Hold Tab (SocialLayer-owned)
+  // shows the player list.
+  S.onViewKeys = (e) => {
+    if (G !== S || S.paused || S.dead || ui.chat.isOpen() || ui.inventoryUI.isOpen()) return;
+    if (e.code === 'F5') {
+      e.preventDefault();
+      if (S.stack.social.isSpectating()) return; // spectator owns the camera
+      S.stack.cycleViewMode();
+    } else if (e.code === 'F6') {
+      e.preventDefault();
+      const on = S.stack.social.toggleSpectator();
+      if (on) {
+        // Take off from the current eye pose instead of a stale/zero pose.
+        S.stack.social.spectator.enable(camera.position, S.controls.yaw, S.controls.pitch);
+        clearMovementInput();
+      }
+      ui.chat.addMessage({
+        system: true,
+        text: on ? 'Spectator camera on — F6 to return.' : 'Spectator camera off.',
+      });
+    }
+  };
+  window.addEventListener('keydown', S.onViewKeys);
 
   // --- UI per-session state ----------------------------------------------------
   ui.hotbar.setSlots(inventory.slots);
@@ -1557,7 +1730,9 @@ async function bootSession(worldMeta) {
     // the death screen freezes the player but leaves the world alive).
     const simActive = !S.paused && !ui.inventoryUI.isOpen();
     if (simActive) {
-      if (!S.dead) {
+      // While the spectator free-cam flies (F6), the player body is frozen —
+      // the SpectatorCamera owns WASD and the camera until toggled back.
+      if (!S.dead && !S.stack.social.isSpectating()) {
         S.player.update(dt, S.controls.input, S.controls.yaw);
         S.portals.update(dt); // dwell-to-travel charging + cooldown
         updateMining(dt); // hold-to-break progress (see breakTimeFor)
@@ -1670,8 +1845,18 @@ async function bootSession(worldMeta) {
       S.outline.visible = false;
     }
 
-    // Peers + network.
-    S.peers.update(dt);
+    // Peers + social layer + third-person camera (PlayerStack), then our own
+    // third-person body — position/gait mirror the player exactly like a
+    // peer's avatar mirrors its move frames (feet min-corner + 0.3 centering).
+    S.stack.update(dt);
+    {
+      const p = S.player.position;
+      const v = S.player.velocity;
+      S.localAvatar.setPosition(p.x + 0.3, p.y, p.z + 0.3);
+      S.localAvatar.setLook(S.controls.yaw, 0);
+      S.localAvatar.setVelocity(v.x, v.y, v.z);
+      S.localAvatar.update(dt, camera.position);
+    }
     S.net.sendMove(S.player.position, S.controls.yaw, S.controls.pitch);
 
     // Audio: 3D listener on the eyes/facing; footsteps + water splash.
@@ -1803,9 +1988,18 @@ function teardownSession() {
   S.active = false;
   cancelAnimationFrame(S.rafId);
 
+  // PlayerStack first (before net.close): dispose noop-swaps its net
+  // callbacks, so the intentional close raises no disconnect toast/line.
+  // stack.dispose() also disposes the peer avatars (peersManager) and the
+  // social layer; the overlay elements it mounted on document.body are
+  // removed explicitly (SocialLayer leaves them detached-but-present).
+  window.removeEventListener('keydown', S.onViewKeys);
+  S.stack.social.playerList?.remove();
+  document.querySelector('lf-toast-rack')?.remove();
+  S.stack.dispose();
+  S.localAvatar.dispose();
   S.net.close();
   S.controls.dispose();
-  S.peers.dispose();
   S.chunkRenderer.dispose();
   S.mobs.dispose();
 
@@ -2065,7 +2259,8 @@ async function switchDimension(dimId, opts = {}) {
   // rejected as an over-budget move (the server has no resync grace). The
   // arrival position also becomes the server-side respawn anchor.
   S.net.sendMove(S.player.position, S.controls.yaw, S.controls.pitch);
-  S.peers.setDimension(dimId);
+  S.peers.setDimension(dimId); // stack.peersManager visibility filter
+  S.stack.social.presence.setSelfDim(dimId); // roster dim badge + feed
   // Mobs: despawn everyone, switch to the destination's spawn tables (the
   // manager normalizes engine ids internally; its world proxy already
   // points at the rebuilt world).
@@ -2205,7 +2400,12 @@ function publishHooks() {
     net: G.net,
     chunkRenderer: G.chunkRenderer,
     sky: G.sky,
-    peers: G.peers,
+    peers: G.peers, // PeerAvatarsPlus (stack.peersManager): count, ids, scene
+    // PlayerStack facade: stack.presence (roster), stack.whisper (mute/block),
+    // stack.social (player list / spectator / feed), stack.emote(id),
+    // stack.cycleViewMode() / setViewMode('first'|'third-back'|'third-front').
+    stack: G.stack,
+    localAvatar: G.localAvatar, // own third-person body (createAvatarPlus handle)
     portals: G.portals,
     // Weather (weather package + overworld machine). setWeather forces a
     // logical state ('clear'|'rain'|'storm'|'snow'); snow biomes/dimensions

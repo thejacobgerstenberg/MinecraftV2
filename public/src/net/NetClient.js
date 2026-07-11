@@ -25,6 +25,7 @@ export class NetClient {
     this._cb = {
       state: null, peerJoin: null, peerLeave: null, peerMove: null,
       edit: null, editReject: null, chat: null, disconnect: null,
+      emote: null, whisper: null, presence: null,
     };
   }
 
@@ -33,9 +34,13 @@ export class NetClient {
    * ({ id, world, peers }) once the server accepts us.
    * `url` may be a ws(s):// endpoint (with or without /ws) or an http(s)
    * origin — it is normalized to ws(s)://host/ws.
+   * `skin` (optional) is the compact encoded skin-descriptor string
+   * (docs/PROTOCOL.md §4 join.skin, <=128 chars, [a-z0-9.]); the server
+   * echoes it on welcome.peers / peer-join so peers render this look.
    */
-  connect(url, worldId, name, dim = 'overworld') {
+  connect(url, worldId, name, dim = 'overworld', skin = '') {
     this._dim = dim || 'overworld';
+    this._skin = typeof skin === 'string' ? skin.slice(0, 128) : '';
     this._intentionalClose = false;
     const wsUrl = normalizeWsUrl(url);
 
@@ -59,7 +64,10 @@ export class NetClient {
       this.ws = ws;
 
       ws.onopen = () => {
-        ws.send(JSON.stringify({ t: 'join', worldId, name, dim: this._dim }));
+        ws.send(JSON.stringify({
+          t: 'join', worldId, name, dim: this._dim,
+          ...(this._skin ? { skin: this._skin } : {}),
+        }));
         // Flush anything queued before the socket opened (after the join).
         for (const raw of this._queue.splice(0)) ws.send(raw);
       };
@@ -113,6 +121,9 @@ export class NetClient {
       case 'edit': if (this._cb.edit) this._cb.edit(msg); break;
       case 'editReject': if (this._cb.editReject) this._cb.editReject(msg); break;
       case 'chat': if (this._cb.chat) this._cb.chat(msg); break;
+      case 'emote': if (this._cb.emote) this._cb.emote(msg); break;
+      case 'whisper': if (this._cb.whisper) this._cb.whisper(msg); break;
+      case 'presence': if (this._cb.presence) this._cb.presence(msg); break;
       case 'error': console.warn('[net] server error:', msg.code, msg.message); break;
       default: break;
     }
@@ -129,6 +140,12 @@ export class NetClient {
    * "generated terrain — restore from the local deterministic generator". */
   onEditReject(cb) { this._cb.editReject = cb; return this; }
   onChat(cb) { this._cb.chat = cb; return this; }
+  /** A peer played an emote: {id, emote} (same world + dimension only). */
+  onEmote(cb) { this._cb.emote = cb; return this; }
+  /** A directed whisper arrived: {from, text} — or our own echo {echo:true, to, text}. */
+  onWhisper(cb) { this._cb.whisper = cb; return this; }
+  /** Roster snapshot: {players: [{id, name, dim, ping?}]} on join/leave. */
+  onPresence(cb) { this._cb.presence = cb; return this; }
   onDisconnect(cb) { this._cb.disconnect = cb; return this; }
 
   // --- outgoing -------------------------------------------------------------
@@ -170,6 +187,22 @@ export class NetClient {
     const t = String(text ?? '').trim();
     if (!t) return;
     this._send({ t: 'chat', text: t.slice(0, 256) });
+  }
+
+  /** Play an emote for same-dimension peers (server rate-caps at 2/s). */
+  sendEmote(emote) {
+    const id = String(emote ?? '').trim().slice(0, 16);
+    if (!id) return;
+    this._send({ t: 'emote', emote: id });
+  }
+
+  /** Directed whisper to a player NAME (server delivers to the target only,
+   * plus an {echo:true} copy back to us; rate-limited like chat). */
+  sendWhisper(to, text) {
+    const name = String(to ?? '').trim().slice(0, 24);
+    const t = String(text ?? '').trim();
+    if (!name || !t) return;
+    this._send({ t: 'whisper', to: name, text: t.slice(0, 256) });
   }
 
   _scheduleMoveFlush() {

@@ -1,0 +1,109 @@
+/* =========================================================================
+   Loomfall UI Kit — lf-toggle
+   Requires tokens.css + base.css. Colors via var(--lf-*) tokens ONLY.
+   Checked state = THREE non-hue cues: "ON"/"OFF" text, knob position,
+   track brightness. States: default / :hover / :focus-visible / :active /
+   [checked] / [disabled]. Demo: [data-demo-hover], [data-demo-active].
+   ========================================================================= */
+
+lf-toggle {
+  display: inline-block;
+}
+
+lf-toggle .lf-toggle__face {
+  --lf-tgl-face: var(--lf-color-button-secondary-bg);
+
+  display: inline-flex;
+  align-items: center;
+  gap: var(--lf-space-2);
+  min-height: var(--lf-hit-min, 32px);
+  padding: var(--lf-space-1) var(--lf-space-3);
+  font-family: var(--lf-font-ui);
+  font-size: var(--lf-text-md);
+  line-height: var(--lf-leading-tight);
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-sm);
+  background: var(--lf-tgl-face);
+  color: var(--lf-color-button-secondary-fg);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--lf-tgl-face), var(--lf-brand-muslin) 25%),
+    inset 0 -1px 0 color-mix(in oklab, var(--lf-tgl-face), var(--lf-brand-void) 40%);
+  transition: background-color var(--lf-dur-fast) var(--lf-ease);
+}
+
+lf-toggle .lf-toggle__label {
+  font-weight: 600;
+}
+
+/* Visible state word — cue 1 of 3 (text, not hue). */
+lf-toggle .lf-toggle__state {
+  font-weight: 700;
+  min-width: 2.6em;
+  text-align: left;
+  letter-spacing: 0.04em;
+}
+
+/* Track + knob — cue 2 (position) and cue 3 (luminance). */
+lf-toggle .lf-toggle__track {
+  position: relative;
+  flex: none;
+  width: 36px;
+  height: 18px;
+  border-radius: var(--lf-radius-pill);
+  background: var(--lf-color-bg-input);
+  border: var(--lf-border-hem);
+  transition: background-color var(--lf-dur-fast) var(--lf-ease);
+}
+
+lf-toggle .lf-toggle__knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: var(--lf-radius-pill);
+  background: var(--lf-color-icon-glyph);
+  transition: transform var(--lf-dur-fast) var(--lf-ease);
+}
+
+lf-toggle[checked] .lf-toggle__track {
+  background: var(--lf-color-button-primary-bg);
+  border-color: var(--lf-brand-primary-deep-ochre);
+}
+
+lf-toggle[checked] .lf-toggle__knob {
+  transform: translateX(18px);
+  background: var(--lf-brand-void);
+}
+
+/* ---- Hover (real + demo); disabled never responds ------------------------ */
+lf-toggle:not([disabled]):hover .lf-toggle__face,
+lf-toggle[data-demo-hover]:not([disabled]) .lf-toggle__face {
+  --lf-tgl-face: var(--lf-color-button-secondary-hover-bg);
+}
+
+/* ---- Active ---------------------------------------------------------------- */
+lf-toggle:not([disabled]) .lf-toggle__face:active,
+lf-toggle[data-demo-active]:not([disabled]) .lf-toggle__face {
+  transform: translateY(1px);
+}
+
+/* ---- Disabled --------------------------------------------------------------- */
+lf-toggle[disabled] .lf-toggle__face {
+  --lf-tgl-face: var(--lf-color-button-disabled-bg);
+  color: var(--lf-color-text-disabled);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+lf-toggle[disabled] .lf-toggle__track {
+  background: var(--lf-color-button-disabled-bg);
+}
+
+lf-toggle[disabled] .lf-toggle__knob {
+  background: var(--lf-color-text-disabled);
+}
+
+lf-toggle[disabled][checked] .lf-toggle__track {
+  border-color: var(--lf-color-border-hem);
+}

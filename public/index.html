@@ -9,6 +9,10 @@
   <!-- Brand favicon (loom-eye + Everthread; see public/assets/brand/). -->
   <link rel="icon" type="image/svg+xml" href="./assets/brand/favicon.svg" />
   <link rel="stylesheet" href="./css/style.css" />
+  <!-- lf-toast-rack styles (join/leave/whisper toasts — social layer via
+       PlayerStack). The player-list / whisper / feed styles are injected by
+       their own modules; the toast component alone ships its CSS as a file. -->
+  <link rel="stylesheet" href="./ui-kit/components/toast.css" />
   <!-- Vendored Three.js resolved as bare specifier `three`. No bundler, no build step. -->
   <script type="importmap">
     {

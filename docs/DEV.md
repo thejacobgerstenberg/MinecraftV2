@@ -50,7 +50,9 @@ object — there are no test doubles.** The same lifecycle applies to
 | `__game.net` | `NetClient` | `selfId`, `connected`, `sendChat/sendEdit/sendMove`, `close()` |
 | `__game.chunkRenderer` | `ChunkRenderer` | `stats` -> `{chunksLoaded, queueLength}`; `materials.opaque.map.image` is the **live atlas canvas** (sample pixels to verify texture-pack hot-swap). **Replaced on dimension switch** |
 | `__game.sky` | `Sky` | `group.visible` is false in nether/end |
-| `__game.peers` | `PeerAvatars` | `count`, `ids`, per-peer avatar groups in the scene (`scene.getObjectByName('peer:<id>')`) |
+| `__game.peers` | `PeerAvatarsPlus` | (= `__game.stack.peersManager`) `count`, `ids`, per-peer skinned avatar groups in the scene (`scene.getObjectByName('peer:<id>')`), `receiveEmote(id, emoteId)` |
+| `__game.stack` | `PlayerStack` | the avatars/social facade (`public/avatars-integrate/integrate.js`) — the SINGLE owner of `net.onState/onPeerJoin/onPeerLeave/onPeerMove/onChat/onDisconnect` (never re-bind those; read `stack.presence` instead). `presence` (roster store: `players`, `get(id)`, skins/swatches/pings), `whisper` (`handleInput('/w name text')`, `isMuted/isBlocked`), `social` (`toggleSpectator()`, `isSpectating()`, `feed.events()`, `playerList`), `emote(id)` (plays locally + broadcasts), `cycleViewMode()` / `setViewMode('first'\|'third-back'\|'third-front')`, `thirdPersonCamera` |
+| `__game.localAvatar` | avatar handle | our own third-person body (`createAvatarPlus`): `group` (`player:self`), `isEmoting()`, `stopEmote()` — hidden in first person |
 | `__game.setDimension(dim, opts?)` | async fn | `'overworld' \| 'nether' \| 'end'` — full dimension switch (teardown meshes, regen world, respawn, fog/sky swap, net dim notify). `opts.near = {x, z}` picks where the arrival spawn-scan is centered (defaults to the origin). User-facing entry points are **portals** and the pause-menu **Travel** row |
 | `__game.travelTo(dim)` | async fn | the full travel UX: fade to black (~400 ms), `setDimension` near the player's coords, fade back in. This is what portal dwell and the pause-menu Travel row call |
 | `__game.portals` | `PortalSystem` | `charge` (s of continuous portal overlap), `cooldown` (s), `traveling`, `playerInPortal()`, `handlePortalPlacement(x,y,z)`, `collapseAt(x,y,z)` (see `public/src/gameplay/portals.js`) |
@@ -323,6 +325,12 @@ rendering/progressive breaking yet — natural next-stage candidates).
   volumeMusic}`.
 - `loomfall.name` — multiplayer display name (default `Wanderer` + 3 digits,
   generated and persisted on first join).
+- `loomfall.skin` — optional skin-descriptor JSON override (future customizer
+  hook). Absent = the descriptor is derived deterministically from
+  `loomfall.name` (FNV-1a → theme/hues), so a player looks the same every
+  session and on every client.
+- `loomfall.social` — whisper mute/block lists (name-keyed, persisted by the
+  social layer's WhisperController).
 - `loomfall.achievements.<worldId>` — per-world achievements state:
   `{unlocked: {id: isoTimestamp}, counters: {"collect:<itemId>"|"place:<canonId>": n}}`.
 
@@ -381,3 +389,36 @@ rendering/progressive breaking yet — natural next-stage candidates).
   click (menus, pause, help, achievements, death screen) via document-level
   delegation. Door/chest/eat/drink registry keys remain unwired — the game has
   no such features today.
+
+## Multiplayer social layer (PlayerStack adoption)
+
+`main.js` boots ONE `PlayerStack` per session (`public/avatars-integrate/
+integrate.js`, wiring `public/avatars/` + `public/avatars-plus/` +
+`public/social/`). It replaces `new PeerAvatars(scene)` and owns the
+NetClient's single-slot peer/chat/disconnect callbacks (fan-out inside the
+facade — never re-bind them; see `__game.stack` above).
+
+- **Skinned peers** — every player carries an encoded skin descriptor in the
+  join frame (`docs/PROTOCOL.md` §4); the server validates (`[a-z0-9.]`,
+  ≤128) and echoes it, so the same peer renders identically on all clients.
+  Missing/invalid skins fall back to a deterministic hash-of-id look.
+- **Nameplates** — name + health bar sprites above peers, distance-faded
+  (full ≤24 blocks, floor 0.15 at 48).
+- **Hold Tab** — player-list overlay (`<lf-player-list>`): swatch, name, dim
+  badge (Warpwold/Cinderloom/Nevermend), ping (heartbeat RTT via `presence`
+  frames; "—" until the first 30 s pong).
+- **Join/leave/dim toasts** — `<lf-toast-rack>` top-right + a session feed
+  (`stack.social.feed.events()`).
+- **Chat commands** — `/w <name> <msg>` (alias `/msg`) directed whisper
+  (server-relayed, target-only — actually private), `/r <msg>` reply,
+  `/mute` `/unmute` (hide whispers), `/block` `/unblock` (hide whispers +
+  public chat), `/emote <id>` (`wave nod sit cheer point dance bow
+  facepalm`) — plays on the local avatar and broadcasts to same-dim peers
+  (2/s server cap).
+- **F5** — cycle first → third-back → third-front; the boom ray-marches
+  against block solidity (our `getBlockDef(...).solid`), so it never clips
+  into walls. The local avatar (`player:self`) is visible only in third
+  person.
+- **F6** — free-fly spectator camera (WASD + Space/Ctrl up/down, Shift
+  boost); collides with blocks via the same isSolid oracle; the player body
+  freezes while spectating.
