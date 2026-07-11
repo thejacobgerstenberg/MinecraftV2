@@ -1,0 +1,425 @@
+{
+  "gameTitle": {
+    "chosen": "Loomfall",
+    "rationale": "Loomfall wins on every axis the brief demands. It is a single memorable coinage with no 'craft' scaffolding and nothing derivative, and it compresses the entire three-realm cosmology into one word: the great Loom on which reality is woven, and the endless fall of loose threads toward the unravelling void. Weaving is also the most disciplined controlling metaphor available — it maps cleanly and consistently onto every mechanic (a life is a thread, death is being unpicked, building is stitching, respawn is re-knotting, entropy is the Ravelling), which is exactly what a coherent world bible needs and what a writing- or stone-based metaphor delivers less evenly across biomes, mobs, and blocks. It reads as both cozy myth and quiet horror at once, matching the lyrical-yet-eerie tone while leaving room for real survival grit. And it is legally clean: 'loom' and 'fall' are generic English words and the compound is original to this IP, with no dominant game or software collision. Every distinctive idea worth keeping from the other drafts — ghost-terrain of older versions, the grieving half-undone enemy, permanent completion, the survivor's vigil-fire, the indifferent absent maker, the everlasting first material — re-clothes naturally in thread, so nothing strong is lost by choosing it.",
+    "candidates": [
+      {
+        "name": "Loomfall",
+        "rank": 1,
+        "rationale": "One word carries the whole cosmology: the Loom that weaves reality and the endless fall of loose threads toward the unravelling edge. Reads as both cozy myth and quiet horror, survives as verb ('the world is loomfalling'), place-feeling, and mood, and is a clean original compound of two generic English words. No '___craft' scaffolding."
+      },
+      {
+        "name": "Warp & Weft",
+        "rank": 2,
+        "rationale": "Names the two axes of all weaving and doubles as the game's structure-vs-story spine (fixed law vs. living event). Elegant, instantly on-theme, quietly ominous once you learn warp means the world's bones. Common weaving nouns, freely usable, but two words and less brandable than a single coinage."
+      },
+      {
+        "name": "Skein",
+        "rank": 3,
+        "rationale": "A single stark word — a coil of gathered thread — that is at once the core resource and the metaphor for a life. Premium and minimal, but a touch obscure to non-crafters, so it needs the art to sell it."
+      },
+      {
+        "name": "Threadwake",
+        "rank": 4,
+        "rationale": "Coined compound: the 'wake' as the trail behind a moving thread and the wake as a vigil for the dead. Names the player's whole arc — a thread that woke — in one eerie word. Strong, but Loomfall states the cosmology more directly."
+      },
+      {
+        "name": "Nevermend",
+        "rank": 5,
+        "rationale": "The void realm's name doubling as a title; 'never mend' with a faint 'nevermore' echo makes it hauntingly memorable. Leans dark, which undersells the warm surface half of the game, so it serves better as the third realm than the storefront."
+      },
+      {
+        "name": "The Waking Thread",
+        "rank": 6,
+        "rationale": "Frames the player fantasy outright — a thread in the tapestry that woke. Lyrical and mysterious but longer and less ownable than the single-word options; kept as the player-kind's proper name instead."
+      },
+      {
+        "name": "Loomlight",
+        "rank": 7,
+        "rationale": "The warm companion to Loomfall — the glow of creation on the Loom. Pretty and marketable but gentler, reading a shade soft for a game with a burning underworld and a devouring void."
+      },
+      {
+        "name": "Understitch",
+        "rank": 8,
+        "rationale": "Names the game's most distinctive terrain idea — older patterns ghosting up through the present weave, the world remembering shapes it used to hold. Beautiful and ownable, but obscure as a first-glance storefront title, so it lives on as a core in-world term."
+      }
+    ]
+  },
+  "dimensions": [
+    {
+      "role": "overworld",
+      "name": "Warpwold",
+      "tagline": "The cloth that dreams it is a world.",
+      "backstory": "Warpwold is the cooled, colored middle of the weave — the tapestry settled thick enough to hold rivers, seasons, and folk who mistake themselves for flesh. Every hill is a fold of embroidered ground; every forest a stand of woven trunks; every dawn the slow bleed of dreamdye through cloth. The warp-threads that fix the sky run so deep beneath the soil that no one remembers they are threads at all, and this forgetting is the mercy that lets the world feel solid. Warpwold is the present tense of the Loom and the only realm where anyone takes the weave for the truth. But it is not whole and it is not safe by nature, only settled: its far borders trail off into the Unfinished Hem, half-sketched country where the Weaver simply stopped, and everywhere a careful ear can catch the Thrum, the low patient hum of the Loom still turning with no hand on the shuttle. In places the present cloth wears thin and the Understitch shows through — older patterns the world used to hold, ghosting up beneath the new. The woven folk farm and build and sleep here believing they are awake. Only a thread come loose ever learns the difference, and the peace it walks through is real, and borrowed, and thin."
+    },
+    {
+      "role": "hellish",
+      "name": "Cinderloom",
+      "tagline": "Where thread is drawn burning from nothing, and the making never cooled.",
+      "backstory": "Descend past the warp-roots and the cloth grows hot again, then bright, then molten, and you arrive at the Cinderloom — the furnace-realm where the weaving actually happens and has never been allowed to finish. No one built it as a punishment; it is simply the world's own beginning, still burning directly beneath the ground above. Raw thread is drawn shrieking through white fire until it takes color and character, and the friction of that first making is the origin of every warmth that ever reached the surface. Turning ember-spindles, rivers of molten skein, warp-lines stretched red-hot across canyons of ash: all of it is creation caught in the act, the loud bright dangerous instant before anything set. The Cinderloom keeps the oldest and hardest materials, Everthread chief among them, because they were forged here and never carried out. It is also jealous, for what the fire makes the fire remembers, and it is tended still by shepherds of the flame who do not know the Weaver is gone and will kill any Mender who comes to steal warmth from the making of the world."
+    },
+    {
+      "role": "void",
+      "name": "Nevermend",
+      "tagline": "The finished edge, past which nothing is knotted.",
+      "backstory": "Every weaving leaves loose ends, and the ends the Weaver never tied off drifted out past the last selvage into Nevermend — the drifting country where threads that were never knotted come slowly, patiently apart. It is the world seen at its final moment: cloth remembering how to be nothing. Islands of half-unravelled tapestry hang in an unlit deep, some still showing the ghost of a meadow or a wall or a face before the pattern loosens and lets go. Here the Ravelling — the slow universal undoing that gnaws at every knot in all three realms — is not a threat but the weather. To cross into Nevermend is to accept that mending is temporary, that everything you touch is already coming loose in your hands, and that distance and gravity are only suggestions. It is the quietest realm and the most terrible, because it is what the whole of Warpwold will become if the Loom is left to fray by momentum alone. Somewhere in the drift, at the shining rim of the very last hem, waits the Last Needle, which does not weave. It only unpicks."
+    }
+  ],
+  "biomes": [
+    {
+      "name": "The Sennmeadows",
+      "dimension": "Warpwold",
+      "description": "Rolling embroidered grasslands where flowers sit like tight knots and the wind moves the whole surface in a single satin ripple. The gentlest starting country: skeinlings graze in soft flocks, the ground picks loose easily for mending, and the light is warm enough to make a waking thread forget, for an hour, that it is standing on cloth."
+    },
+    {
+      "name": "Thrumwood",
+      "dimension": "Warpwold",
+      "description": "Old woven forest of thick brocade canopies and trunks like braided cord, light falling through in dyed patches. The trees hum faintly — the loudest place in Warpwold to hear the Thrum of the turning Loom. Bobbin-deer nest in the underbrush; needlejacks go still among the boles by day and unbend after dark."
+    },
+    {
+      "name": "The Muslin Fens",
+      "dimension": "Warpwold",
+      "description": "Pale gauzy wetlands drowned in a fog so fine it looks like unspun cotton. Sound goes flat and distances lie. Silence-moths drift over the water in slow constellations, the footing sinks where the weave has gone thin and soggy, and frayed hounds work the edges once the light thickens. Rich in slow fuel, poor in safe ground."
+    },
+    {
+      "name": "The Understitch Downs",
+      "dimension": "Warpwold",
+      "description": "Rolling country where older patterns of the land bleed up through the present one: translucent phantom ridges, a river running both where it is and where it used to be, orchards fruiting in two places at once. You cross terrain the Weaver unpicked but never fully drew out. Beautiful and disorienting, and the surest place to slip a hand into the warp beneath the world; spoolmares run wild across it."
+    },
+    {
+      "name": "Warpspine Reach",
+      "dimension": "Warpwold",
+      "description": "High mountains that are literally warp-threads pulled taut toward the sky, capped in drifts of raw cotton snow. Thin air, long falls, and rich seams of Needle-Iron and Dawnthread laid bare where the cloth of the peaks has frayed open. From the ridgelines you can see the doubled Understitch ghosting across half of Warpwold below."
+    },
+    {
+      "name": "The Frostlace",
+      "dimension": "Warpwold",
+      "description": "Frozen tundra where cold crystallizes the weave into intricate white lacework across every surface. Beautiful and lethally quiet: the ground shatters underfoot, warmth drains from anything left still too long, and the silence has the patient attention of something waiting. Lovely, and it will keep you."
+    },
+    {
+      "name": "The Bleachlands",
+      "dimension": "Warpwold",
+      "description": "An arid waste where the dreamdye has drained out of the cloth entirely, leaving the world the flat gray-white of unfinished fabric. Heat by day and by night a disquieting sense that the pattern here was forgotten mid-stitch. Little water, less cover, and a horizon that reads like a page the Weaver bleached and never rewrote."
+    },
+    {
+      "name": "Dyewater Coast",
+      "dimension": "Warpwold",
+      "description": "Shorelines where the sea runs in bands of dyed color that never fully mix — indigo, madder, weld — lapping at hems of woven sand. Fishing is good and Loomglass sand is plentiful; the deeper water is where the dye pools darkest and something larger moves beneath the color."
+    },
+    {
+      "name": "The Unfinished Hem",
+      "dimension": "Warpwold",
+      "description": "The frontier edge of the surface world, where detail thins into sketch: half-drawn hills, trees with no leaves woven in, ground you can see straight through in places. The eeriest of the surface biomes, loud with the Thrum, and the easiest place to reach a hand down into the raw warp — or to feel the far pull of Nevermend for the first time."
+    },
+    {
+      "name": "The Emberwarp",
+      "dimension": "Cinderloom",
+      "description": "Wide plains of warp-lines stretched red-hot across black ash, glowing brighter the deeper you go, rivers of molten thread flowing between them. Everything radiates the heat of first-making, there is no shade and no night, and to stand still is a slow way to be unmade. The bare forge-face of the world."
+    },
+    {
+      "name": "The Ashskein Wastes",
+      "dimension": "Cinderloom",
+      "description": "Dunes of spent, coiled ash-yarn — the leavings of thread already spun and burned — that shift and collapse without warning. Slagmoths flit above the ridges, and the footing hides both good ash-glass and sudden drops into the fire below. Sometimes a rising ash-cloud briefly shows the ghost of a pattern that was burned to feed the weaving, then goes dark."
+    },
+    {
+      "name": "The Tallow Vaults",
+      "dimension": "Cinderloom",
+      "description": "Dripping cavern-cathedrals where heat and thread congeal into hanging tallowstone, forever melting and re-forming. Waxlings pool in the low places. The only cool shadows in the Cinderloom, and therefore the most crowded with things that resent a visitor carrying the chill of Warpwold on their skin."
+    },
+    {
+      "name": "Cinderspindle Forges",
+      "dimension": "Cinderloom",
+      "description": "The turning heart of the fiery realm: colossal ember-spindles rotating in pits of white fire, drawing raw thread up out of nothing. The forges hold the richest Everthread and are kept by the Scaldwardens, who tend the making of the world with an obedience nobody ever released and kill to protect it. At the deepest spindle waits Molthkin, the First Bobbin."
+    },
+    {
+      "name": "The Fraying",
+      "dimension": "Nevermend",
+      "description": "An archipelago of half-unravelled tapestry-islands adrift in unlit space, each still bearing the ghost of what it used to be — a meadow, a wall, a face — before the pattern loosens and lets go. Gravity is a suggestion, the edges of every island are visibly coming apart, and the Unpicked shamble across them reaching for anyone still knotted."
+    },
+    {
+      "name": "The Loosened Dark",
+      "dimension": "Nevermend",
+      "description": "The empty deep between the frays: not black stone but genuine unspun nothing, where a single dropped thread falls forever. Crossing it means building your own path from what you carry, one stitch at a time, while the void quietly picks at your seams and Ravelers drift up out of the dark to undo your work."
+    },
+    {
+      "name": "The Last Selvage",
+      "dimension": "Nevermend",
+      "description": "The outermost self-bound edge of all reality, a shining rim of finished hem beyond which there is no more cloth at all. It is calm, cold, and final — the throne-country of the Last Needle and the farthest a Mender can ever wend. The Selvage Wardens bar the approach, mending their own wounds as fast as you can open them."
+    }
+  ],
+  "mobs": [
+    {
+      "name": "Skeinlings",
+      "dimension": "Warpwold",
+      "role": "passive / livestock",
+      "description": "Small round woolly creatures that graze the Sennmeadows in soft flocks, sheared for Raw Skein, the wool-thread that underpins early crafting. Utterly trusting, which the woven folk find endearing and a Mender finds useful. A waking thread's first and steadiest staple."
+    },
+    {
+      "name": "Bobbin-deer",
+      "dimension": "Warpwold",
+      "role": "passive",
+      "description": "Slender grazers whose antlers are wound like spooled bobbins, unspooling a little more each season. Skittish; they drop thread-sinew and hide-cloth when hunted, and their calm movement through Thrumwood is the surest sign the forest has not yet woken for the night."
+    },
+    {
+      "name": "Spoolmares",
+      "dimension": "Warpwold",
+      "role": "passive / mount",
+      "description": "Wild horse-shapes of loose living thread that run in herds across the Understitch Downs, unspooling a fading trail behind them as they go. Patient handling lets a Mender ride one; a bonded spoolmare can gallop briefly across a fray in Nevermend, stitching ground beneath its own hooves before it comes undone."
+    },
+    {
+      "name": "Wickerkin",
+      "dimension": "Warpwold",
+      "role": "neutral / trader",
+      "description": "The settled woven folk of Warpwold — patient, hollow-bodied figures of woven cane who keep stitched villages swept and lamplit and trade skeins, dye, knotwork, and quiet lore. They dream they are alive and were woven to expect a story whose next chapter never came, so they wait for it with unfailing courtesy and do not thank you for suggesting the ground is cloth. Your main source of barter and half-remembered history."
+    },
+    {
+      "name": "Needlejacks",
+      "dimension": "Warpwold",
+      "role": "hostile",
+      "description": "Figures the Loom wove wrong — crooked, seam-split things with needle-sharp limbs — that go still by day and unbend at night to hunt. They stitch what they kill into themselves, growing more tangled and dangerous the longer they survive. The reason your first nights in Thrumwood are your hardest."
+    },
+    {
+      "name": "The Understruck",
+      "dimension": "Warpwold",
+      "role": "hostile / mournful",
+      "description": "Creatures the Weaver tried to unpick but who survived half-undone, dragging their own loose and trailing threads, incomplete and in pain. They hunt Menders for whole living thread that might finish or restore them, and their hunger is grief as much as malice. The saddest of Warpwold's enemies: monsters only because they were never allowed to be anything else, and never tidied away."
+    },
+    {
+      "name": "Frayed Hounds",
+      "dimension": "Warpwold",
+      "role": "hostile",
+      "description": "Lean pack predators whose bodies trail long loose threads like wet fur, snagging and dragging as they run. They den in the dark of the Muslin Fens and the Unfinished Hem, coordinate by a low sub-audible thrum you feel before you hear, and a bite leaves your own cloth fraying until you stop to mend it."
+    },
+    {
+      "name": "Silence-Moths",
+      "dimension": "Warpwold",
+      "role": "ambient",
+      "description": "Pale palm-sized moths that drift toward any light and nibble slowly at woven things — cloth, banners, and if you stand still too long, you. Mostly atmosphere and mild nuisance, but a cloud of them quietly stripping a wall to bare warp is a genuinely unsettling sight. Their shed dust is the raw stuff of the softest cold light."
+    },
+    {
+      "name": "Emberspinners",
+      "dimension": "Cinderloom",
+      "role": "hostile",
+      "description": "Long-legged spider-like weavers of the fire realm that spin webs of burning thread across the Emberwarp and lair in the dark seams between warp-lines. They drop scorched silk a brave Mender can quench and use, and they are fast, fragile, and endlessly numerous — the loose sparks of the furnace given the intent to hunt."
+    },
+    {
+      "name": "Waxlings",
+      "dimension": "Cinderloom",
+      "role": "hostile / swarm",
+      "description": "Small melting humanoid figures that pool and re-form in the Tallow Vaults, leaving trails of hot tallow behind them. Individually weak; they come in numbers, and a floor slicked with their leavings has ended more descents than the open fire ever did."
+    },
+    {
+      "name": "Scaldwardens",
+      "dimension": "Cinderloom",
+      "role": "neutral / guardian",
+      "description": "Tall robed keepers of the Cinderspindle Forges who tend the making of the world and tolerate no theft from it, still perfectly obedient to a Weaver who never came back to release them. Passive if you take nothing; implacable the instant you do, wielding spindle-staves that draw the heat out of your very threads. Their quiet, endless, purposeless diligence is the most heartbreaking sight in the underworld."
+    },
+    {
+      "name": "Slagmoths",
+      "dimension": "Cinderloom",
+      "role": "ambient / hostile",
+      "description": "The fire realm's answer to the Silence-Moths: larger, burning, drawn not to light but to cold. They cluster on anything that carries the chill of Warpwold, which unfortunately includes a newly arrived Mender, and can cook you inside your armor before you understand why the air went bright."
+    },
+    {
+      "name": "The Unpicked",
+      "dimension": "Nevermend",
+      "role": "hostile",
+      "description": "Hollow, half-come-apart figures — woven folk whose threads finally loosened and who wandered into the void rather than accept the mending. They shamble the Fraying, reaching for anyone still knotted, trying to pull a whole thread loose to replace what they have lost. What they take, they take from the pattern itself; there is no corpse, only a gap the world forgets was ever filled."
+    },
+    {
+      "name": "Ravelers",
+      "dimension": "Nevermend",
+      "role": "hostile",
+      "description": "Boneless void-shapes made of nothing but loose thread and appetite. They do not strike so much as unpick — pulling blocks from your builds and items from your hands, undoing your work stitch by stitch and drifting off with the pieces. Silent, patient, and the single greatest danger a Mender faces, because they steal from the record and not just the moment."
+    },
+    {
+      "name": "Selvage Wardens",
+      "dimension": "Nevermend",
+      "role": "mini-boss",
+      "description": "Silent guardians of the Last Selvage, wound from finished hem-thread and far more coherent than anything else in the void. They bar the approach to the Last Needle and fight with slow, absolute certainty, mending their own wounds as fast as you can open them. To pass one is to argue your way past something that has already decided how the argument ends."
+    },
+    {
+      "name": "Molthkin, the First Bobbin",
+      "dimension": "Cinderloom",
+      "role": "boss",
+      "description": "The living heart of the Cinderspindle Forges: a vast, half-molten spool-creature around which the oldest thread was first wound, kept turning so long alone at the deepest forge that its duty has curdled into madness — feeding the fire things that should never burn, certain that enough new thread will bring the Weaver back to weave again. Felling it releases a coil of Everthread and briefly stills the forges, and it does not feel like triumph so much as the switching-off of something that only ever wanted to finish its work."
+    },
+    {
+      "name": "The Last Needle",
+      "dimension": "Nevermend",
+      "role": "final boss",
+      "description": "The colossal, patient entity at the edge of everything, shaped like a needle the length of a horizon — the Ravelling itself given form. It does not weave; it only unpicks, and it does not hate what the Weaver made. It simply cannot bear that the cloth was left unfinished, and means to undo the flaw by undoing everything. It cannot truly be killed, only bound, turned, and taught for a while to stitch instead of tear. The final confrontation is the Mender's whole choice made flesh: to finish the weaving in defiance of the void, or to let the Loom fall silent at last and gently, and be done."
+    }
+  ],
+  "blocks": [
+    {
+      "id": "warpsod",
+      "displayName": "Warpsod",
+      "note": "The woven surface turf of the Sennmeadows — the grass-and-soil skin of Warpwold, a thin cloth of green dreamdye over pale weft. The first block most Menders break; a fresh-cut edge sometimes shows the ghost of an older pattern in the weave beneath."
+    },
+    {
+      "id": "loamweft",
+      "displayName": "Loamweft",
+      "note": "The soft under-earth beneath Warpsod: dense packed weft-fibers, dark and crumbling. Diggable filler and the base most surface builds sit upon."
+    },
+    {
+      "id": "understitch_loam",
+      "displayName": "Understitch Loam",
+      "note": "Rich subsoil layered with unpicked patterns, so that broken clods show the faint reversed shapes of things the world used to hold. Excellent for growing — the buried weave feeds the roots — and dug most easily in the Understitch Downs."
+    },
+    {
+      "id": "threadstone",
+      "displayName": "Threadstone",
+      "note": "Ancient thread compressed by ages into stone; Warpwold's common bedrock and standard building block. Grey and faintly striated with the direction of its old weave. Smelts and shapes into most early gear."
+    },
+    {
+      "id": "raw_skein",
+      "displayName": "Raw Skein",
+      "note": "A soft block of unspun wool-thread sheared from skeinlings. Foundational early material — spun into thread, dyed, and worked into everything from cloth to cord to a first set of walls."
+    },
+    {
+      "id": "thrumwood_bole",
+      "displayName": "Thrumwood Bole",
+      "note": "The braided-cord trunk of a Thrumwood tree, the game's primary log. Splits into Knotwood Planks and is still faintly warm, and faintly humming, when freshly cut."
+    },
+    {
+      "id": "knotwood_plank",
+      "displayName": "Knotwood Plank",
+      "note": "Worked Thrumwood, its braids tightened into flat knotted boards. The everyday building and crafting material of Warpwold carpentry; each plank shows a different tangle of grain in its face."
+    },
+    {
+      "id": "frostlace",
+      "displayName": "Frostlace",
+      "note": "Weave crystallized by cold into brittle white lacework. Slick to walk on, shatters when struck, and slowly re-forms in freezing biomes. Beautiful, and it will keep you."
+    },
+    {
+      "id": "loomglass",
+      "displayName": "Loomglass",
+      "note": "Dyewater sand fused clear by heat into panes you can see the warp through. A transparent building block; in dim light you can catch faint moving threads drifting inside it, like a window onto the loom beneath the world."
+    },
+    {
+      "id": "needle_iron",
+      "displayName": "Needle-Iron",
+      "note": "A cold grey workhorse metal drawn from ore in Warpspine Reach — the reliable mid-tier for tools, needles, and shears. Named for the great needles the woven folk once used to mend themselves, in the age when they still knew they could tear."
+    },
+    {
+      "id": "giltspool",
+      "displayName": "Giltspool",
+      "note": "Soft gleaming spool-metal, the gold-analog. Too soft for lasting tools but prized by the Wickerkin for trade, ornament, and knot-charms said to slow a fraying. To gild your own work is the most hopeful thing a Mender does — adorning a thing as if sure it will one day be seen."
+    },
+    {
+      "id": "dawnthread",
+      "displayName": "Dawnthread",
+      "note": "A rare luminous fiber that holds the first light of a weaving, found deep in the frayed peaks of Warpspine Reach. The premium surface crafting thread — brilliant, hard, and faintly warm to hold. The gem tier of Warpwold."
+    },
+    {
+      "id": "bindwax",
+      "displayName": "Bindwax",
+      "note": "A rare deep-red wax rendered in the Cinderloom and worked cool. To bind a thing in wax is to finish it for good: bound structures cannot be frayed by hounds, unpicked by Ravelers, or loosened by the Ravelling. The material of true, lasting completion — precious, slow to gather, and the rarest kind of hope in the world."
+    },
+    {
+      "id": "cinderthread",
+      "displayName": "Cinderthread",
+      "note": "The glowing, ever-smoldering ground-thread of the Cinderloom and the fiery realm's most common block. Radiates heat, never fully cools, and scorches anything laid bare against it. The bright floor of first-making."
+    },
+    {
+      "id": "tallowstone",
+      "displayName": "Tallowstone",
+      "note": "Congealed heat-and-thread that drips and re-hardens in the Tallow Vaults. The Cinderloom's carvable building stone; softly translucent, always faintly warm, and forever a little unfinished."
+    },
+    {
+      "id": "cinderglass",
+      "displayName": "Cinderglass",
+      "note": "Black glassy stone formed where molten skein meets sudden cold — the frame-stone of the loom-gates between realms, and of anything meant to endure. Cutting it is slow work, and its edges hold the last red memory of the fire that made it."
+    },
+    {
+      "id": "emberskein_ore",
+      "displayName": "Emberskein Ore",
+      "note": "Molten-cored ore threaded with running fire; it burns as its own fuel. The Cinderloom's answer to coal, and the reason a Mender can keep a furnace lit in a place that would otherwise melt it."
+    },
+    {
+      "id": "mothdust_brick",
+      "displayName": "Mothdust Brick",
+      "note": "A packed, softly glowing block pressed from the shed dust of Silence-Moths. The chief light-source block of Warpwold: a pale, cool, dreamlike glow that never flickers and never quite feels awake."
+    },
+    {
+      "id": "knotlight",
+      "displayName": "Knotlight",
+      "note": "A placeable knotted marker that cradles a captured thread of light as a steady flame. A Mender's torch, waypoint, and vigil-fire in one, and the anchor a new knot is set from — where its glow ends, the dark begins to move. The one warmth the Loom lets you keep."
+    },
+    {
+      "id": "voidknot",
+      "displayName": "Voidknot",
+      "note": "A dark, dense knot of thread that refuses to come loose — the only truly stable block native to Nevermend. The building material of the void and the anchor-stone of its deepest gates; it holds where nothing else will."
+    },
+    {
+      "id": "hemstone",
+      "displayName": "Hemstone",
+      "note": "Finished selvage-edge fabric turned rigid and pale, gathered at the Last Selvage. Extremely durable, with a clean woven grain — the trophy material of the void, and the slate a Mender who reaches the end may carve a memorial upon."
+    },
+    {
+      "id": "everthread",
+      "displayName": "Everthread",
+      "note": "The First Thread itself, drawn through the dark before there was anything to draw it through, forged in the Cinderspindle Forges and never surpassed. Tools and armor rethreaded with Everthread barely wear and resist the Ravelling. Made in an unfinished world, it cannot be undone by a finished one; won only from Molthkin and tempered in the void. It remembers being new."
+    }
+  ],
+  "glossary": [
+    {
+      "term": "The Loom",
+      "meaning": "The cosmic frame on which all of reality is woven, still turning by momentum long after the Weaver left. It keeps no pattern over another and does not care; its faint, endless sound is the Thrum."
+    },
+    {
+      "term": "The Weaver",
+      "meaning": "The unseen, unnamed maker — or dreamer, or sleeper — who drew the First Thread and then vanished. No hand rests on the shuttle now. Loved, mourned, quietly forgiven, and never named, because the name was left in the margin of the oldest cloth and has worn past reading."
+    },
+    {
+      "term": "Warp and Weft",
+      "meaning": "The two kinds of thread in everything: the warp is the fixed foundation, the laws and bones of the world; the weft is the living cross-thread woven over it — people, weather, events, the passing day."
+    },
+    {
+      "term": "The Thrum",
+      "meaning": "The low, patient hum of the empty Loom, audible only to those awake enough to listen. Atmosphere and warning at once, and a sign that raw weave is near; loudest in Thrumwood and the Unfinished Hem."
+    },
+    {
+      "term": "Dreamdye",
+      "meaning": "The dim light woven into cooled cloth that makes woven things believe they are alive and awake. Warpwold is drenched in it; the Bleachlands are where it has drained away and the pattern lies bare and forgotten."
+    },
+    {
+      "term": "The Understitch",
+      "meaning": "The ghost-terrain of older patterns bleeding up through the present weave where the cloth wears thin — doubled hills, phantom rivers, orchards fruiting in two places at once. The visible proof that the Weaver drafted the world again and again and never drew the old versions fully out."
+    },
+    {
+      "term": "Knot / Anchor",
+      "meaning": "The tie that binds a thread to the pattern — a soul's mooring, and a Mender's respawn point. To be knotted is to be alive and placed; a Knotlight lets a Mender set a new anchor to be re-stitched at."
+    },
+    {
+      "term": "Unpicked",
+      "meaning": "Death, spoken gently — to be pulled from the pattern. A Mender who is unpicked is re-stitched at their last knot, losing a little gathered thread in the tearing. Woven folk who are unpicked and refuse the mending wander into the void as the Unpicked."
+    },
+    {
+      "term": "Fray",
+      "meaning": "A tear in the weave: as a verb, the slow damage danger inflicts on your cloth; as a noun, a rip in reality, and the kind of rip that opens the way down into Nevermend."
+    },
+    {
+      "term": "Selvage",
+      "meaning": "The finished, self-bound edge of a woven thing, and at the largest scale the outermost rim of all reality — the Last Selvage, past which no cloth exists and the Last Needle waits."
+    },
+    {
+      "term": "Skein",
+      "meaning": "A coil of gathered thread — the world's basic unit of woven material and life-stuff, harvested, spun, dyed, and traded. To measure a life is to measure its skein."
+    },
+    {
+      "term": "Binding",
+      "meaning": "To finish and fix a thing for good, by working it in Bindwax. Bound things cannot be frayed, unpicked, or loosened by the Ravelling. The rarest and most hopeful act in the world: declaring a small part of the weaving complete, as if sure it will one day be seen."
+    },
+    {
+      "term": "The Ravelling",
+      "meaning": "The slow, universal coming-apart that pulls at every knot in all three realms — the world's entropy, embodied at the edge of everything as the Last Needle. In Nevermend it is not a threat but the weather."
+    },
+    {
+      "term": "Mender",
+      "meaning": "One of the rare woven souls who has woken — a Waking Thread — and can pull, gather, and re-weave the world on purpose. What the player is. Menders build because a weaving left to itself only frays, and a Loom left to itself does not care."
+    }
+  ],
+  "playerIdentity": "You are a Waking Thread — one of the countless figures woven into the tapestry of Warpwold, indistinguishable from any field-hand or Wickerkin, until the day your thread came loose. Where every other woven soul dreams it is alive and never feels its own fibers, you woke: you saw the warp running behind the world, felt the tug of your own knotted anchor, and understood all at once that the ground is cloth and the sky is thread and none of it was ever finished. That waking makes you a Mender — one of the very few who can pull the world's threads loose on purpose, gather and spin and re-weave them, carry fire up out of the Cinderloom and follow frays down into Nevermend. You are the one thing the Loom cannot make, because a machine that weaves by momentum can raise a shape and let the same blind hand unmake it, but it cannot choose which shapes to keep. You are that choosing, given legs — the way deep weaving gets a direction. The Loom did not wake you out of love, and it does not notice you the way you notice yourself; it would grind you back into loose thread and lay you down as new cloth without a flicker of malice. That is the grit of it. The wonder is the same fact seen from the other side: while you last, the world — which owes you nothing — lets you build. You do not truly die. When you are unpicked, struck down or burned or unravelled, you are pulled from the pattern and re-stitched at your last knotted anchor, a little of your gathered thread lost in the tearing, because a weaving with its ending still unstitched cannot yet be allowed to stop. You are not a hero and not a chosen one. You are a caretaker who woke after the maker had already gone — a single thread that learned to think, wandering a beautiful unfinished thing, deciding whether the weaving your Weaver abandoned deserves to be finished, and whether finishing it means saving it from the Ravelling or letting it, at last and gently, come to rest."
+}
