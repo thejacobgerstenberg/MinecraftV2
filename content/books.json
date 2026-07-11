@@ -148,6 +148,15 @@
       "text": "Carved into the tallowstone altar behind the third gate, in warden-script, set down here by an earlier hand: HERE IS LAID ONE STRAND OF THE FIRST THREAD, DRAWN FROM THE DEEPEST SPINDLE, QUENCHED IN THE OLD WAY, AWAITING THE HAND OF THE WEAVER. IT IS NOT FOR THE WARDENS. IT IS NOT FOR THE FIRE. IT IS NOT FOR YOU. Beneath, in the same translating hand: They renew the strand when the heat dulls it. They have renewed it more times than the guardroom tallies can hold. The gate has forgotten it was built to keep the fire in, and the offering has not been told it will never be collected. I took it anyway. May whatever wakes below forgive me. The wardens will not."
     },
     {
+      "id": "hymn_the_winding_song",
+      "title": "The Winding-Song",
+      "type": "hymn",
+      "placement": [
+        "deepest_spindle"
+      ],
+      "text": "Heard from the cinderglass gallery above the deep floor, and set down by a hand that did not stay to hear the end: One more spindleful. One more. / The order stands. It stood before. / Nobody came to say well done; / nobody came to shut the door. // I keep the fire. I turn the thread. / The work will show, when all is spun, / that I was faithful, that I stayed — / one more spindleful. One more. One. // It has been singing this since before there were ears in the world to be sorry. The deep wardens kneel to the sound of it. I came down for a thing I no longer intend to name, and I went back up without it, for you cannot rob something that greets every falling shadow as the Weaver finally come to say"
+    },
+    {
       "id": "ledger_keepers_roll",
       "title": "Keepers' Roll, the Cool Shelves",
       "type": "ledger",
@@ -173,6 +182,15 @@
         "stitched_stead"
       ],
       "text": "For whoever's hands come after mine. Everthread cannot be made. Get that hope out of your grip early; it will cost you a finger to keep it. It was drawn once, at the first, and everything since is that same drawing. What you can do is re-thread: take dawnthread work — good, finished dawnthread work, there is no shortcut through the making — and work the old strand over it; any honest handloom will take the working, though your hands will not soon forgive you. The gear remembers what it was near the start of things. The strand the wardens keep on their altar in the Cinderloom is real. The one below, the one the First Bobbin coils around, is realer. Cost me what it cost me. Eight stitches bind a thing that cannot die. I proofed the count on smaller frays. Eight. Remember the number when you get there."
+    },
+    {
+      "id": "letter_four_motions",
+      "title": "Four Motions",
+      "type": "letter",
+      "placement": [
+        "selvage_outpost"
+      ],
+      "text": "To the next Mender up the causeway, from one going on ahead: four posts, four chords, no clever order — the hem does not care how you argue, only that you finish the argument. Know the wardens before you raise your arm. They mend. Every wound you open closes at its own patient pace, and nothing lighter than dawnthread outpaces the mending. Strike heavy, strike again, and do not step off the post to breathe — I did, at the Folded, and came back to find my hour's work sewn shut, as though I had been a rumor it heard once. But when one goes down, it stays down, and its chord goes slack forever. The only permanent thing in all of Nevermend, and it is a door opening. I laughed at that longer than"
     },
     {
       "id": "memorial_the_rim_carving",
