@@ -537,7 +537,7 @@ async function main() {
   //    intended consumer arg shape); every placement resolves.
   // =========================================================================
   const books = pack.books();
-  check('books', 'count==21', books.length === 21, `got ${books.length}`);
+  check('books', 'count==23', books.length === 23, `got ${books.length}`);
   for (const s of structures) {
     check('books', `book('${s.id}')`, pack.book(s.id) != null, 'no book placed here');
   }

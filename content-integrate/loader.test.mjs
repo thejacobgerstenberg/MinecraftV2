@@ -118,12 +118,12 @@ test('dialogueLine: random string from string[] nodes, line from narrator beats'
   assert.equal(pack.dialogueLine('nobody', 'greeting'), null);
 });
 
-test('book/books: placement index, 21 books, unknown -> null', () => {
+test('book/books: placement index, 23 books, unknown -> null', () => {
   const manorBook = pack.book('unpicked_manor');
   assert.ok(manorBook);
   assert.ok(manorBook.placement.includes('unpicked_manor'));
   for (const key of ['id', 'title', 'type', 'placement', 'text']) assert.ok(key in manorBook);
-  assert.equal(pack.books().length, 21);
+  assert.equal(pack.books().length, 23);
   assert.equal(pack.book('nowhere_at_all'), null);
 });
 
