@@ -1,0 +1,43 @@
+#!/usr/bin/env sh
+# deploy/run — start script for loomfall (node server/index.js)
+# Works whether invoked from the repo root or from deploy/.
+set -eu
+
+# --- Resolve paths -----------------------------------------------------------
+# Directory this script lives in (deploy/), then the repo root one level up.
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+
+# --- Load deploy/.env if present ---------------------------------------------
+# Lines are `KEY=value`; blank lines and `#` comments are ignored.
+ENV_FILE="$SCRIPT_DIR/.env"
+if [ -f "$ENV_FILE" ]; then
+  # Export every assignment in the file for the duration of this script.
+  set -a
+  # shellcheck disable=SC1090
+  . "$ENV_FILE"
+  set +a
+fi
+
+# --- Defaults ----------------------------------------------------------------
+# PORT is the ONLY variable the server reads today (server/index.js:25).
+PORT="${PORT:-3000}"
+export PORT
+
+# The following are exported so they take effect the moment the builder wires
+# them into the server, but the server does NOT read them yet. We still export
+# them (never fabricate support) and warn below.
+export MAX_PLAYERS="${MAX_PLAYERS:-}"
+export TICK_RATE="${TICK_RATE:-}"
+export WORLD_DIR="${WORLD_DIR:-}"
+export MOTD="${MOTD:-}"
+
+# --- Honesty notice ----------------------------------------------------------
+# Per recon, only PORT is honored. WORLD_DIR maps to a currently-hardcoded
+# saves dir (server/index.js:24) and needs builder support to take effect.
+echo "note: MAX_PLAYERS/TICK_RATE/WORLD_DIR/MOTD are not yet read by the server — see deploy/.env.example"
+
+# --- Launch ------------------------------------------------------------------
+echo "starting loomfall on PORT=$PORT (repo root: $REPO_ROOT)"
+cd "$REPO_ROOT"
+exec node server/index.js

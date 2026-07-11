@@ -1,0 +1,60 @@
+# Loomfall — Docker Compose deployment
+#
+# Run from the deploy/ directory:
+#     docker compose up -d --build
+#
+# The build context is the repo root ("..") so the Dockerfile can read
+# server/, public/, and package.json. Single-origin app: the browser client
+# connects its WebSocket back to whatever host/scheme served the page
+# (ws(s)://<host>/ws), so no client-side server-address config is needed —
+# just publish this service behind your chosen host/port (or a reverse proxy).
+
+services:
+  loomfall:
+    # Build the image from the repo root using the deploy Dockerfile.
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: loomfall:latest
+    container_name: loomfall
+
+    # Restart automatically unless explicitly stopped.
+    restart: unless-stopped
+
+    # Optional environment file (create deploy/.env to override defaults).
+    # The server currently reads only PORT; other vars would need code changes.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Internal listen port. Keep in sync with the published port mapping
+      # and the EXPOSE/HEALTHCHECK in the Dockerfile.
+      PORT: 3000
+
+    # Publish the port. Host side defaults to 3000 but can be overridden by
+    # setting PORT in the environment/.env used by the compose CLI itself.
+    ports:
+      - "${PORT:-3000}:3000"
+
+    # Persist world saves across container recreation. The server writes to
+    # /app/saves inside the container (see the VOLUME in the Dockerfile).
+    volumes:
+      - loomfall-saves:/app/saves
+
+    # Liveness probe mirroring the Dockerfile HEALTHCHECK. Uses node's global
+    # fetch (Node 18+) instead of curl, which the slim base image lacks.
+    healthcheck:
+      test:
+        - "CMD"
+        - "node"
+        - "-e"
+        - "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+# Named volume backing the persistent world-saves directory.
+volumes:
+  loomfall-saves:
+    driver: local
