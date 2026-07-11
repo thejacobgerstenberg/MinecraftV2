@@ -204,7 +204,7 @@ pings automatically; no client action is needed.
   is rejected — a client can never write into a dimension it is not in.
 - **Reach:** the block must be within **7** blocks of the player's
   server-tracked position (distance from the player's collision column,
-  feet to feet+1.8, to the block center). Client-side reach is 6; the +1
+  feet to feet+1.8, to the block center). Client-side reach is 5; the +2
   covers eye-height and latency slack.
 - **Rate:** at most **20 edits/s** per connection (token bucket, burst 20);
   excess edits are dropped (no `error` frame, but the sender does receive an
@@ -378,7 +378,7 @@ regression test in `tests/security.test.mjs`, run via `npm test`):
 | 7 | Edit shape | integer coords, block `0..40`, `0 <= y < 128`, `\|x\|,\|z\| <= 30,000,000` | `error: bad_edit` |
 | 8 | Bedrock | **no edit at `y === 0`** (bedrock layer is always y=0 in every dimension; the server does not run worldgen, so the whole layer is protected) | `error: bad_edit` |
 | 9 | Edit dimension | bound to the **server-tracked** dimension; a `dim` field must match it | `error: bad_edit` |
-| 10 | Edit reach | <= **7** blocks from the server-tracked player column (client reach is 6) | `error: bad_edit` |
+| 10 | Edit reach | <= **7** blocks from the server-tracked player column  (client reach is 5) | `error: bad_edit` |
 | 11 | Edit rate | **20 edits/s** per connection (token bucket, burst 20) | excess dropped; sender gets an `editReject` rollback frame (no `error` frame) |
 | 12 | Names | strip control chars + `<>&"'`, cap 24, fallback `Wanderer-xxxx`, dedup per room with numeral suffix | sanitized transparently at join |
 | 13 | Chat | strip control chars, cap 256, HTML-escape `&<>"'` on broadcast (name too); **3 msgs / 2 s** | over-limit dropped + `error: chat_rate` to sender |

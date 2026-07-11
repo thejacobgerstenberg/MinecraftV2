@@ -58,7 +58,7 @@ const GRACE_COOLDOWN_MS = 2000;
 const RESPAWN_RADIUS = 8;
 /** Min interval between move_rejected notices to a violating sender. */
 const MOVE_REJECT_NOTICE_MS = 1000;
-/** Server-side edit reach cap; client reach is 6, +1 covers eye/latency slack. */
+/** Server-side edit reach cap; client reach is 5, +2 covers eye/latency slack. */
 const MAX_REACH = 7;
 /** World edit + movement horizontal bound. */
 const MAX_COORD_XZ = 30_000_000;
@@ -586,7 +586,7 @@ function rejectEdit(ws, msg, reason) {
  *  - the edit is bound to the sender's server-tracked dimension; a client
  *    `dim` field is accepted for compat but must match (else rejected);
  *  - reach: distance from the player's collision column (server-tracked feet
- *    position, height 1.8) to the block center must be <= 7 (client reach 6);
+ *    position, height 1.8) to the block center must be <= 7 (client reach 5);
  *  - rate: 20 edits/s per connection (token bucket); excess edits are dropped.
  * EVERY rejection (including rate) also answers the sender with an
  * `editReject` rollback frame — see rejectEdit above and docs/PROTOCOL.md.

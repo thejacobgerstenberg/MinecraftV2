@@ -61,7 +61,7 @@ const VERSION = '0.1.0';
 const NAME_KEY = 'loomfall.name';
 const DAY_LENGTH_S = 600; // full day/night cycle: 10 minutes
 const START_TIME_OF_DAY = 0.42; // late morning, so new worlds open in daylight
-const REACH = 6; // block interaction distance
+const REACH = 5.0; // block interaction raycast distance (server cap stays 7)
 const BASE_SENSITIVITY = 0.002; // radians per pixel at settings.sensitivity=1
 const MAX_DT = 0.05; // clamp frame gaps to 50 ms
 const QA_TICK_S = 0.05; // __qa tick length (20 ticks/s, matches the QA plan)
@@ -898,7 +898,7 @@ async function bootSession(worldMeta) {
   function clearMovementInput() {
     const inp = S.controls.input;
     inp.forward = inp.back = inp.left = inp.right = false;
-    inp.jump = inp.sprint = inp.sneak = false;
+    inp.jump = inp.sprint = inp.sneak = inp.sneakOrDescend = false;
   }
 
   function recordEdit(dimId, x, y, z, id) {
@@ -1877,7 +1877,7 @@ function makeQaHook() {
     }),
     onGround: () => S.player.onGround,
     isFlying: () => S.player.flying,
-    getEyeHeight: () => 1.62,
+    getEyeHeight: () => S.player.eyeHeight, // 1.62, or 1.50 while sneaking
     getAABB: () => ({ w: S.player.size.x, h: S.player.size.y }),
 
     // ---- world ----

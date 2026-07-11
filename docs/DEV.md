@@ -187,7 +187,7 @@ events). Integration points (`public/src/main.js`):
   weather, and particles are all **skipped while paused**.
 - **Combat**: left-click raycasts mob hitboxes FIRST (reach 4, slab test
   against each mob's `halfWidth`/`height` AABB, occluded by closer blocks),
-  then falls through to block breaking (reach 6). A hit calls `mob.hurt(4)`.
+  then falls through to block breaking (reach 5). A hit calls `mob.hurt(4)`.
   Mob voices: `mob.<family>.hurt/death/idle` (new archetypes reuse their
   AI-family voice: bobbindeer->grazer, scaldwarden->trader, needlejack/
   frayedhound/emberspinner/unpicked/raveler/lastneedle->groaner). Mob death

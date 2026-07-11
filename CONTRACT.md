@@ -57,7 +57,7 @@ Exports `BLOCKS` (array indexed by id) and `getBlockDef(id)`. Each def: `{ id, n
 - `export class Player { constructor(world, camera){ position, velocity, onGround, flying } update(dt, input)  respawn() }` — gravity, jump, sprint, creative flight toggle (double-tap space), applies physics via physics.js, mounts camera at eye height.
 
 ## public/src/gameplay/Controls.js  (Phase: gameplay)
-- `export class Controls { constructor(domElement, camera){} input // {forward,back,left,right,jump,sprint,sneak,mouseDX,mouseDY} lock() unlock() }` — pointer lock, WASD, mouse look (yaw/pitch), space/shift, keys for hotbar 1-9, scroll wheel, E, Esc. Expose an event emitter or callbacks for: break, place, selectSlot(i), toggleInventory, togglePause, toggleFlight.
+- `export class Controls { constructor(domElement, camera){} input // {forward,back,left,right,jump,sprint,sneak,sneakOrDescend,mouseDX,mouseDY} lock() unlock() }` — pointer lock, WASD, mouse look (yaw/pitch), space/shift, keys for hotbar 1-9, scroll wheel, E, Esc. Expose an event emitter or callbacks for: break, place, selectSlot(i), toggleInventory, togglePause, toggleFlight.
 
 ## public/src/gameplay/raycast.js  (Phase: gameplay)
 - `export function raycastVoxel(world, origin, dir, maxDist) -> { hit:bool, x,y,z (block hit), nx,ny,nz (adjacent empty for placement), face }` DDA voxel raycast.

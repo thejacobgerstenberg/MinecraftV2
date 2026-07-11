@@ -13,8 +13,11 @@
 // Key map:
 //   WASD             — move (input.forward/back/left/right)
 //   Space            — jump; double-tap within 300 ms emits 'toggleFlight'
-//   ShiftLeft        — sets BOTH input.sprint and input.sneak (sprint while
-//                      walking, descend while flying — Player decides)
+//   ShiftLeft        — input.sprint (sprint while walking); also folded into
+//                      input.sneakOrDescend (descend while flying)
+//   KeyC / ControlLeft — input.sneak (sneak while walking: slow + edge-guard
+//                      + eye drop — Player decides; also descends in flight
+//                      via input.sneakOrDescend)
 //   KeyE             — emits 'toggleInventory'
 //   KeyT             — emits 'openChat'
 //   F3               — emits 'toggleDebug' (preventDefault'ed)
@@ -54,16 +57,21 @@ export class Controls {
     this.pitch = 0;
 
     /** Live input state polled by Player each frame. mouseDX/mouseDY
-     *  accumulate until consumeMouseDelta() resets them. */
+     *  accumulate until consumeMouseDelta() resets them.
+     *  sneak = KeyC/ControlLeft; sprint = ShiftLeft; sneakOrDescend is the
+     *  union (Shift OR sneak keys) read by Player as flight-descend. */
     this.input = {
       forward: false, back: false, left: false, right: false,
-      jump: false, sprint: false, sneak: false,
+      jump: false, sprint: false, sneak: false, sneakOrDescend: false,
       mouseDX: 0, mouseDY: 0,
     };
 
     this._locked = false;
     this._debugLocked = false;
     this._lastSpaceDown = -Infinity;
+    // Physical-key state feeding the derived sneak/sneakOrDescend flags.
+    this._shiftDown = false;
+    this._sneakKeys = new Set(); // 'KeyC' / 'ControlLeft' currently held
     this._listeners = new Map(); // event name -> Set<cb>
 
     if (this.camera) {
@@ -157,8 +165,13 @@ export class Controls {
       case 'KeyA': this.input.left = true; return;
       case 'KeyD': this.input.right = true; return;
       case 'ShiftLeft':
-        this.input.sprint = true;
-        this.input.sneak = true;
+        this._shiftDown = true;
+        this._refreshSneakFlags();
+        return;
+      case 'KeyC':
+      case 'ControlLeft':
+        this._sneakKeys.add(e.code);
+        this._refreshSneakFlags();
         return;
       case 'Space': {
         e.preventDefault();
@@ -199,10 +212,24 @@ export class Controls {
       case 'KeyD': this.input.right = false; break;
       case 'Space': this.input.jump = false; break;
       case 'ShiftLeft':
-        this.input.sprint = false;
-        this.input.sneak = false;
+        this._shiftDown = false;
+        this._refreshSneakFlags();
+        break;
+      case 'KeyC':
+      case 'ControlLeft':
+        this._sneakKeys.delete(e.code);
+        this._refreshSneakFlags();
         break;
     }
+  }
+
+  /** Derive input.sprint/sneak/sneakOrDescend from the held physical keys:
+   *  Shift sprints (and descends in flight); KeyC/ControlLeft sneak (and
+   *  also descend in flight). */
+  _refreshSneakFlags() {
+    this.input.sprint = this._shiftDown;
+    this.input.sneak = this._sneakKeys.size > 0;
+    this.input.sneakOrDescend = this._shiftDown || this.input.sneak;
   }
 
   // ── mouse ─────────────────────────────────────────────────────────────

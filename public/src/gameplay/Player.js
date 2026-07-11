@@ -23,13 +23,19 @@ import { CHUNK_SY, SEA_LEVEL } from '../constants.js';
 
 const SIZE = { x: 0.6, y: 1.8, z: 0.6 };
 const EYE_HEIGHT = 1.62;
+const SNEAK_EYE_DROP = 0.12;   // eyes sit lower while sneaking (1.62 -> 1.50)
 
 const WALK_SPEED = 4.3;        // blocks/s
 const SPRINT_MULT = 1.35;      // ×4.3 = 5.805 blocks/s
+const SNEAK_MULT = 0.3;        // ×4.3 = 1.29 blocks/s; sneaking cancels sprint
 const FLY_SPEED = 10;
 const FLY_SPRINT_SPEED = 20;
 const GRAVITY = -24;           // blocks/s²
-const JUMP_VELOCITY = 8.2;     // only applied when onGround
+// Jump tuned for a ~1.25-block peak: v = sqrt(2 * |GRAVITY| * 1.25) ≈ 7.75.
+const JUMP_VELOCITY = 7.75;    // only applied when onGround
+const SPRINT_JUMP_BOOST = 1.2; // forward impulse on the jump tick while sprinting
+const TERMINAL_FALL_SPEED = 50; // blocks/s cap on fall speed (physics tests
+                               // guarantee no tunneling at 50 b/s)
 const AIR_CONTROL_RATE = 5;    // 1/s — how fast airborne velocity approaches the wish dir
 const WATER_SPEED_MULT = 0.5;  // horizontal damping in liquid
 const WATER_SINK_SPEED = -2.2; // slow sink terminal velocity
@@ -54,6 +60,8 @@ export class Player {
     this.velocity = { x: 0, y: 0, z: 0 };
     this.onGround = false;
     this.flying = false;
+    /** True while walking with input.sneak held (never while flying). */
+    this.sneaking = false;
     this.health = 20;
     /** AABB size, min-corner convention (see physics.js). */
     this.size = { ...SIZE };
@@ -67,13 +75,19 @@ export class Player {
     this.respawn();
   }
 
-  /** Eye position (camera anchor): AABB center in x/z, feet + 1.62 in y. */
+  /** Eye position (camera anchor): AABB center in x/z, feet + 1.62 in y
+   *  (feet + 1.50 while sneaking — the classic sneak "duck"). */
   get eyePosition() {
     return {
       x: this.position.x + SIZE.x / 2,
-      y: this.position.y + EYE_HEIGHT,
+      y: this.position.y + this.eyeHeight,
       z: this.position.z + SIZE.z / 2,
     };
+  }
+
+  /** Current eye height above the feet: 1.62, or 1.50 while sneaking. */
+  get eyeHeight() {
+    return EYE_HEIGHT - (this.sneaking ? SNEAK_EYE_DROP : 0);
   }
 
   /** Toggle creative flight (wired to Controls' double-tap-space event). */
@@ -110,8 +124,10 @@ export class Player {
    * @param {{forward:boolean,back:boolean,left:boolean,right:boolean,
    *          jump:boolean,sprint:boolean,sneak:boolean,
    *          sneakOrDescend?:boolean}} input  from Controls.input.
-   *        ShiftLeft arrives as BOTH sprint and sneak; while flying it is
-   *        read as "descend" (sneakOrDescend falls back to sneak).
+   *        sprint = ShiftLeft; sneak = KeyC/ControlLeft (slow walk + edge
+   *        guard + eye drop, cancels sprint); sneakOrDescend = Shift OR
+   *        sneak keys — read as "descend" while flying (falls back to
+   *        sneak for harnesses that only set input.sneak).
    * @param {number} yaw radians, from Controls (rotation about +Y; yaw 0
    *        faces -Z, matching THREE's YXZ camera convention).
    */
@@ -121,7 +137,9 @@ export class Player {
 
     const aabb = { pos: this.position, size: this.size };
     const inWater = isInLiquid(this.world, aabb);
-    const descend = input.sneakOrDescend ?? input.sneak;
+    const descend = (input.sneakOrDescend ?? false) || input.sneak;
+    // Sneaking: walk-mode only (flying reads the same keys as "descend").
+    this.sneaking = !this.flying && !!input.sneak;
 
     // ── Wish direction (horizontal), camera-relative ─────────────────────
     const sin = Math.sin(yaw), cos = Math.cos(yaw);
@@ -135,6 +153,7 @@ export class Player {
 
     let speed;
     if (this.flying) speed = input.sprint ? FLY_SPRINT_SPEED : FLY_SPEED;
+    else if (this.sneaking) speed = WALK_SPEED * SNEAK_MULT; // sneak cancels sprint
     else speed = WALK_SPEED * (input.sprint ? SPRINT_MULT : 1);
     if (inWater && !this.flying) speed *= WATER_SPEED_MULT;
 
@@ -162,7 +181,38 @@ export class Player {
         Math.min(1, WATER_VERTICAL_RATE * dt);
     } else {
       this.velocity.y += GRAVITY * dt;
-      if (input.jump && this.onGround) this.velocity.y = JUMP_VELOCITY;
+      // Terminal velocity: cap fall speed at 50 b/s (physics substepping is
+      // verified tunnel-free at exactly this speed).
+      if (this.velocity.y < -TERMINAL_FALL_SPEED) {
+        this.velocity.y = -TERMINAL_FALL_SPEED;
+      }
+      if (input.jump && this.onGround) {
+        this.velocity.y = JUMP_VELOCITY;
+        // Sprint-jump: a small forward impulse on the jump tick.
+        if (input.sprint && !this.sneaking) {
+          this.velocity.x *= SPRINT_JUMP_BOOST;
+          this.velocity.z *= SPRINT_JUMP_BOOST;
+        }
+      }
+    }
+
+    // ── Sneak edge-guard ─────────────────────────────────────────────────
+    // While sneaking on the ground, horizontal movement that would leave the
+    // feet AABB without ANY solid support below is clamped per axis (probe
+    // the candidate footprint before integrating): you cannot walk off an
+    // edge while sneaking.
+    if (this.sneaking && this.onGround && !inWater) {
+      const dx = this.velocity.x * dt;
+      const dz = this.velocity.z * dt;
+      if (dx !== 0 &&
+          !this._hasSupportAt(this.position.x + dx, this.position.z)) {
+        this.velocity.x = 0;
+      }
+      if (dz !== 0 &&
+          !this._hasSupportAt(this.position.x + this.velocity.x * dt,
+            this.position.z + dz)) {
+        this.velocity.z = 0;
+      }
     }
 
     // ── Integrate + collide (axis-separated, substepped) ─────────────────
@@ -181,5 +231,25 @@ export class Player {
       const eye = this.eyePosition;
       this.camera.position.set(eye.x, eye.y, eye.z);
     }
+  }
+
+  /**
+   * Sneak edge-guard probe: would the feet AABB footprint at horizontal min
+   * corner (px, pz) still have at least one solid cell directly below it?
+   * Uses the same eps conventions as physics.js cellRange.
+   */
+  _hasSupportAt(px, pz) {
+    const EPS = 1e-9;
+    const y = Math.floor(this.position.y + 0.001) - 1; // cell under the feet
+    const x0 = Math.floor(px + EPS);
+    const x1 = Math.floor(px + this.size.x - EPS);
+    const z0 = Math.floor(pz + EPS);
+    const z1 = Math.floor(pz + this.size.z - EPS);
+    for (let z = z0; z <= z1; z++) {
+      for (let x = x0; x <= x1; x++) {
+        if (getBlockDef(this.world.getBlock(x, y, z)).solid) return true;
+      }
+    }
+    return false;
   }
 }

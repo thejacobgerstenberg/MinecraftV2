@@ -15,8 +15,8 @@ Loomfall uses standard first-person voxel controls. Every binding below can be c
 | Move | W / A / S / D |
 | Look | Mouse |
 | Jump | Space |
-| Sneak | Left Shift |
-| Sprint | Left Ctrl |
+| Sneak (slow + edge-safe, eyes dip) | C or Left Ctrl |
+| Sprint | Left Shift |
 | Break (pick a block loose) | Hold Left Mouse |
 | Place / Use / Interact | Right Mouse |
 | Attack | Left Mouse |

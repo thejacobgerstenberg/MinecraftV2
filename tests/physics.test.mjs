@@ -3,6 +3,7 @@
 
 import { moveAndCollide, isInLiquid } from '../public/src/gameplay/physics.js';
 import { getBlockDef } from '../public/src/blocks/blocks.js';
+import { Player } from '../public/src/gameplay/Player.js';
 
 let pass = 0, fail = 0;
 function check(name, cond, detail = '') {
@@ -36,11 +37,13 @@ check('blockdef sanity: stone solid, water liquid+nonsolid',
   check('fall: velocity.y zeroed on landing', vel.y === 0, `vel.y=${vel.y}`);
 }
 
-// ── 2. Jump arc: leaves ground, then re-lands ─────────────────────────────
+// ── 2. Jump arc: leaves ground, peak ~1.25 blocks, then re-lands ──────────
+// Tuned jump velocity: sqrt(2 * 24 * 1.25) ≈ 7.75 for a ~1.25-block peak
+// (discretization puts the sampled apex a little either side of 1.25).
 {
   const world = { getBlock: (x, y, z) => (y < 10 ? 3 : 0) };
   const pos = { x: 0.2, y: 10, z: 0.2 };
-  const vel = { x: 0, y: 8.2, z: 0 };
+  const vel = { x: 0, y: 7.75, z: 0 };
   const dt = 1 / 60;
   let leftGround = false, apex = pos.y, landed = false;
   for (let i = 0; i < 300 && !landed; i++) {
@@ -52,7 +55,8 @@ check('blockdef sanity: stone solid, water liquid+nonsolid',
     if (leftGround && res.onGround) landed = true;
   }
   check('jump: leaves the ground', leftGround);
-  check('jump: apex clears one block (> 11)', apex > 11, `apex=${apex}`);
+  check('jump: apex peaks between 1.15 and 1.35 blocks', apex - 10 >= 1.15 && apex - 10 <= 1.35,
+    `apex=${(apex - 10).toFixed(4)}`);
   check('jump: re-lands at pos.y ~= 10 with onGround', landed && approx(pos.y, 10), `pos.y=${pos.y}`);
 }
 
@@ -115,6 +119,105 @@ check('blockdef sanity: stone solid, water liquid+nonsolid',
   }
   check('liquid: falling through water does not set onGround', onGroundInWater === false);
   check('liquid: eventually rests on stone floor at y ~= 5', landed && approx(landY, 5), `landY=${landY}`);
+}
+
+// ═══ Player-level movement tuning (Player.js is pure — no three) ══════════
+
+const DT = 1 / 60;
+function mkInput(over = {}) {
+  return {
+    forward: false, back: false, left: false, right: false,
+    jump: false, sprint: false, sneak: false, sneakOrDescend: false,
+    ...over,
+  };
+}
+const FLAT = { getBlock: (x, y, z) => (y < 10 ? 3 : 0) };
+function mkPlayer(world, spawn = { x: 0.5, z: 0.5 }) {
+  const p = new Player(world, null);
+  p.spawn = { ...spawn };
+  p.respawn();
+  return p;
+}
+
+// ── 6. Sneak: 0.3x walk speed (~1.29 b/s), cancels sprint, eye drop ───────
+{
+  const p = mkPlayer(FLAT);
+  const z0 = p.position.z;
+  check('sneak: eye height is 1.62 while standing', p.eyeHeight === 1.62);
+  for (let i = 0; i < 60; i++) p.update(DT, mkInput({ forward: true, sneak: true }), 0);
+  const disp = Math.abs(p.position.z - z0);
+  const hvel = Math.hypot(p.velocity.x, p.velocity.z);
+  check('sneak: walk speed is 0.3x (~1.29 b/s)', approx(hvel, 4.3 * 0.3, 0.02), `hvel=${hvel}`);
+  check('sneak: 1s of sneaking covers ~1.29 blocks', disp > 1.2 && disp < 1.4, `disp=${disp}`);
+  check('sneak: eyes drop to 1.50 while sneaking', p.eyeHeight === 1.5, `eyeHeight=${p.eyeHeight}`);
+
+  const p2 = mkPlayer(FLAT);
+  for (let i = 0; i < 60; i++) {
+    p2.update(DT, mkInput({ forward: true, sneak: true, sprint: true }), 0);
+  }
+  const hvel2 = Math.hypot(p2.velocity.x, p2.velocity.z);
+  check('sneak: sprint is canceled while sneaking', approx(hvel2, 4.3 * 0.3, 0.02), `hvel=${hvel2}`);
+}
+
+// ── 7. Sneak edge-guard: cannot walk off a 1x1 pillar; non-sneak falls ────
+{
+  const pillar = { getBlock: (x, y, z) => (x === 0 && z === 0 && y < 10 ? 3 : 0) };
+  const p = mkPlayer(pillar); // spawns on top of the pillar at y=10
+  p.onKillPlane = () => {};
+  const z0 = p.position.z;
+  for (let i = 0; i < 180; i++) p.update(DT, mkInput({ forward: true, sneak: true }), 0); // 3s toward -z
+  check('edge-guard: sneaking at the pillar edge never falls (y stays 10)',
+    approx(p.position.y, 10, 0.01) && p.onGround, `y=${p.position.y} onGround=${p.onGround}`);
+  check('edge-guard: movement is clamped at the support edge (feet AABB keeps overlap)',
+    p.position.z >= -0.6 - 1e-6 && p.position.z < z0 - 0.3,
+    `z=${p.position.z} (started ${z0})`);
+
+  const q = mkPlayer(pillar);
+  q.onKillPlane = () => {};
+  for (let i = 0; i < 120; i++) q.update(DT, mkInput({ forward: true }), 0);
+  check('edge-guard: WITHOUT sneak the same walk falls off the pillar',
+    q.position.y < 9, `y=${q.position.y}`);
+}
+
+// ── 8. Player jump: peak height ~1.25 blocks (1.15..1.35) ─────────────────
+{
+  const p = mkPlayer(FLAT);
+  let apex = p.position.y;
+  for (let i = 0; i < 70; i++) { // one full hop (jump held; sample first arc)
+    p.update(DT, mkInput({ jump: true }), 0);
+    apex = Math.max(apex, p.position.y);
+    if (i > 5 && p.onGround) break;
+  }
+  check('player jump: peak between 1.15 and 1.35 blocks above ground',
+    apex - 10 >= 1.15 && apex - 10 <= 1.35, `peak=${(apex - 10).toFixed(4)}`);
+}
+
+// ── 9. Sprint-jump: ~1.2x forward impulse on the jump tick ────────────────
+{
+  const p = mkPlayer(FLAT);
+  for (let i = 0; i < 60; i++) p.update(DT, mkInput({ forward: true, sprint: true }), 0);
+  const before = Math.hypot(p.velocity.x, p.velocity.z); // ~5.805 (sprint)
+  p.update(DT, mkInput({ forward: true, sprint: true, jump: true }), 0);
+  const after = Math.hypot(p.velocity.x, p.velocity.z);
+  check('sprint-jump: jump tick boosts horizontal speed ~1.2x',
+    approx(after, before * 1.2, 0.1) && after > 6.5,
+    `before=${before.toFixed(3)} after=${after.toFixed(3)}`);
+  check('sprint-jump: actually airborne after the jump tick', p.velocity.y > 0 && !p.onGround);
+}
+
+// ── 10. Terminal velocity: fall speed capped at 50 b/s ────────────────────
+{
+  const airWorld = { getBlock: () => 0 };
+  const p = mkPlayer(airWorld); // void column -> respawns at SEA_LEVEL+1
+  p.onKillPlane = () => {}; // keep falling past the kill plane
+  p.onGround = false;
+  let minVy = 0;
+  for (let i = 0; i < 240; i++) { // 4s free fall (uncapped would hit ~96 b/s)
+    p.update(DT, mkInput(), 0);
+    minVy = Math.min(minVy, p.velocity.y);
+  }
+  check('terminal velocity: fall speed never exceeds 50 b/s', minVy >= -50 - 1e-6, `minVy=${minVy}`);
+  check('terminal velocity: terminal speed is actually reached', minVy <= -49.9, `minVy=${minVy}`);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
