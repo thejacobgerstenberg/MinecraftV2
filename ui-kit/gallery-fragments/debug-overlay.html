@@ -1,0 +1,28 @@
+<section class="lf-gallery-section" id="gallery-debug-overlay" aria-labelledby="gallery-debug-overlay-h">
+  <h2 class="lf-h2" id="gallery-debug-overlay-h">Debug overlay</h2>
+  <p class="lf-text-sm lf-text-dim">F3-style two-column monospace readout on translucent void-ink strips (aria-hidden — a developer readout, not an interactive surface). All demos use <code>static</code> to render in-flow; live overlays pin to the viewport's top-left at the HUD z-layer. Values are seeded from <code>data-*</code> attributes; at runtime the host calls <code>setData()</code>.</p>
+
+  <figure>
+    <figcaption class="lf-h3">Open — all sections (Performance / Location left, System right)</figcaption>
+    <lf-debug-overlay open static
+      data-fps="72 (13.9 ms)"
+      data-pos="X: 128.512  Y: 71.000  Z: -204.250"
+      data-biome="loomfall:warpwold_meadow"
+      data-facing="east (Towards +X) (87.2 / -4.5)"></lf-debug-overlay>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Sections toggled — <code>sections="perf loc"</code> collapses the System column (host calls <code>toggleSection('sys')</code>)</figcaption>
+    <lf-debug-overlay open static sections="perf loc"
+      data-fps="58 (17.2 ms)"
+      data-dim="loomfall:cinderloom"
+      data-biome="loomfall:ember_terrace"
+      data-light="7 (0 sky, 7 block)"></lf-debug-overlay>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Closed — the default state; F3 (host-wired <code>toggle()</code>) shows it. Renders nothing below:</figcaption>
+    <lf-debug-overlay static
+      data-fps="60"></lf-debug-overlay>
+  </figure>
+</section>

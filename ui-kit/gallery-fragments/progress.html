@@ -1,0 +1,33 @@
+<section class="lf-gallery-section" id="gallery-progress" aria-labelledby="gallery-progress-h">
+  <h2 class="lf-h2" id="gallery-progress-h">Progress</h2>
+
+  <figure>
+    <figcaption class="lf-h3">Determinate — empty (0%)</figcaption>
+    <lf-progress label="Weaving chunks" value="0" max="100" show-value></lf-progress>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Determinate — partial (62%), label + value readout</figcaption>
+    <lf-progress label="Weaving chunks" value="62" max="100" show-value></lf-progress>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Determinate — complete (100%)</figcaption>
+    <lf-progress label="Weaving chunks" value="100" max="100" show-value></lf-progress>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Custom max — 14 of 20 (aria-valuenow="14", aria-valuemax="20")</figcaption>
+    <lf-progress label="Thread spooled" value="14" max="20" show-value></lf-progress>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Bar only — no visible label (aria-label still set)</figcaption>
+    <lf-progress value="35"></lf-progress>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Indeterminate — gliding shuttle; becomes a calm static segment under prefers-reduced-motion (no aria-valuenow)</figcaption>
+    <lf-progress label="Connecting to loom server" indeterminate></lf-progress>
+  </figure>
+</section>

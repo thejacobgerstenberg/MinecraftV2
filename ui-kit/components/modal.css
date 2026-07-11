@@ -1,0 +1,155 @@
+/* =========================================================================
+   Loomfall UI Kit — lf-modal
+   Dialog card over a screen-dim backdrop. Colors from tokens only.
+   [static] = gallery/demo mode: renders in-flow for screenshots.
+   Every :hover rule doubled with [data-demo-hover]; :active with
+   [data-demo-active] (gallery convention).
+   ========================================================================= */
+
+lf-modal {
+  display: none;
+}
+
+lf-modal[open] {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: var(--lf-z-screen);
+}
+
+lf-modal .lf-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--lf-color-screen-dim);
+}
+
+lf-modal .lf-modal__dialog {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  min-width: 320px;
+  max-width: min(480px, calc(100vw - var(--lf-space-6)));
+  max-height: calc(100vh - var(--lf-space-6));
+  overflow-y: auto;
+  background: var(--lf-color-bg-panel);
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-lg);
+  padding: var(--lf-space-4);
+  box-shadow: 0 var(--lf-space-2) var(--lf-space-6) var(--lf-color-screen-dim);
+}
+
+/* ---- [static]: in-flow demo rendering (gallery screenshots) ---------- */
+lf-modal[static][open] {
+  position: relative;
+  inset: auto;
+  z-index: auto;
+}
+
+lf-modal[static] .lf-modal__backdrop {
+  display: none;
+}
+
+lf-modal[static] .lf-modal__dialog {
+  position: static;
+  transform: none;
+  margin: 0 auto;
+}
+
+/* ---- Parts ------------------------------------------------------------ */
+lf-modal .lf-modal__header {
+  margin-bottom: var(--lf-space-3);
+}
+
+lf-modal .lf-modal__title {
+  font-family: var(--lf-font-display);
+  font-size: var(--lf-text-xl);
+  line-height: var(--lf-leading-tight);
+  font-weight: 700;
+  color: var(--lf-color-text-heading);
+}
+
+lf-modal .lf-modal__body {
+  color: var(--lf-color-text-body);
+}
+
+lf-modal .lf-modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--lf-space-2);
+  margin-top: var(--lf-space-4);
+}
+
+/* ---- Footer buttons ----------------------------------------------------
+   Native <button>s owned by lf-modal (no cross-builder dependency).
+   Confirm = primary CTA rule: Everthread gold fill + void-ink label.
+   Danger = secondary face + error label + frayed-X glyph (shape cue). */
+lf-modal .lf-modal__button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--lf-space-1);
+  font-family: var(--lf-font-ui);
+  font-size: var(--lf-text-md);
+  font-weight: 600;
+  min-height: 32px;
+  padding: var(--lf-space-1) var(--lf-space-4);
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-md);
+  cursor: pointer;
+  transition: background-color var(--lf-dur-fast) var(--lf-ease),
+    color var(--lf-dur-fast) var(--lf-ease);
+}
+
+lf-modal .lf-modal__button:active,
+lf-modal .lf-modal__button[data-demo-active] {
+  transform: translateY(1px);
+}
+
+lf-modal .lf-modal__button--confirm {
+  background: var(--lf-color-button-primary-bg);
+  color: var(--lf-color-button-primary-fg);
+}
+
+lf-modal .lf-modal__button--confirm:hover,
+lf-modal .lf-modal__button--confirm[data-demo-hover] {
+  background: var(--lf-color-button-primary-hover-bg);
+  color: var(--lf-color-button-primary-hover-fg);
+}
+
+lf-modal .lf-modal__button--cancel {
+  background: var(--lf-color-button-secondary-bg);
+  color: var(--lf-color-button-secondary-fg);
+}
+
+lf-modal .lf-modal__button--cancel:hover,
+lf-modal .lf-modal__button--cancel[data-demo-hover] {
+  background: var(--lf-color-button-secondary-hover-bg);
+}
+
+lf-modal .lf-modal__button--danger {
+  background: var(--lf-color-button-secondary-bg);
+  color: var(--lf-color-error);
+  border-color: var(--lf-color-error);
+}
+
+lf-modal .lf-modal__button--danger:hover,
+lf-modal .lf-modal__button--danger[data-demo-hover] {
+  /* Darken (never lighten): keeps the error ink >= 4.5:1 in dark theme. */
+  background: var(--lf-brand-secondary-deep);
+}
+
+/* Light theme: --lf-color-error is a deep madder red — unreadable on the
+   dark violet secondary face. Use the WCAG-verified light_error pairing
+   (error fg on panel bg) with an error hem instead. */
+[data-theme="light"] lf-modal .lf-modal__button--danger {
+  background: var(--lf-color-bg-panel);
+}
+
+[data-theme="light"] lf-modal .lf-modal__button--danger:hover,
+[data-theme="light"] lf-modal .lf-modal__button--danger[data-demo-hover] {
+  background: var(--lf-color-bg-raised);
+}
+
+lf-modal .lf-modal__button--danger .lf-glyph {
+  flex: none;
+}

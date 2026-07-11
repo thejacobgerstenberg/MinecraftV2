@@ -1,0 +1,39 @@
+<section class="lf-gallery-section" id="gallery-crosshair" aria-labelledby="gallery-crosshair-h">
+  <h2 class="lf-h2" id="gallery-crosshair-h">Crosshair</h2>
+  <p class="lf-text-sm lf-text-dim">
+    Five pure-SVG variants, muslin stroke with <code>mix-blend-mode: difference</code> so the
+    reticle inverts against any world pixel (shown here on light and dark ramp swatches).
+    Decorative only: <code>aria-hidden</code>, never focusable; the shell hides it while a GUI
+    is open ([hidden]) and centers it in game mode ([fixed]).
+  </p>
+
+  <figure>
+    <figcaption class="lf-h3">Variants on a dark world pixel</figcaption>
+    <div class="lf-row" style="flex-wrap: wrap;">
+      <figure><div style="background: var(--lf-ramp-nevermend-1); padding: var(--lf-space-3);"><lf-crosshair variant="cross"></lf-crosshair></div><figcaption class="lf-text-xs lf-text-dim">cross</figcaption></figure>
+      <figure><div style="background: var(--lf-ramp-nevermend-1); padding: var(--lf-space-3);"><lf-crosshair variant="dot"></lf-crosshair></div><figcaption class="lf-text-xs lf-text-dim">dot</figcaption></figure>
+      <figure><div style="background: var(--lf-ramp-nevermend-1); padding: var(--lf-space-3);"><lf-crosshair variant="circle"></lf-crosshair></div><figcaption class="lf-text-xs lf-text-dim">circle</figcaption></figure>
+      <figure><div style="background: var(--lf-ramp-nevermend-1); padding: var(--lf-space-3);"><lf-crosshair variant="tee"></lf-crosshair></div><figcaption class="lf-text-xs lf-text-dim">tee</figcaption></figure>
+      <figure><div style="background: var(--lf-ramp-nevermend-1); padding: var(--lf-space-3);"><lf-crosshair variant="chevron"></lf-crosshair></div><figcaption class="lf-text-xs lf-text-dim">chevron</figcaption></figure>
+    </div>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Same variants inverting on a bright world pixel</figcaption>
+    <div class="lf-row" style="flex-wrap: wrap;">
+      <figure><div style="background: var(--lf-ramp-warpwold-6); padding: var(--lf-space-3);"><lf-crosshair variant="cross"></lf-crosshair></div><figcaption class="lf-text-xs lf-text-dim">cross</figcaption></figure>
+      <figure><div style="background: var(--lf-ramp-warpwold-6); padding: var(--lf-space-3);"><lf-crosshair variant="dot"></lf-crosshair></div><figcaption class="lf-text-xs lf-text-dim">dot</figcaption></figure>
+      <figure><div style="background: var(--lf-ramp-warpwold-6); padding: var(--lf-space-3);"><lf-crosshair variant="circle"></lf-crosshair></div><figcaption class="lf-text-xs lf-text-dim">circle</figcaption></figure>
+      <figure><div style="background: var(--lf-ramp-warpwold-6); padding: var(--lf-space-3);"><lf-crosshair variant="tee"></lf-crosshair></div><figcaption class="lf-text-xs lf-text-dim">tee</figcaption></figure>
+      <figure><div style="background: var(--lf-ramp-warpwold-6); padding: var(--lf-space-3);"><lf-crosshair variant="chevron"></lf-crosshair></div><figcaption class="lf-text-xs lf-text-dim">chevron</figcaption></figure>
+    </div>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Hidden state (GUI open / F1) &mdash; nothing renders</figcaption>
+    <div style="background: var(--lf-ramp-nevermend-1); padding: var(--lf-space-3);">
+      <lf-crosshair variant="cross" hidden></lf-crosshair>
+      <span class="lf-text-xs" style="color: var(--lf-pair-dark-text-dim-fg)">(crosshair with [hidden] here)</span>
+    </div>
+  </figure>
+</section>

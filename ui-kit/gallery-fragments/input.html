@@ -1,0 +1,33 @@
+<section class="lf-gallery-section" id="gallery-input" aria-labelledby="gallery-input-h">
+  <h2 class="lf-h2" id="gallery-input-h">Input</h2>
+
+  <figure>
+    <figcaption class="lf-h3">Default — labeled field with token placeholder</figcaption>
+    <lf-input label="World Name" placeholder="New World"></lf-input>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">With value</figcaption>
+    <lf-input label="World Name" value="Loomfall Deep"></lf-input>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Hint — dim helper line (aria-describedby)</figcaption>
+    <lf-input label="Seed" placeholder="Leave blank for random" hint="Any text or number; same seed weaves the same world."></lf-input>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Error — error border + frayed-X glyph message (aria-invalid, never hue alone)</figcaption>
+    <lf-input label="World Name" value="" placeholder="New World" error="A world name is required."></lf-input>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Disabled</figcaption>
+    <lf-input label="Server Address" value="weave.loomfall.example" disabled></lf-input>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Focus — click or Tab into the field: light hem border + token ring, blinking caret</figcaption>
+    <lf-input label="Search Worlds" placeholder="Type to filter…" maxlength="64"></lf-input>
+  </figure>
+</section>

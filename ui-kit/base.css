@@ -1,0 +1,235 @@
+/* =========================================================================
+   Loomfall UI Kit — base.css
+   Reset, typography, focus-visible defaults, reduced motion, shared
+   utilities. Requires tokens.css to be loaded first.
+   All colors come from tokens (var(--lf-*)) — never raw hex here.
+   Low-specificity :where() selectors so game/shell CSS can override.
+   ========================================================================= */
+
+/* ---- Reset -------------------------------------------------------------- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+:where(h1, h2, h3, h4, h5, h6, p, figure, blockquote, dl, dd, ul, ol, fieldset, legend) {
+  margin: 0;
+  padding: 0;
+}
+
+:where(ul, ol) {
+  list-style: none;
+}
+
+:where(img, canvas, svg, video) {
+  display: block;
+  max-width: 100%;
+}
+
+:where(button, input, select, textarea) {
+  font: inherit;
+  color: inherit;
+}
+
+:where(button) {
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+:where(button[disabled], [aria-disabled="true"]) {
+  cursor: not-allowed;
+}
+
+/* Custom elements default to block-level building blocks. Inline-ish
+   widgets (buttons, toggles) override this in their own CSS. */
+:where([class^="lf-"], [class*=" lf-"]) {
+  min-width: 0;
+}
+
+/* ---- Document defaults --------------------------------------------------
+   Applied via :where(body) so a game shell embedding the kit can restyle
+   without specificity fights. The kit also works scoped: put the classes
+   on any subtree and tokens cascade from :root. */
+:where(body) {
+  margin: 0;
+  font-family: var(--lf-font-ui);
+  font-size: var(--lf-text-md);
+  line-height: var(--lf-leading);
+  background: var(--lf-color-bg-root);
+  color: var(--lf-color-text-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- Typography scale ---------------------------------------------------- */
+.lf-h1 {
+  font-family: var(--lf-font-display);
+  font-size: var(--lf-text-2xl);
+  line-height: var(--lf-leading-tight);
+  font-weight: 700;
+  color: var(--lf-color-text-heading);
+}
+
+.lf-h2 {
+  font-family: var(--lf-font-display);
+  font-size: var(--lf-text-xl);
+  line-height: var(--lf-leading-tight);
+  font-weight: 700;
+  color: var(--lf-color-text-heading);
+}
+
+.lf-h3 {
+  font-family: var(--lf-font-display);
+  font-size: var(--lf-text-lg);
+  line-height: var(--lf-leading-tight);
+  font-weight: 600;
+  color: var(--lf-color-text-heading);
+}
+
+.lf-text-sm {
+  font-size: var(--lf-text-sm);
+}
+
+.lf-text-xs {
+  font-size: var(--lf-text-xs);
+}
+
+.lf-text-dim {
+  color: var(--lf-color-text-dim);
+}
+
+.lf-text-mono {
+  font-family: var(--lf-font-mono);
+}
+
+/* Links: always underlined (brand rule — never color-only affordance). */
+:where(a, .lf-link) {
+  color: var(--lf-color-link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+:where(a, .lf-link):hover {
+  color: var(--lf-color-link-hover);
+}
+
+/* ---- Focus ---------------------------------------------------------------
+   One consistent, token-driven focus ring for everything. Never removed
+   without replacement; :focus-visible keeps mouse clicks quiet while
+   guaranteeing a visible keyboard indicator (>=3:1 vs root, both themes). */
+:where(:focus) {
+  outline: none;
+}
+
+:where(:focus-visible) {
+  outline: var(--lf-focus-ring);
+  outline-offset: var(--lf-focus-ring-offset);
+  border-radius: var(--lf-radius-sm);
+}
+
+/* Composite widgets can mark an inner part with .lf-focus-target and
+   forward the ring there via :focus-within on the host. */
+.lf-focus-host:focus-within .lf-focus-target {
+  outline: var(--lf-focus-ring);
+  outline-offset: var(--lf-focus-ring-offset);
+}
+
+/* ---- Reduced motion ------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---- Shared utilities ----------------------------------------------------- */
+
+/* Screen-reader-only content (visually hidden, still announced). */
+.lf-visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Crisp pixel-art scaling for sprites/icons (nearest-neighbor). */
+.lf-pixelated {
+  image-rendering: pixelated;
+}
+
+/* Layout helpers on the 8px rhythm. */
+.lf-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lf-space-2);
+}
+
+.lf-row {
+  display: flex;
+  align-items: center;
+  gap: var(--lf-space-2);
+}
+
+.lf-scroll-y {
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+}
+
+/* Panel surface: the woven card every screen/dialog sits on. */
+.lf-panel {
+  background: var(--lf-color-bg-panel);
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-md);
+  padding: var(--lf-space-4);
+}
+
+.lf-panel-raised {
+  background: var(--lf-color-bg-raised);
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-md);
+  padding: var(--lf-space-4);
+}
+
+/* Full-viewport dim behind screens/modals (spec 0.1 screen stack). */
+.lf-screen-dim {
+  position: fixed;
+  inset: 0;
+  background: var(--lf-color-screen-dim);
+  z-index: var(--lf-z-screen);
+}
+
+/* Status text helpers — ALWAYS paired with a glyph by components
+   (warn=fray-knot triangle, error=frayed-X, success=stitch-check,
+   info=droplet). Color is never the only cue. */
+.lf-status-warn    { color: var(--lf-status-warn); }
+.lf-status-error   { color: var(--lf-status-error); }
+.lf-status-success { color: var(--lf-status-success); }
+.lf-status-info    { color: var(--lf-status-info); }
+
+/* Disabled visual convention (components also set aria-disabled/disabled). */
+.lf-is-disabled,
+[disabled],
+[aria-disabled="true"] {
+  color: var(--lf-color-text-disabled);
+}
+
+/* Touch targets (UX_SPEC builder invariant 13): on coarse pointers the
+   interactive minimum stretches to 44px. Components consume this as
+   min-height: var(--lf-hit-min, 32px) (desktop default stays compact). */
+@media (pointer: coarse) {
+  :root {
+    --lf-hit-min: 44px;
+  }
+}

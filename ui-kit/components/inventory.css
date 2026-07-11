@@ -1,0 +1,286 @@
+/* =========================================================================
+   Loomfall UI Kit — lf-item-slot + lf-inventory-grid
+   Requires tokens.css + base.css. Colors via var(--lf-*) tokens ONLY
+   (translucency via color-mix over tokens).
+   Slot states: default / :hover / :focus-visible / [selected] / [held] /
+   [disabled] / [empty]. Gallery demo attrs: [data-demo-hover],
+   [data-demo-active].
+   Sizes derive from the spacing scale: cell 48px (--lf-space-7, >=44px
+   touch target), icon 32px (--lf-space-6).
+   ========================================================================= */
+
+/* ---- Item slot ---------------------------------------------------------- */
+lf-item-slot {
+  display: inline-block;
+  position: relative;
+  /* Selection/held frame color: a LUMINANCE edge vs the surrounding face
+     (R6.1). Bright knotlight on dark faces; deep duskwarp on the light
+     theme's pale panels (mirrors world-select.css). */
+  --lf-sel-frame: var(--lf-accent-knotlight);
+}
+
+[data-theme="light"] lf-item-slot {
+  --lf-sel-frame: var(--lf-brand-secondary-deep);
+}
+
+/* The hotbar strip stays dark (HUD over world) in BOTH themes, so its
+   slots re-pin the bright frame. (The themed selector is listed too so
+   this rule outranks the [data-theme="light"] override above.) */
+lf-hotbar lf-item-slot,
+[data-theme="light"] lf-hotbar lf-item-slot {
+  --lf-sel-frame: var(--lf-accent-knotlight);
+}
+
+lf-item-slot .lf-item-slot__cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--lf-space-7);
+  height: var(--lf-space-7);
+  padding: 0;
+  background: var(--lf-color-bg-input);
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-sm);
+  /* recessed pocket: dark upper-left seam, light lower-right hem */
+  box-shadow:
+    inset 1px 1px 0 color-mix(in oklab, var(--lf-color-bg-input), var(--lf-brand-void) 60%),
+    inset -1px -1px 0 color-mix(in oklab, var(--lf-color-bg-input), var(--lf-brand-muslin) 14%);
+  transition: background-color var(--lf-dur-fast) var(--lf-ease);
+}
+
+/* Procedural voxel icon: swatch face + bevel = readable "block" at a glance.
+   Game art replaces this via --lf-slot-swatch or a slotted image. */
+lf-item-slot .lf-item-slot__icon {
+  width: var(--lf-space-6);
+  height: var(--lf-space-6);
+  background: var(--lf-slot-swatch, var(--lf-color-bg-raised));
+  border: 1px solid color-mix(in oklab, var(--lf-slot-swatch, var(--lf-color-bg-raised)), var(--lf-brand-void) 55%);
+  border-radius: var(--lf-radius-sm);
+  box-shadow:
+    inset 2px 2px 0 color-mix(in oklab, var(--lf-slot-swatch, var(--lf-color-bg-raised)), var(--lf-brand-muslin) 35%),
+    inset -2px -2px 0 color-mix(in oklab, var(--lf-slot-swatch, var(--lf-color-bg-raised)), var(--lf-brand-void) 35%);
+}
+
+lf-item-slot[empty] .lf-item-slot__icon {
+  visibility: hidden;
+}
+
+/* Stack count: HUD-style light text with a void shadow (luminance edge). */
+lf-item-slot .lf-item-slot__count {
+  position: absolute;
+  right: 3px;
+  bottom: 2px;
+  font-family: var(--lf-font-mono);
+  font-size: var(--lf-text-xs);
+  font-weight: 700;
+  line-height: 1;
+  color: var(--lf-color-text-heading);
+  text-shadow:
+    1px 1px 0 var(--lf-color-hud-shadow),
+    -1px 1px 0 var(--lf-color-hud-shadow),
+    1px -1px 0 var(--lf-color-hud-shadow),
+    -1px -1px 0 var(--lf-color-hud-shadow);
+  pointer-events: none;
+}
+
+/* Rarity edge: color ALWAYS paired with a pattern cue (solid / dashed /
+   double-stitch) so rarity never relies on hue alone. Common = no edge. */
+lf-item-slot .lf-item-slot__rarity {
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  bottom: 0;
+  height: 3px;
+  border-radius: var(--lf-radius-sm);
+  display: none;
+  pointer-events: none;
+}
+
+lf-item-slot[rarity="uncommon"] .lf-item-slot__rarity {
+  display: block; /* solid line */
+  background: var(--lf-accent-warp-green);
+}
+
+lf-item-slot[rarity="rare"] .lf-item-slot__rarity {
+  display: block; /* dashed stitches */
+  background: repeating-linear-gradient(
+    90deg,
+    var(--lf-accent-hemstone-cyan) 0 5px,
+    transparent 5px 9px
+  );
+}
+
+lf-item-slot[rarity="epic"] .lf-item-slot__rarity {
+  display: block; /* double-stitch: two gold threads */
+  height: 4px;
+  background: linear-gradient(
+    to bottom,
+    var(--lf-brand-primary-glow) 0 1px,
+    transparent 1px 3px,
+    var(--lf-brand-primary-glow) 3px 4px
+  );
+}
+
+/* Durability: width-coded bar (length cue) + thirds coloring. */
+lf-item-slot .lf-item-slot__durability {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 6px;
+  height: 3px;
+  background: color-mix(in srgb, var(--lf-brand-void) 80%, transparent);
+  border-radius: var(--lf-radius-sm);
+  pointer-events: none;
+}
+
+lf-item-slot .lf-item-slot__durability-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--lf-status-success);
+}
+
+lf-item-slot .lf-item-slot__durability-fill[data-level="mid"] {
+  background: var(--lf-status-warn);
+}
+
+lf-item-slot .lf-item-slot__durability-fill[data-level="low"] {
+  background: var(--lf-status-error);
+}
+
+/* ---- Hover: fill delta >=10% of the cell (rubric R7.2). Disabled and
+   empty-in-hotbar cells still show pocket but no gold wash when disabled. */
+lf-item-slot:not([disabled]):hover .lf-item-slot__cell,
+lf-item-slot[data-demo-hover]:not([disabled]) .lf-item-slot__cell {
+  background: color-mix(in srgb, var(--lf-brand-primary) 24%, var(--lf-color-bg-input));
+  box-shadow:
+    inset 1px 1px 0 color-mix(in srgb, var(--lf-brand-primary-glow) 45%, transparent),
+    inset -1px -1px 0 color-mix(in srgb, var(--lf-brand-primary-glow) 25%, transparent);
+}
+
+/* ---- Active / pressed ---------------------------------------------------- */
+lf-item-slot:not([disabled]) .lf-item-slot__cell:active,
+lf-item-slot[data-demo-active]:not([disabled]) .lf-item-slot__cell {
+  transform: translateY(1px);
+}
+
+/* ---- Selection: stitched knotlight frame + notch marker. A LUMINANCE +
+   shape cue (light gold on dark surround, dL >= 0.15 in all colorblind
+   projections) — never a hue-only recolor. ------------------------------- */
+lf-item-slot[selected] .lf-item-slot__cell {
+  outline: 2px dashed var(--lf-sel-frame);
+  outline-offset: 1px;
+}
+
+lf-item-slot[selected]::after {
+  /* notch: small triangle centered above the slot */
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -7px;
+  transform: translateX(-50%);
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 5px solid var(--lf-sel-frame);
+  pointer-events: none;
+}
+
+/* ---- Held (picked up): dotted frame + ghosted icon ---------------------- */
+lf-item-slot[held] .lf-item-slot__cell {
+  outline: 2px dotted var(--lf-sel-frame);
+  outline-offset: 1px;
+}
+
+lf-item-slot[held] .lf-item-slot__icon {
+  opacity: 0.35;
+}
+
+/* ---- Disabled ------------------------------------------------------------ */
+lf-item-slot[disabled] .lf-item-slot__cell {
+  background: var(--lf-color-button-disabled-bg);
+  box-shadow: none;
+}
+
+lf-item-slot[disabled] .lf-item-slot__icon {
+  opacity: 0.4;
+}
+
+lf-item-slot[disabled] .lf-item-slot__count {
+  color: var(--lf-color-text-disabled);
+  text-shadow: none;
+}
+
+/* ---- Inventory grid ------------------------------------------------------ */
+lf-inventory-grid {
+  position: relative;
+  display: inline-block;
+  padding: var(--lf-space-2);
+  background: var(--lf-color-bg-panel);
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-md);
+}
+
+lf-inventory-grid .lf-inventory-grid__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lf-space-1);
+}
+
+lf-inventory-grid .lf-inventory-grid__row {
+  display: flex;
+  gap: var(--lf-space-1);
+}
+
+/* Tooltip: dark loom-room card in BOTH themes (dark_tooltip pair). */
+lf-inventory-grid .lf-inventory-grid__tip {
+  position: absolute;
+  z-index: var(--lf-z-tooltip);
+  transform: translate(-50%, calc(-100% - var(--lf-space-1)));
+  display: flex;
+  align-items: baseline;
+  gap: var(--lf-space-2);
+  padding: var(--lf-space-1) var(--lf-space-2);
+  background: var(--lf-color-bg-tooltip);
+  color: var(--lf-color-tooltip-text);
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-sm);
+  font-size: var(--lf-text-sm);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+lf-inventory-grid .lf-inventory-grid__tip-name {
+  font-weight: 600;
+}
+
+/* Rarity word in the tooltip = the text cue; color is decoration on top. */
+lf-inventory-grid .lf-inventory-grid__tip-rarity {
+  font-size: var(--lf-text-xs);
+  font-style: italic;
+  text-transform: capitalize;
+}
+
+lf-inventory-grid .lf-inventory-grid__tip-rarity[data-rarity="uncommon"] {
+  color: var(--lf-status-success);
+}
+
+lf-inventory-grid .lf-inventory-grid__tip-rarity[data-rarity="rare"] {
+  color: var(--lf-accent-hemstone-cyan);
+}
+
+lf-inventory-grid .lf-inventory-grid__tip-rarity[data-rarity="epic"] {
+  color: var(--lf-brand-primary-glow);
+}
+
+/* Drag ghost: follows the pointer (transform set inline by JS). */
+.lf-inventory-grid__ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: var(--lf-z-tooltip);
+  margin-left: calc(-1 * var(--lf-space-4));
+  margin-top: calc(-1 * var(--lf-space-4));
+  opacity: 0.85;
+  pointer-events: none;
+}

@@ -1,0 +1,80 @@
+/* =========================================================================
+   Loomfall UI Kit — lf-progress
+   Recessed track + Everthread-gold fill. Indeterminate = a gold shuttle
+   gliding along the loom; collapses to a calm static bar under
+   prefers-reduced-motion. Colors from tokens only.
+   ========================================================================= */
+
+lf-progress {
+  display: block;
+}
+
+lf-progress .lf-progress__labelrow {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--lf-space-2);
+  margin-bottom: var(--lf-space-1);
+  font-size: var(--lf-text-sm);
+}
+
+lf-progress .lf-progress__labelrow[hidden] {
+  display: none;
+}
+
+lf-progress .lf-progress__label {
+  color: var(--lf-color-text-body);
+}
+
+lf-progress .lf-progress__value {
+  color: var(--lf-color-text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+lf-progress .lf-progress__value[hidden] {
+  display: none;
+}
+
+lf-progress .lf-progress__track {
+  position: relative;
+  height: var(--lf-space-2);
+  background: var(--lf-color-bg-input);
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-pill);
+  overflow: hidden;
+}
+
+lf-progress .lf-progress__fill {
+  height: 100%;
+  width: 0;
+  background: var(--lf-brand-primary);
+  border-radius: var(--lf-radius-pill);
+  transition: width var(--lf-dur-med) var(--lf-ease);
+}
+
+/* ---- Indeterminate: gliding shuttle ------------------------------------ */
+lf-progress[indeterminate] .lf-progress__fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 40%;
+  animation: lf-progress-shuttle 1.4s var(--lf-ease) infinite;
+}
+
+@keyframes lf-progress-shuttle {
+  0%   { transform: translateX(-110%); }
+  60%  { transform: translateX(260%); }
+  100% { transform: translateX(260%); }
+}
+
+/* Reduced motion: no shuttle — a calm static centered segment.
+   (base.css also zeroes animation durations globally; this rule makes the
+   resting frame intentional rather than a mid-flight snapshot.) */
+@media (prefers-reduced-motion: reduce) {
+  lf-progress[indeterminate] .lf-progress__fill {
+    animation: none;
+    transform: none;
+    left: 30%;
+    width: 40%;
+  }
+}

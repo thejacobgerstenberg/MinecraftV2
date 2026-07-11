@@ -1,0 +1,62 @@
+<section class="lf-gallery-section" id="gallery-inventory" aria-labelledby="gallery-inventory-h">
+  <h2 class="lf-h2" id="gallery-inventory-h">Item slot &amp; Inventory grid</h2>
+  <p class="lf-text-sm lf-text-dim">
+    Drag a stack between cells (ghost icon follows the pointer), or use keyboard:
+    arrows move, Enter picks up / places, Esc cancels. Hovering or focusing a filled
+    cell shows the tooltip card (dark loom-room card in both themes).
+  </p>
+
+  <figure>
+    <figcaption class="lf-h3">Item slot states</figcaption>
+    <div class="lf-row" style="flex-wrap: wrap;">
+      <figure><lf-item-slot item="Warpstone" count="12"></lf-item-slot><figcaption class="lf-text-xs lf-text-dim">default</figcaption></figure>
+      <figure><lf-item-slot item="Warpstone" count="12" data-demo-hover></lf-item-slot><figcaption class="lf-text-xs lf-text-dim">hover</figcaption></figure>
+      <figure><lf-item-slot item="Warpstone" count="12" data-demo-active></lf-item-slot><figcaption class="lf-text-xs lf-text-dim">active</figcaption></figure>
+      <figure><lf-item-slot item="Warpstone" count="12" selected></lf-item-slot><figcaption class="lf-text-xs lf-text-dim">selected</figcaption></figure>
+      <figure><lf-item-slot item="Warpstone" count="12" held></lf-item-slot><figcaption class="lf-text-xs lf-text-dim">held</figcaption></figure>
+      <figure><lf-item-slot item="Warpstone" count="12" disabled></lf-item-slot><figcaption class="lf-text-xs lf-text-dim">disabled</figcaption></figure>
+      <figure><lf-item-slot></lf-item-slot><figcaption class="lf-text-xs lf-text-dim">empty</figcaption></figure>
+    </div>
+    <p class="lf-text-xs lf-text-dim">Tab to a slot to see the focus ring (keyboard only).</p>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Rarity edges (color + pattern: solid / dashed / double-stitch)</figcaption>
+    <div class="lf-row">
+      <figure><lf-item-slot item="Plain Thread" swatch="warpwold-4"></lf-item-slot><figcaption class="lf-text-xs lf-text-dim">common</figcaption></figure>
+      <figure><lf-item-slot item="Green Weave" rarity="uncommon" swatch="warpwold-3"></lf-item-slot><figcaption class="lf-text-xs lf-text-dim">uncommon</figcaption></figure>
+      <figure><lf-item-slot item="Hemstone Loop" rarity="rare" swatch="nevermend-5"></lf-item-slot><figcaption class="lf-text-xs lf-text-dim">rare</figcaption></figure>
+      <figure><lf-item-slot item="Knotlight Crown" rarity="epic" swatch="cinderloom-6"></lf-item-slot><figcaption class="lf-text-xs lf-text-dim">epic</figcaption></figure>
+    </div>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Durability bar (width cue + thirds coloring)</figcaption>
+    <div class="lf-row">
+      <figure><lf-item-slot item="Pick" durability="0.9" swatch="nevermend-4"></lf-item-slot><figcaption class="lf-text-xs lf-text-dim">high</figcaption></figure>
+      <figure><lf-item-slot item="Pick" durability="0.45" swatch="nevermend-4"></lf-item-slot><figcaption class="lf-text-xs lf-text-dim">mid</figcaption></figure>
+      <figure><lf-item-slot item="Pick" durability="0.1" swatch="nevermend-4"></lf-item-slot><figcaption class="lf-text-xs lf-text-dim">low</figcaption></figure>
+    </div>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Inventory grid (9 columns, drag/drop + keyboard pickup)</figcaption>
+    <lf-inventory-grid columns="9" label="Demo inventory">
+      <lf-item-slot item="Warpstone" count="12"></lf-item-slot>
+      <lf-item-slot item="Loomwood Plank" count="64" swatch="warpwold-5"></lf-item-slot>
+      <lf-item-slot item="Everthread Pick" rarity="rare" durability="0.7" swatch="nevermend-5"></lf-item-slot>
+      <lf-item-slot></lf-item-slot>
+      <lf-item-slot item="Cinder Lantern" rarity="uncommon" swatch="cinderloom-5"></lf-item-slot>
+      <lf-item-slot></lf-item-slot>
+      <lf-item-slot item="Madder Dye" count="7" swatch="cinderloom-4"></lf-item-slot>
+      <lf-item-slot></lf-item-slot>
+      <lf-item-slot item="Knotlight Charm" rarity="epic" swatch="cinderloom-6"></lf-item-slot>
+      <lf-item-slot item="Hemstone" count="3" swatch="nevermend-6"></lf-item-slot>
+      <lf-item-slot item="Weld Blossom" swatch="warpwold-6"></lf-item-slot>
+      <lf-item-slot data-demo-hover item="Dyed Cloth" count="16" swatch="nevermend-3"></lf-item-slot>
+      <lf-item-slot></lf-item-slot>
+      <lf-item-slot item="Sealed Relic" rarity="epic" swatch="nevermend-3" disabled></lf-item-slot>
+    </lf-inventory-grid>
+    <p class="lf-text-xs lf-text-dim">Row 2 shows a demo-hover fill and a disabled (locked) cell.</p>
+  </figure>
+</section>

@@ -1,0 +1,171 @@
+/* =========================================================================
+   Loomfall UI Kit — lf-world-select / lf-world-card
+   Listbox of world cards: ramp thumbnail, name + dim sub-line, hover
+   action row. Selection = luminance-edge frame (knotlight outline on the
+   dark raised card), never a hue-only recolor. Colors from tokens only.
+   ========================================================================= */
+
+lf-world-select {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lf-space-3);
+  max-width: 480px;
+}
+
+lf-world-select .lf-world-select__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lf-space-2);
+}
+
+lf-world-select .lf-world-select__footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ---- Card ---------------------------------------------------------- */
+lf-world-card {
+  display: flex;
+  align-items: center;
+  gap: var(--lf-space-3);
+  padding: var(--lf-space-2);
+  background: var(--lf-color-bg-raised);
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-md);
+  cursor: pointer;
+  user-select: none;
+}
+
+/* Hover: blend the raised face toward the hem color — a visible (>=5%)
+   brightness shift in BOTH themes without breaking themed text contrast. */
+lf-world-card:hover,
+lf-world-card[data-demo-hover] {
+  background: color-mix(in srgb, var(--lf-color-bg-raised) 72%, var(--lf-color-border-hem));
+}
+
+/* Selection frame: 2px LUMINANCE-edge outline that survives
+   deuteranopia/protanopia/tritanopia (R6.1): knotlight (bright) on the
+   dark theme, deep duskwarp (dark) on the light theme — always a
+   luminance step vs the card face, never a hue-only recolor. */
+lf-world-card[selected] {
+  outline: 2px solid var(--lf-accent-knotlight);
+  outline-offset: 1px;
+}
+
+[data-theme="light"] lf-world-card[selected] {
+  outline-color: var(--lf-brand-secondary-deep);
+}
+
+/* Keyboard focus keeps the token focus ring (distinct from selection). */
+lf-world-card:focus-visible {
+  outline: var(--lf-focus-ring);
+  outline-offset: var(--lf-focus-ring-offset);
+}
+
+lf-world-card .lf-world-card__thumb {
+  flex: 0 0 auto;
+  width: 56px;
+  height: 56px;
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-sm);
+  /* Dimension-ramp placeholder: sky -> terrain -> depths. */
+  background: linear-gradient(
+    180deg,
+    var(--lf-ramp-warpwold-6) 0%,
+    var(--lf-ramp-warpwold-4) 45%,
+    var(--lf-ramp-warpwold-2) 75%,
+    var(--lf-ramp-warpwold-0) 100%
+  );
+}
+
+lf-world-card[ramp="cinderloom"] .lf-world-card__thumb {
+  background: linear-gradient(
+    180deg,
+    var(--lf-ramp-cinderloom-6) 0%,
+    var(--lf-ramp-cinderloom-4) 45%,
+    var(--lf-ramp-cinderloom-2) 75%,
+    var(--lf-ramp-cinderloom-0) 100%
+  );
+}
+
+lf-world-card[ramp="nevermend"] .lf-world-card__thumb {
+  background: linear-gradient(
+    180deg,
+    var(--lf-ramp-nevermend-6) 0%,
+    var(--lf-ramp-nevermend-4) 45%,
+    var(--lf-ramp-nevermend-2) 75%,
+    var(--lf-ramp-nevermend-0) 100%
+  );
+}
+
+lf-world-card .lf-world-card__meta {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--lf-space-1);
+}
+
+lf-world-card .lf-world-card__name {
+  font-family: var(--lf-font-display);
+  font-weight: 600;
+  color: var(--lf-color-text-heading);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+lf-world-card .lf-world-card__sub {
+  color: var(--lf-color-text-dim);
+}
+
+/* ---- Mouse action row (hidden until hover; keyboard uses Enter/Del) -- */
+lf-world-card .lf-world-card__actions {
+  display: flex;
+  gap: var(--lf-space-1);
+  visibility: hidden;
+}
+
+lf-world-card:hover .lf-world-card__actions,
+lf-world-card[data-demo-hover] .lf-world-card__actions,
+lf-world-card[selected] .lf-world-card__actions {
+  visibility: visible;
+}
+
+lf-world-card .lf-world-card__action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--lf-space-1);
+  padding: var(--lf-space-1) var(--lf-space-2);
+  min-height: 32px;
+  font-size: var(--lf-text-sm);
+  background: var(--lf-color-button-secondary-bg);
+  color: var(--lf-color-button-secondary-fg);
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-sm);
+}
+
+lf-world-card .lf-world-card__action:hover {
+  background: var(--lf-color-button-secondary-hover-bg);
+}
+
+lf-world-card .lf-world-card__action:active {
+  transform: translateY(1px);
+}
+
+/* Delete: error label + frayed-X glyph (shape cue paired with color).
+   The action face is the secondary button surface, which stays DARK in
+   both themes — so use the dark error pair fg, not the themed error
+   token (which darkens in the light theme and would vanish here). */
+lf-world-card .lf-world-card__action--delete {
+  /* Pin the DARK secondary face in both themes (the themed secondary bg is
+     lighter in light theme: #FF8578 on #463668 = 4.47:1 < 4.5). */
+  background: var(--lf-pair-dark-button-secondary-bg);
+  color: var(--lf-pair-dark-error-fg);
+}
+
+lf-world-card .lf-world-card__action--delete:hover,
+lf-world-card .lf-world-card__action--delete[data-demo-hover] {
+  /* Darken (never lighten) so the error ink stays >= 4.5:1. */
+  background: var(--lf-brand-secondary-deep);
+}

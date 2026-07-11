@@ -1,0 +1,115 @@
+/* =========================================================================
+   Loomfall UI Kit — lf-chat
+   Requires tokens.css + base.css. Colors via var(--lf-*) tokens ONLY.
+   HUD text over world: light face + void shadow on a translucent strip
+   (dark_hud pair semantics). System lines = knot glyph + italic + info
+   color (three cues, never hue alone).
+   States: [open] shows the input row; [no-timestamps] hides HH:MM.
+   ========================================================================= */
+
+lf-chat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lf-space-1);
+  width: min(480px, 100%);
+  font-size: var(--lf-text-sm);
+}
+
+/* ---- Log ------------------------------------------------------------------ */
+lf-chat .lf-chat__log {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: calc(var(--lf-space-8) * 3);  /* ~192px scrollback window */
+  padding: var(--lf-space-1);
+}
+
+lf-chat .lf-chat__line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--lf-space-2);
+  padding: 2px var(--lf-space-2);
+  border-radius: var(--lf-radius-sm);
+  /* translucent void strip per line so text reads over any world pixel */
+  background: color-mix(in srgb, var(--lf-brand-void) 62%, transparent);
+  color: var(--lf-pair-dark-hud-fg);
+  text-shadow: 1px 1px 0 var(--lf-brand-void);
+  overflow-wrap: anywhere;
+}
+
+lf-chat .lf-chat__time {
+  flex: none;
+  font-family: var(--lf-font-mono);
+  font-size: var(--lf-text-xs);
+  color: var(--lf-pair-dark-text-dim-fg);
+}
+
+lf-chat[no-timestamps] .lf-chat__time {
+  display: none;
+}
+
+lf-chat .lf-chat__name {
+  flex: none;
+  font-weight: 700;
+  color: var(--lf-brand-primary-glow);
+}
+
+/* System lines: glyph (shape) + italic (style) + info color (hue). */
+lf-chat .lf-chat__glyph {
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+  color: var(--lf-pair-dark-info-fg);
+}
+
+lf-chat .lf-chat__line[data-system] .lf-chat__text {
+  font-style: italic;
+  color: var(--lf-pair-dark-info-fg);
+}
+
+/* ---- Input row (visible while [open]) ------------------------------------- */
+lf-chat .lf-chat__row {
+  display: none;
+  align-items: center;
+  gap: var(--lf-space-2);
+  padding: var(--lf-space-1) var(--lf-space-2);
+  background: color-mix(in srgb, var(--lf-brand-void) 78%, transparent);
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-sm);
+}
+
+lf-chat[open] .lf-chat__row {
+  display: flex;
+}
+
+lf-chat .lf-chat__prompt {
+  color: var(--lf-brand-primary);
+  font-family: var(--lf-font-mono);
+  font-weight: 700;
+}
+
+lf-chat .lf-chat__input {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--lf-hit-min, 24px); /* stretches to 44px on coarse pointers */
+  background: transparent;
+  border: 0;
+  padding: 2px 0;
+  font: inherit;
+  color: var(--lf-pair-dark-input-fg);
+  caret-color: var(--lf-brand-primary);
+}
+
+lf-chat .lf-chat__input::placeholder {
+  color: var(--lf-pair-dark-placeholder-fg);
+}
+
+/* Input focus ring on the row (input itself is borderless). */
+lf-chat .lf-chat__row:focus-within {
+  outline: var(--lf-focus-ring);
+  outline-offset: var(--lf-focus-ring-offset);
+}
+
+lf-chat .lf-chat__input:focus {
+  outline: none;
+}

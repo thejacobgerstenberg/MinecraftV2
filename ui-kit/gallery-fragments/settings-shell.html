@@ -1,0 +1,58 @@
+<section class="lf-gallery-section" id="gallery-settings-shell" aria-labelledby="gallery-settings-shell-h">
+  <h2 class="lf-h2" id="gallery-settings-shell-h">Settings shell</h2>
+  <p class="lf-text-sm lf-text-dim">Left category rail (vertical tablist: arrows rove, Enter/Space activates; selected tab = 2px gold edge marker + heading color — never color alone) + content pane that authored panels dock into. Composes builder A's <code>lf-slider</code> / <code>lf-toggle</code> / <code>lf-dropdown</code>. Done (primary CTA) and Escape emit <code>lf-back</code> — pops exactly one level back to whichever screen pushed Settings.</p>
+
+  <figure>
+    <figcaption class="lf-h3">Graphics panel active — example panel wired with slider / toggle / dropdown</figcaption>
+    <lf-settings-shell heading="Settings" active="graphics">
+      <section data-category="Graphics">
+        <lf-slider label="Render Distance" min="2" max="12" step="1" value="6"></lf-slider>
+        <lf-slider label="FOV" min="60" max="110" step="1" value="75" unit="°"></lf-slider>
+        <lf-slider label="Brightness" min="0" max="100" step="5" value="50" unit="%"></lf-slider>
+        <lf-dropdown label="Graphics Quality" value="fancy">
+          <option value="fast">Fast</option>
+          <option value="fancy">Fancy</option>
+          <option value="fabulous">Fabulous</option>
+        </lf-dropdown>
+        <lf-toggle label="Menu Blur" checked></lf-toggle>
+        <lf-toggle label="V-Sync" checked></lf-toggle>
+        <lf-toggle label="Fullscreen"></lf-toggle>
+      </section>
+      <section data-category="Audio">
+        <lf-slider label="Master Volume" min="0" max="100" step="1" value="80" unit="%"></lf-slider>
+        <lf-slider label="Music" min="0" max="100" step="1" value="60" unit="%"></lf-slider>
+        <lf-slider label="Weather" min="0" max="100" step="1" value="100" unit="%"></lf-slider>
+        <lf-toggle label="Subtitles" checked></lf-toggle>
+      </section>
+      <section data-category="Controls">
+        <lf-slider label="Sensitivity" min="10" max="200" step="10" value="100" unit="%"></lf-slider>
+        <lf-toggle label="Invert Mouse"></lf-toggle>
+        <lf-toggle label="Raw Input" checked></lf-toggle>
+      </section>
+    </lf-settings-shell>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Accessibility panel active — required entries (colorblind mode via dropdown; toggles for the rest)</figcaption>
+    <lf-settings-shell heading="Settings" active="accessibility">
+      <section data-category="Graphics">
+        <lf-slider label="Render Distance" min="2" max="12" step="1" value="6"></lf-slider>
+        <lf-toggle label="Menu Blur" checked></lf-toggle>
+      </section>
+      <section data-category="Accessibility">
+        <lf-toggle label="High Contrast"></lf-toggle>
+        <lf-dropdown label="Colorblind Mode" value="none">
+          <option value="none">None</option>
+          <option value="protanopia">Protanopia</option>
+          <option value="deuteranopia">Deuteranopia</option>
+          <option value="tritanopia">Tritanopia</option>
+        </lf-dropdown>
+        <lf-toggle label="Damage Tilt" checked></lf-toggle>
+        <lf-toggle label="Distortion Effects" checked></lf-toggle>
+        <lf-toggle label="Menu Blur" checked></lf-toggle>
+        <lf-toggle label="Toggle Sneak"></lf-toggle>
+        <lf-toggle label="Toggle Sprint"></lf-toggle>
+      </section>
+    </lf-settings-shell>
+  </figure>
+</section>

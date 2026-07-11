@@ -1,0 +1,49 @@
+<section class="lf-gallery-section" id="gallery-dropdown" aria-labelledby="gallery-dropdown-h">
+  <h2 class="lf-h2" id="gallery-dropdown-h">Dropdown</h2>
+
+  <figure>
+    <figcaption class="lf-h3">Closed (default) — trigger shows "Label: Value" + chevron</figcaption>
+    <lf-dropdown label="Colorblind Mode" value="none">
+      <option value="none">None</option>
+      <option value="protanopia">Protanopia</option>
+      <option value="deuteranopia">Deuteranopia</option>
+      <option value="tritanopia">Tritanopia</option>
+    </lf-dropdown>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Hover (trigger)</figcaption>
+    <lf-dropdown label="Difficulty" value="normal" data-demo-hover>
+      <option value="peaceful">Peaceful</option>
+      <option value="normal">Normal</option>
+      <option value="hard">Hard</option>
+    </lf-dropdown>
+  </figure>
+
+  <figure style="min-height: 240px;">
+    <figcaption class="lf-h3">Open — selected option carries the stitch-check glyph; hovered row inverts; disabled option dimmed and skipped by arrows</figcaption>
+    <lf-dropdown label="Colorblind Mode" value="protanopia" open>
+      <option value="none">None</option>
+      <option value="protanopia">Protanopia</option>
+      <option value="deuteranopia" data-demo-hover>Deuteranopia</option>
+      <option value="tritanopia" disabled>Tritanopia (unavailable)</option>
+    </lf-dropdown>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Disabled dropdown — no hover, not focusable</figcaption>
+    <lf-dropdown label="Texture Pack" value="default" disabled>
+      <option value="default">Default</option>
+      <option value="cartoon">Cartoon</option>
+    </lf-dropdown>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Focus / keyboard — Tab to the trigger; Enter/Space/ArrowDown opens on the selected row; arrows rove; Enter selects; Esc closes back to the trigger</figcaption>
+    <lf-dropdown label="Graphics" value="fancy">
+      <option value="fast">Fast</option>
+      <option value="fancy">Fancy</option>
+      <option value="fabulous">Fabulous</option>
+    </lf-dropdown>
+  </figure>
+</section>

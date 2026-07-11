@@ -1,0 +1,35 @@
+<section class="lf-gallery-section" id="gallery-chat" aria-labelledby="gallery-chat-h">
+  <h2 class="lf-h2" id="gallery-chat-h">Chat</h2>
+  <p class="lf-text-sm lf-text-dim">
+    Scrollback log (role="log", polite live region) + input row while [open]. System lines carry
+    three cues: knot glyph, italics, info color. Enter sends (lf-send), Esc while typing blurs the
+    input first; Esc again closes (lf-close). 256-char limit, 50-line scrollback.
+  </p>
+
+  <figure>
+    <figcaption class="lf-h3">Open &mdash; player + system messages, timestamps, input row</figcaption>
+    <lf-chat open>
+      <p data-name="Sona" data-time="12:03">Found a loom shrine past the ridge!</p>
+      <p data-system data-time="12:04">Ren joined the world</p>
+      <p data-name="Ren" data-time="12:04">omw, save me a warp seat</p>
+      <p data-name="Sona" data-time="12:05">bring hemstone if you have any</p>
+      <p data-system data-time="12:06">Weather set to duskfall</p>
+    </lf-chat>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Closed &mdash; read-only log, no input row</figcaption>
+    <lf-chat>
+      <p data-name="Sona" data-time="12:07">closing chat now</p>
+      <p data-system data-time="12:08">Ren left the world</p>
+    </lf-chat>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">No timestamps ([no-timestamps])</figcaption>
+    <lf-chat open no-timestamps>
+      <p data-name="Weaver">compact mode without the clock column</p>
+      <p data-system>Autosave complete</p>
+    </lf-chat>
+  </figure>
+</section>

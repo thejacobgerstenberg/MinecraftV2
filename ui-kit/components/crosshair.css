@@ -1,0 +1,37 @@
+/* =========================================================================
+   Loomfall UI Kit — lf-crosshair
+   Requires tokens.css + base.css. Colors via var(--lf-*) tokens ONLY.
+   Muslin stroke + mix-blend-mode: difference => visible over light AND
+   dark world pixels (spec 5.9 inverting blend). Never interactive.
+   ========================================================================= */
+
+lf-crosshair {
+  display: inline-block;
+  width: var(--lf-space-5);
+  height: var(--lf-space-5);
+  color: var(--lf-brand-muslin);
+  mix-blend-mode: difference;
+  pointer-events: none;
+  user-select: none;
+}
+
+lf-crosshair .lf-crosshair__glyph,
+lf-crosshair svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Game mode: exact viewport center at the HUD layer. */
+lf-crosshair[fixed] {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: var(--lf-z-hud);
+}
+
+/* Native [hidden] wins over display:inline-block. */
+lf-crosshair[hidden] {
+  display: none;
+}

@@ -1,0 +1,43 @@
+<section class="lf-gallery-section" id="gallery-toast" aria-labelledby="gallery-toast-h">
+  <h2 class="lf-h2" id="gallery-toast-h">Toast</h2>
+  <p class="lf-text-sm lf-text-dim">Every status pairs its color with a required glyph — info=droplet, success=stitch-check, warn=fray-knot triangle, error=frayed-X — plus a colored left hem (position cue). Live toasts spawn via <code>&lt;lf-toast-rack&gt;.show()</code>: fixed top-right, max 3 visible, ~5s auto-dismiss paused on hover/focus. Demos are sticky (no <code>duration</code>).</p>
+
+  <figure>
+    <figcaption class="lf-h3">Info</figcaption>
+    <lf-toast status="info" heading="Tip" message="Press F3 to toggle the debug overlay."></lf-toast>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Success</figcaption>
+    <lf-toast status="success" heading="World saved" message="Warp Meadow written to disk."></lf-toast>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Warning</figcaption>
+    <lf-toast status="warn" heading="Storage low" message="Only 120 MB left for world saves."></lf-toast>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Error (role="alert")</figcaption>
+    <lf-toast status="error" heading="Connection lost" message="Could not reach the loom server."></lf-toast>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Dismiss hover — the ✕ button shows its hover face; Tab to it for the focus ring</figcaption>
+    <lf-toast status="info" heading="Hover demo" message="The dismiss button is highlighted." data-demo-hover></lf-toast>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Dismiss active (pressed)</figcaption>
+    <lf-toast status="info" heading="Active demo" message="The dismiss button is pressed." data-demo-active></lf-toast>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Rack (static demo) — stacked cards, message-only and heading-only variants</figcaption>
+    <lf-toast-rack static>
+      <lf-toast status="success" heading="Advancement woven!"></lf-toast>
+      <lf-toast status="info" message="Duskwarp joined the game."></lf-toast>
+      <lf-toast status="warn" heading="Light low" message="Mobs can spawn below light level 1."></lf-toast>
+    </lf-toast-rack>
+  </figure>
+</section>
