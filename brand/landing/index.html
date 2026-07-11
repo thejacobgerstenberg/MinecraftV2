@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Loomfall — The cloth that dreams it is a world</title>
+<meta name="description" content="Loomfall is an original voxel survival game set in a woven world: gather thread, raise walls before dusk, descend to the burning Cinderloom, and cross the frayed void of Nevermend to the Last Needle.">
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="shell header-row">
+    <a class="brand-lockup" href="#top" aria-label="Loomfall home">
+      <img src="assets/icon.svg" alt="" width="40" height="40" class="brand-icon">
+      <span class="brand-name">Loomfall</span>
+    </a>
+    <nav aria-label="Primary">
+      <ul class="site-nav">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#realms">Realms</a></li>
+        <li><a href="#how-to-play"><span class="nav-full">How to play</span><span class="nav-short" aria-hidden="true">Play</span></a></li>
+        <li><a class="nav-cta" href="#download"><span class="nav-full">Get notified</span><span class="nav-short" aria-hidden="true">Notify</span></a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- ============================== HERO ============================== -->
+  <section class="hero" id="top" aria-labelledby="hero-heading">
+    <div class="hero-weave" aria-hidden="true"></div>
+    <div class="shell hero-inner">
+      <h1 id="hero-heading" class="hero-wordmark">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 240" role="img" aria-label="Loomfall">
+          <!-- LOOMFALL wordmark: one continuous Everthread — loop-knot anchor (west),
+               weaving over O, under O, over M, under F, over A, under L — then falling
+               and fraying off the final L. viewBox hugs the drawn extents so the mark
+               centers optically. -->
+          <g stroke="#14101F" fill="none" stroke-linecap="round">
+            <circle cx="14" cy="80" r="6" stroke-width="8.75"/>
+            <path stroke-width="8.75" d="M17.5 84.3 C22 87 26 88 33 88 H638 C649 88 652.5 97 652 110 C650.5 130 644 146 645.5 168"/>
+            <path stroke-width="6.8" d="M645.5 168 C643 184 633 198 621 208"/>
+            <path stroke-width="6.8" d="M645.5 168 C646.5 188 645.5 202 641 217"/>
+            <path stroke-width="6.8" d="M645.5 168 C650 183 659.5 193.5 669 200"/>
+          </g>
+          <g stroke="#F2C14E" fill="none" stroke-linecap="round">
+            <circle cx="14" cy="80" r="6" stroke-width="6.75"/>
+            <path stroke-width="6.75" d="M17.5 84.3 C22 87 26 88 33 88 H638 C649 88 652.5 97 652 110 C650.5 130 644 146 645.5 168"/>
+            <path stroke-width="4.8" d="M645.5 168 C643 184 633 198 621 208"/>
+            <path stroke-width="4.8" d="M645.5 168 C646.5 188 645.5 202 641 217"/>
+            <path stroke-width="4.8" d="M645.5 168 C650 183 659.5 193.5 669 200"/>
+          </g>
+          <g fill="#EDE7DA">
+            <path fill-rule="evenodd" d="M24 40 h18 v78 h46 v18 h-64 Z M24 82 h18 v12 h-18 Z"/>
+            <path fill-rule="evenodd" d="M98 40 h64 v96 h-64 Z M110 88 L130 60 L150 88 L130 116 Z"/>
+            <path fill-rule="evenodd" d="M176 40 h64 v96 h-64 Z M188 88 L208 60 L228 88 L208 116 Z"/>
+            <rect x="254" y="40" width="18" height="96"/>
+            <rect x="300" y="40" width="18" height="96"/>
+            <rect x="254" y="40" width="64" height="18"/>
+            <rect x="280" y="40" width="12" height="60"/>
+            <rect x="330" y="40" width="18" height="96"/>
+            <rect x="330" y="40" width="64" height="18"/>
+            <rect x="330" y="80" width="56" height="18"/>
+            <rect x="408" y="40" width="18" height="96"/>
+            <rect x="454" y="40" width="18" height="96"/>
+            <rect x="408" y="40" width="64" height="18"/>
+            <rect x="408" y="102" width="64" height="18"/>
+            <path fill-rule="evenodd" d="M486 40 h18 v78 h46 v18 h-64 Z M486 82 h18 v12 h-18 Z"/>
+            <path d="M564 40 h18 v78 h46 v18 h-64 Z"/>
+          </g>
+          <!-- over-passes: the weft rides OVER alternating letters (O, M, A);
+               the wider void-colored understroke is the 2px gap-mask that
+               separates thread from letter at each crossing -->
+          <path d="M98 88 H162 M254 88 H318 M408 88 H472" stroke="#14101F" stroke-width="10.75" fill="none" stroke-linecap="butt"/>
+          <path d="M98 88 H162 M254 88 H318 M408 88 H472" stroke="#F2C14E" stroke-width="6.75" fill="none" stroke-linecap="butt"/>
+          <path fill="#EDE7DA" d="M188 88 L195 78.2 L195 97.8 Z M228 88 L221 78.2 L221 97.8 Z"/>
+        </svg>
+      </h1>
+      <p class="hero-tagline">The cloth that dreams it is a world.</p>
+      <p class="hero-copy">A voxel survival game woven from thread. The maker is gone, the great Loom
+      turns on with no hand on the shuttle — and you are the one loose thread that woke.
+      Gather, build, and bind what you love before it all comes gently apart.</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="#download">Get notified</a>
+        <a class="btn btn-secondary" href="#how-to-play">How to play</a>
+      </div>
+      <p class="hero-note">Nothing here is finished. That is not a flaw. That is the invitation.</p>
+    </div>
+    <!-- three-realm horizon: furnace over cloth over void, woven into the hero's hem -->
+    <div class="hero-horizon" aria-hidden="true"></div>
+    <div class="hem-edge" aria-hidden="true"></div>
+  </section>
+
+  <!-- ============================ FEATURES ============================ -->
+  <section class="features" id="features" aria-labelledby="features-heading">
+    <div class="shell">
+      <h2 id="features-heading" class="section-heading"><span class="knot-mark" aria-hidden="true"></span>Every stitch yours to pull</h2>
+      <ul class="feature-grid">
+        <li class="feature-card card-worlds">
+          <div class="card-band" aria-hidden="true"></div>
+          <h3>A boundless woven world</h3>
+          <p>Embroidered meadows, brocade forests, mountains of warp-thread pulled taut toward the
+          sky. Every world is woven fresh — wander until the detail thins into sketch at the
+          Unfinished Hem, then keep going.</p>
+        </li>
+        <li class="feature-card card-realms">
+          <div class="card-band" aria-hidden="true"></div>
+          <h3>Three realms, one thread</h3>
+          <p>One length of cloth caught at three moments of its living: the lush
+          <strong>Warpwold</strong> above, the burning <strong>Cinderloom</strong> below, and the
+          frayed void of <strong>Nevermend</strong> past the last selvage.</p>
+        </li>
+        <li class="feature-card card-multiplayer">
+          <div class="card-band" aria-hidden="true"></div>
+          <h3>Weave together</h3>
+          <p>Open your world to others, or choose <em>Join a Weaving</em> and share their days,
+          nights, and frays. Anchor at a friend's knotlight, bind together, and reach the ending
+          side by side.</p>
+        </li>
+        <li class="feature-card card-packs">
+          <div class="card-band" aria-hidden="true"></div>
+          <h3>Three looks, one loom</h3>
+          <p>Every texture is spun by code — no image files, ever. Swap between the crisp default
+          weave, a soft high-dye cartoon, and a weathered gritty cut, live, without leaving your
+          world.</p>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <div class="hem-edge" aria-hidden="true"></div>
+
+  <!-- ========================== THREE REALMS ========================== -->
+  <section class="realms" id="realms" aria-labelledby="realms-heading">
+    <div class="shell">
+      <h2 id="realms-heading" class="section-heading"><span class="knot-mark" aria-hidden="true"></span>The Three Realms</h2>
+      <p class="section-lede">Furnace over cloth over void — and a thread pulled anywhere is felt
+      everywhere along it.</p>
+    </div>
+
+    <article class="realm-band realm-warpwold" aria-labelledby="realm-warpwold-h">
+      <div class="shell realm-inner">
+        <div class="realm-text">
+          <p class="realm-kicker">The lived-in middle</p>
+          <h3 id="realm-warpwold-h">Warpwold</h3>
+          <p>The tapestry grown so thick it forgot it was ever thread. Rolling embroidered
+          grasslands, humming forests of braided cord, ghost-terrain remembering out loud where
+          the cloth wears thin — and the courteous Wickerkin, who dream they are alive and keep
+          the dream swept.</p>
+        </div>
+        <div class="realm-swatch" role="img" aria-label="Warpwold palette: cool understitch shadow through grass green to dawn gold"></div>
+      </div>
+    </article>
+
+    <article class="realm-band realm-cinderloom" aria-labelledby="realm-cinderloom-h">
+      <div class="shell realm-inner">
+        <div class="realm-text">
+          <p class="realm-kicker">The burning below</p>
+          <h3 id="realm-cinderloom-h">Cinderloom</h3>
+          <p>Where the weaving actually happens and has never been allowed to finish. Raw thread
+          drawn shrieking through white fire, rivers of molten skein, colossal ember-spindles —
+          and the Scaldwardens, tending an order no one ever cancelled. No shade. No night.</p>
+        </div>
+        <div class="realm-swatch" role="img" aria-label="Cinderloom palette: black ash through live ember orange to fire-core amber"></div>
+      </div>
+    </article>
+
+    <article class="realm-band realm-nevermend" aria-labelledby="realm-nevermend-h">
+      <div class="shell realm-inner">
+        <div class="realm-text">
+          <p class="realm-kicker">The finished edge</p>
+          <h3 id="realm-nevermend-h">Nevermend</h3>
+          <p>Islands of half-unravelled tapestry adrift in an unlit deep, each still ghosting the
+          meadow or face it used to be. Build one stitch ahead of your feet, keep your gold thread
+          close — it is the only warm thing here — and make for the shining rim of the Last
+          Selvage.</p>
+        </div>
+        <div class="realm-swatch" role="img" aria-label="Nevermend palette: violet-black void breaking into cold hemstone cyan"></div>
+      </div>
+    </article>
+  </section>
+
+  <div class="hem-edge" aria-hidden="true"></div>
+
+  <!-- ========================== HOW TO PLAY =========================== -->
+  <section class="how-to-play" id="how-to-play" aria-labelledby="howto-heading">
+    <div class="shell">
+      <h2 id="howto-heading" class="section-heading"><span class="knot-mark" aria-hidden="true"></span>How to play</h2>
+      <p class="section-lede">You wake as a Mender — a loose thread that chooses its own direction.
+      Here is your road, in four stitches.</p>
+      <div class="howto-grid">
+      <ol class="steps">
+        <li class="step">
+          <span class="step-num" aria-hidden="true">1</span>
+          <div>
+            <h3>Survive your first day</h3>
+            <p>Pick Warpsod loose bare-handed, fell Thrumwood trees, and gather Raw Skein from
+            grazing skeinlings to craft your <strong>Handloom</strong>. Place a
+            <strong>Knotlight</strong> and set your anchor — if you are unpicked, you are
+            re-stitched at your last knot. Walls and light before dusk; the dark treats any
+            unlit corner as an invitation.</p>
+          </div>
+        </li>
+        <li class="step">
+          <span class="step-num" aria-hidden="true">2</span>
+          <div>
+            <h3>Climb the thread ladder</h3>
+            <p>Tools follow one ladder: <strong>Knotwood → Threadstone → Needle-Iron → Dawnthread
+            → Everthread</strong>. Follow the Thrum — the low hum in your teeth — toward raw
+            material. Shear skeinlings, don't slaughter them, and trade Giltspool with the
+            Wickerkin by daylight.</p>
+          </div>
+        </li>
+        <li class="step">
+          <span class="step-num" aria-hidden="true">3</span>
+          <div>
+            <h3>Descend through a loom-gate</h3>
+            <p>Frame a gate in <strong>Cinderglass</strong> with a living fray drawn taut across
+            it, and step down into the Cinderloom. Bring home <strong>Bindwax</strong> — binding
+            a block makes it permanent, past hound, Raveler, or the Ravelling itself — and take
+            Everthread from <strong>Molthkin, the First Bobbin</strong>.</p>
+          </div>
+        </li>
+        <li class="step">
+          <span class="step-num" aria-hidden="true">4</span>
+          <div>
+            <h3>Cross the void, thread the Needle</h3>
+            <p>In Nevermend, build one stitch ahead of your feet — or ride a bonded
+            <strong>spoolmare</strong>, which stitches ground beneath its own hooves. At the Eye
+            of the Last Hem waits the <strong>Last Needle</strong>: finish the weaving in defiance
+            of the void, or let the Loom fall silent at last. The choice is yours.</p>
+          </div>
+        </li>
+      </ol>
+      <aside class="howto-aside" aria-label="The Knotlight rule">
+        <div class="knotlight-card">
+          <svg class="knotlight-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="A knotlight: a knotted cradle holding a small flame">
+            <!-- knotted cradle -->
+            <circle cx="32" cy="36" r="19" fill="none" stroke="#F2C14E" stroke-width="5"/>
+            <circle cx="32" cy="36" r="19" fill="none" stroke="#14101F" stroke-width="1.5" stroke-dasharray="4 7"/>
+            <circle cx="32" cy="14.5" r="6" fill="none" stroke="#F2C14E" stroke-width="4.5"/>
+            <!-- captured flame -->
+            <path fill="#FFDE8A" d="M32 26 C37 31 40 35 40 40 A8 8 0 0 1 24 40 C24 35 27 31 32 26 Z"/>
+            <path fill="#FFF6DF" d="M32 34 C34.5 37 36 39 36 41.5 A4 4 0 0 1 28 41.5 C28 39 29.5 37 32 34 Z"/>
+          </svg>
+          <p class="knotlight-kicker">The Knotlight rule</p>
+          <h3>Unpicked, never lost</h3>
+          <p>Death in Loomfall is called being <strong>unpicked</strong> — and it is not the end.
+          Set your anchor at a knotlight and the world simply <strong>re-stitches you at your
+          last knot</strong>, boots on, lesson learned, night still waiting.</p>
+          <p>And when you find <strong>Bindwax</strong> in the deep, binding makes a build
+          permanent — past hound, Raveler, or the Ravelling itself. Mend what you can.
+          Bind what you love.</p>
+        </div>
+      </aside>
+      </div>
+    </div>
+  </section>
+
+  <div class="hem-edge" aria-hidden="true"></div>
+
+  <!-- ============================ DOWNLOAD ============================ -->
+  <section class="download" id="download" aria-labelledby="download-heading">
+    <div class="shell download-inner">
+      <h2 id="download-heading">Take up the thread</h2>
+      <p>Loomfall is in the making — like everything else on the Loom. Leave your name
+      and we will send one raven-moth when the first Weaving opens.</p>
+      <a class="btn btn-primary btn-large" href="mailto:weave@loomfall.example?subject=Wake%20me%20for%20the%20first%20Weaving" aria-describedby="download-note">Get notified</a>
+      <p id="download-note" class="download-note">In development for Windows, macOS, and Linux.</p>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="hem-edge hem-edge-top" aria-hidden="true"></div>
+  <div class="shell footer-inner">
+    <div class="footer-brand">
+      <img src="assets/icon.svg" alt="" width="48" height="48">
+      <p><strong>Loomfall</strong> — an original voxel world.</p>
+    </div>
+    <p class="footer-line">Go carefully. Mend what you can. Bind what you love.</p>
+  </div>
+</footer>
+
+</body>
+</html>

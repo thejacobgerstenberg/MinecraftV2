@@ -1,0 +1,715 @@
+/* ============================================================
+   LOOMFALL — landing page
+   All colors sourced from brand/palette.json ("Light Through
+   the Warp"). Dark theme; every neutral carries a violet or
+   ecru bias — nothing is ever gray, per the palette laws.
+   Spacing rhythm: 8px base (0.5rem multiples).
+   ============================================================ */
+
+:root {
+  /* brand */
+  --gold:        #F2C14E;  /* Everthread Gold — primary */
+  --gold-glow:   #FFDE8A;
+  --gold-pale:   #FFF6DF;
+  --gold-ochre:  #6E4E07;
+  --violet:      #4A3670;  /* Duskwarp Violet — secondary */
+  --violet-lift: #A48FD4;
+  --violet-mid:  #61539E;
+  --violet-deep: #292050;
+  --void:        #14101F;  /* Void Ink */
+  --muslin:      #EDE7DA;  /* Unbleached Muslin */
+
+  /* accents */
+  --warp-green:  #5F8A46;
+  --dye-indigo:  #35509E;
+  --madder:      #B03A52;
+  --weld:        #D9B93A;
+  --knotlight:   #FFDE8A;
+  --hemstone:    #9CC8D6;
+
+  /* ui.dark tokens (WCAG-verified pairs) */
+  --bg-root:     #14101F;
+  --bg-panel:    #221B33;
+  --bg-raised:   #2E2645;
+  --bg-tooltip:  #100C1B;
+  --border-hem:  #6A5F8C;
+  --text-body:   #EDE7DA;
+  --text-heading:#F7F2E4;
+  --text-dim:    #B4AAC9;
+  --link:        #F2C14E;
+  --link-hover:  #FFDE8A;
+  --btn-primary-bg:       #F2C14E;
+  --btn-primary-fg:       #1B1528;
+  --btn-primary-hover-bg: #FFDE8A;
+  --btn-primary-hover-fg: #14101F;
+  --btn-secondary-bg:       #3B3158;
+  --btn-secondary-fg:       #F4EFE3;
+  --btn-secondary-hover-bg: #4B3F70;
+  --focus-ring:  #FFD24A;
+
+  /* dimension ramps (exact stops from palette.json) */
+  --w0:#2C3247; --w1:#355040; --w2:#436844; --w3:#5F8A46;
+  --w4:#87AB4C; --w5:#B8BC5E; --w6:#E4D68A; --w7:#F6ECC8;
+  --c0:#191210; --c1:#33221B; --c2:#55291E; --c3:#8A3220;
+  --c4:#C24A20; --c5:#E8722A; --c6:#F7A93E; --c7:#FFDF96;
+  --n0:#0C0A16; --n1:#181330; --n2:#292050; --n3:#453672;
+  --n4:#61539E; --n5:#7F7BC2; --n6:#9CC8D6; --n7:#DDF3F0;
+
+  /* rhythm + type */
+  --s1: 0.5rem;  /* 8px  */
+  --s2: 1rem;    /* 16px */
+  --s3: 1.5rem;  /* 24px */
+  --s4: 2rem;    /* 32px */
+  --s6: 3rem;    /* 48px */
+  --s8: 4rem;    /* 64px */
+  --s12: 6rem;   /* 96px */
+  --font-stack: system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* ------------------------------ reset ------------------------------ */
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  font-family: var(--font-stack);
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--text-body);
+  background: var(--bg-root);
+  -webkit-font-smoothing: antialiased;
+}
+img, svg { max-width: 100%; height: auto; display: block; }
+[id] { scroll-margin-top: 5.5rem; } /* keep anchored headings clear of the sticky header */
+h1, h2, h3, p, ul, ol { margin: 0; }
+ul, ol { padding: 0; list-style: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* --------------------------- primitives ---------------------------- */
+.shell {
+  width: min(72rem, 100% - var(--s4));
+  margin-inline: auto;
+}
+
+a { color: var(--link); text-decoration: underline; text-underline-offset: 0.2em; }
+a:hover { color: var(--link-hover); }
+
+:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+.skip-link {
+  position: absolute;
+  left: var(--s2);
+  top: -4rem;
+  z-index: 100;
+  padding: var(--s1) var(--s2);
+  background: var(--gold);
+  color: var(--btn-primary-fg);
+  font-weight: 700;
+  text-decoration: none;
+  border-radius: 0 0 6px 6px;
+  transition: top 160ms ease;
+}
+.skip-link:focus { top: 0; color: var(--btn-primary-fg); }
+
+/* buttons */
+.btn {
+  display: inline-block;
+  padding: calc(var(--s1) * 1.75) var(--s4);
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 1.0625rem;
+  letter-spacing: 0.01em;
+  text-decoration: none;
+  transition: background-color 160ms ease, color 160ms ease,
+              transform 160ms ease, box-shadow 160ms ease;
+}
+.btn:active { transform: translateY(1px); }
+.btn-primary {
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-fg);
+  box-shadow: 0 0 0 1px var(--void), 0 4px 18px rgba(242, 193, 78, 0.28);
+}
+.btn-primary:hover {
+  background: var(--btn-primary-hover-bg);
+  color: var(--btn-primary-hover-fg);
+  box-shadow: 0 0 0 1px var(--void), 0 6px 26px rgba(255, 222, 138, 0.4);
+  transform: translateY(-2px);
+}
+.btn-secondary {
+  background: var(--btn-secondary-bg);
+  color: var(--btn-secondary-fg);
+  box-shadow: inset 0 0 0 1px var(--border-hem);
+}
+.btn-secondary:hover {
+  background: var(--btn-secondary-hover-bg);
+  color: var(--btn-secondary-fg);
+  transform: translateY(-2px);
+}
+.btn-large { padding: var(--s2) var(--s6); font-size: 1.25rem; }
+
+/* section headings: knot glyph + title — H2s must outrank realm names */
+.section-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: clamp(1.75rem, 1.3rem + 2.1vw, 2.625rem);
+  font-weight: 800;
+  line-height: 1.2;
+  color: var(--text-heading);
+  letter-spacing: -0.01em;
+}
+.knot-mark {
+  flex: none;
+  width: 1.125rem;
+  height: 1.125rem;
+  border: 4px solid var(--gold);
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--void), 0 0 14px rgba(242, 193, 78, 0.45);
+}
+.section-lede {
+  margin-top: var(--s2);
+  max-width: 46rem;
+  font-size: clamp(1.0625rem, 1rem + 0.4vw, 1.25rem);
+  color: var(--text-dim);
+}
+
+/* selvage hem divider: a bound, stitched edge */
+.hem-edge {
+  height: 10px;
+  background:
+    repeating-linear-gradient(90deg,
+      var(--gold) 0 14px, transparent 14px 26px) center / 100% 2px no-repeat,
+    linear-gradient(var(--violet-deep), var(--violet-deep));
+  border-top: 1px solid var(--border-hem);
+  border-bottom: 1px solid var(--border-hem);
+}
+
+/* ------------------------------ header ----------------------------- */
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: rgba(20, 16, 31, 0.92);
+  border-bottom: 1px solid var(--violet-deep);
+  backdrop-filter: blur(6px);
+}
+.header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--s1) var(--s3);
+  padding-block: var(--s2);
+}
+.brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  text-decoration: none;
+}
+.brand-icon { flex: none; }
+.brand-name {
+  font-size: 1.25rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--text-heading);
+}
+.brand-lockup:hover .brand-name { color: var(--gold-glow); }
+.site-nav {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s1) var(--s3);
+}
+.site-nav a {
+  color: var(--text-body);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  padding: var(--s1) 0;
+  border-bottom: 2px solid transparent;
+  transition: color 160ms ease, border-color 160ms ease;
+}
+.site-nav a:hover {
+  color: var(--gold-glow);
+  border-bottom-color: var(--gold);
+}
+.nav-short { display: none; } /* condensed labels: mobile only */
+.site-nav .nav-cta {
+  padding: var(--s1) var(--s2);
+  border-radius: 6px;
+  border-bottom: none;
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-fg);
+  transition: background-color 160ms ease, color 160ms ease;
+}
+.site-nav .nav-cta:hover {
+  background: var(--btn-primary-hover-bg);
+  color: var(--btn-primary-hover-fg);
+}
+
+/* ------------------------------ hero ------------------------------- */
+.hero {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(90rem 40rem at 50% -12rem, rgba(74, 54, 112, 0.55), transparent 65%),
+    /* warm sun behind the wordmark — the warm-light half of "warm sun / cool shade" */
+    radial-gradient(ellipse 60% 45% at 50% 36%, rgba(255, 214, 130, 0.12), transparent 70%),
+    linear-gradient(180deg, var(--n1) 0%, var(--bg-root) 55%, var(--bg-root) 100%);
+}
+/* three-realm horizon pinned to the hero's hem: cloth / furnace / void,
+   read through the warp grid */
+.hero-horizon {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 120px;
+  pointer-events: none;
+  background: linear-gradient(90deg,
+    hsl(132 40% 35% / 0.18) 0%,
+    hsl(24 70% 45% / 0.14) 50%,
+    hsl(265 45% 30% / 0.18) 100%);
+  mask-image:
+    linear-gradient(180deg, transparent, #000 70%),
+    repeating-linear-gradient(90deg, #000 0 2px, rgba(0, 0, 0, 0.25) 2px 6px);
+  -webkit-mask-image:
+    linear-gradient(180deg, transparent, #000 70%),
+    repeating-linear-gradient(90deg, #000 0 2px, rgba(0, 0, 0, 0.25) 2px 6px);
+  mask-composite: intersect;
+  -webkit-mask-composite: source-in;
+}
+/* the weave itself: warp verticals crossed by weft horizontals */
+.hero-weave {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(90deg,
+      rgba(164, 143, 212, 0.075) 0 2px, transparent 2px 26px),
+    repeating-linear-gradient(0deg,
+      rgba(237, 231, 218, 0.035) 0 2px, transparent 2px 34px),
+    repeating-linear-gradient(90deg,
+      transparent 0 13px, rgba(20, 16, 31, 0.5) 13px 15px, transparent 15px 26px);
+  mask-image: linear-gradient(180deg, rgba(0,0,0,0.9), rgba(0,0,0,0.35) 60%, transparent);
+  -webkit-mask-image: linear-gradient(180deg, rgba(0,0,0,0.9), rgba(0,0,0,0.35) 60%, transparent);
+}
+.hero-inner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding-block: clamp(var(--s8), 10vw, var(--s12));
+}
+.hero-wordmark {
+  width: min(47.5rem, 62vw);
+  margin-inline: auto;
+  filter: drop-shadow(0 10px 34px rgba(0, 0, 0, 0.55));
+}
+.hero-tagline {
+  margin-top: var(--s4);
+  font-size: clamp(1.375rem, 1.05rem + 1.6vw, 1.875rem);
+  font-weight: 500;
+  font-style: italic;
+  letter-spacing: 0.01em;
+  color: var(--gold-glow);
+}
+.hero-copy {
+  margin-top: var(--s3);
+  max-width: 42rem;
+  font-size: clamp(1rem, 0.95rem + 0.4vw, 1.1875rem);
+  color: var(--text-body);
+}
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--s2);
+  margin-top: var(--s6);
+}
+.hero-note {
+  margin-top: var(--s6);
+  font-size: 0.9375rem;
+  font-style: italic;
+  color: var(--text-dim);
+}
+
+/* ---------------------------- features ----------------------------- */
+.features { padding-block: var(--s12); }
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: var(--s3);
+  margin-top: var(--s6);
+}
+.feature-card {
+  background: #241E36; /* one step above the page, still violet-biased */
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  overflow: hidden;
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+.feature-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--border-hem);
+  box-shadow: 0 14px 34px rgba(12, 10, 22, 0.6);
+}
+.feature-card h3 {
+  font-size: 1.25rem;
+  color: var(--text-heading);
+  padding: var(--s3) var(--s3) 0;
+  min-height: 3.5rem; /* 1- and 2-line titles share a body baseline */
+}
+.feature-card p {
+  padding: var(--s2) var(--s3) var(--s3);
+  color: var(--text-body);
+  font-size: 0.96875rem;
+}
+.feature-card strong { color: var(--gold-glow); font-weight: 700; }
+.feature-card em { color: var(--gold-glow); }
+
+/* card bands: one legible system — each strip is keyed to its card's topic.
+   worlds = grass ramp; realms = the three realm hues in order;
+   multiplayer = gold (knotlight) ramp; packs = default / cartoon / gritty swatch */
+.card-band { height: 8px; }
+.card-worlds .card-band {
+  background: linear-gradient(90deg,
+    var(--w1) 0 25%, var(--w2) 25% 50%, var(--w3) 50% 75%, var(--w4) 75% 100%);
+}
+.card-realms .card-band {
+  background: linear-gradient(90deg,
+    var(--w3) 0 33.4%, var(--c4) 33.4% 66.7%, var(--n4) 66.7% 100%);
+}
+.card-multiplayer .card-band {
+  background: linear-gradient(90deg,
+    var(--gold-ochre) 0 25%, var(--gold) 25% 50%, var(--gold-glow) 50% 75%, var(--gold-pale) 75% 100%);
+}
+.card-packs .card-band {
+  background: linear-gradient(90deg,
+    var(--w3) 0 33.4%, var(--c5) 33.4% 66.7%, var(--border-hem) 66.7% 100%);
+}
+
+/* ----------------------------- realms ------------------------------ */
+.realms { padding-block: var(--s12); }
+.realm-band {
+  margin-top: var(--s6);
+  border-block: 1px solid var(--violet-deep);
+  position: relative;
+}
+.realm-inner {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: var(--s4);
+  align-items: stretch;
+  padding-block: var(--s6);
+}
+.realm-text {
+  background: rgba(20, 16, 31, 0.88);
+  border: 1px solid var(--violet-deep);
+  border-left: 6px solid var(--gold);
+  border-radius: 8px;
+  padding: var(--s4);
+  max-width: 38rem;
+}
+.realm-kicker {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.realm-text h3 {
+  margin-top: var(--s1);
+  font-size: clamp(1.375rem, 1.15rem + 1vw, 2rem); /* caps at 32px: below section H2s */
+  font-weight: 700;
+  color: var(--text-heading);
+}
+.realm-text p:last-child { margin-top: var(--s2); color: var(--text-body); }
+
+/* the ramp, dressed as cloth: ~12 hard-stepped dye bands (pixel-art banding),
+   1px weft threads every 6px, and a 3px bound selvage top and bottom */
+.realm-swatch {
+  min-height: 11rem;
+  border-radius: 8px;
+  border: 1px solid rgba(20, 16, 31, 0.65);
+  border-block: 3px solid var(--gold);
+  box-shadow: 0 10px 30px rgba(12, 10, 22, 0.5);
+  position: relative;
+  overflow: hidden;
+}
+.realm-swatch::after {
+  /* the weave reads through every realm: warp verticals + fine weft rows */
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    repeating-linear-gradient(0deg,
+      rgba(0, 0, 0, 0.12) 0 1px, transparent 1px 6px),
+    repeating-linear-gradient(90deg,
+      rgba(20, 16, 31, 0.22) 0 2px, transparent 2px 18px);
+}
+
+.realm-warpwold  {
+  background:
+    linear-gradient(100deg, rgba(20,16,31,0.82) 0%, rgba(20,16,31,0.35) 55%, rgba(20,16,31,0.15) 100%),
+    linear-gradient(100deg, var(--w0), var(--w1) 20%, var(--w2) 38%, var(--w3) 55%, var(--w4) 72%, var(--w5) 86%, var(--w6) 100%);
+}
+.realm-warpwold .realm-text { border-left-color: var(--w3); }
+.realm-warpwold .realm-kicker { color: var(--w5); }
+.realm-warpwold .realm-swatch {
+  border-block-color: var(--w6);
+  background: linear-gradient(90deg,
+    var(--w0) 0 8.33%,
+    color-mix(in oklab, var(--w0), var(--w1)) 8.33% 16.67%,
+    var(--w1) 16.67% 25%,
+    var(--w2) 25% 33.33%,
+    color-mix(in oklab, var(--w2), var(--w3)) 33.33% 41.67%,
+    var(--w3) 41.67% 50%,
+    var(--w4) 50% 58.33%,
+    color-mix(in oklab, var(--w4), var(--w5)) 58.33% 66.67%,
+    var(--w5) 66.67% 75%,
+    var(--w6) 75% 83.33%,
+    color-mix(in oklab, var(--w6), var(--w7)) 83.33% 91.67%,
+    var(--w7) 91.67% 100%);
+}
+
+.realm-cinderloom {
+  background:
+    linear-gradient(100deg, rgba(20,16,31,0.82) 0%, rgba(20,16,31,0.35) 55%, rgba(20,16,31,0.12) 100%),
+    linear-gradient(100deg, var(--c0), var(--c1) 20%, var(--c2) 38%, var(--c3) 55%, var(--c4) 72%, var(--c5) 86%, var(--c6) 100%);
+}
+.realm-cinderloom .realm-text { border-left-color: var(--c4); }
+.realm-cinderloom .realm-kicker { color: var(--c6); }
+.realm-cinderloom .realm-swatch {
+  border-block-color: var(--c6);
+  background: linear-gradient(90deg,
+    var(--c0) 0 8.33%,
+    color-mix(in oklab, var(--c0), var(--c1)) 8.33% 16.67%,
+    var(--c1) 16.67% 25%,
+    var(--c2) 25% 33.33%,
+    color-mix(in oklab, var(--c2), var(--c3)) 33.33% 41.67%,
+    var(--c3) 41.67% 50%,
+    var(--c4) 50% 58.33%,
+    color-mix(in oklab, var(--c4), var(--c5)) 58.33% 66.67%,
+    var(--c5) 66.67% 75%,
+    var(--c6) 75% 83.33%,
+    color-mix(in oklab, var(--c6), var(--c7)) 83.33% 91.67%,
+    var(--c7) 91.67% 100%);
+}
+
+.realm-nevermend {
+  background:
+    linear-gradient(100deg, rgba(12,10,22,0.82) 0%, rgba(12,10,22,0.35) 55%, rgba(12,10,22,0.12) 100%),
+    linear-gradient(100deg, var(--n0), var(--n1) 20%, var(--n2) 38%, var(--n3) 55%, var(--n4) 72%, var(--n5) 86%, var(--n6) 100%);
+}
+.realm-nevermend .realm-text { border-left-color: var(--n4); }
+.realm-nevermend .realm-kicker { color: var(--n6); }
+.realm-nevermend .realm-swatch {
+  border-block-color: var(--n6);
+  /* the void end of the cloth is coming apart: torn, frayed right edge */
+  border-radius: 8px 0 0 8px;
+  clip-path: polygon(
+    0 0, 97.5% 0, 99% 7%, 96% 14%, 100% 22%, 97% 30%, 99.5% 38%,
+    96.5% 47%, 100% 55%, 97% 63%, 99% 71%, 95.5% 79%, 99.5% 87%,
+    96.5% 94%, 98.5% 100%, 0 100%);
+  background: linear-gradient(90deg,
+    var(--n0) 0 8.33%,
+    color-mix(in oklab, var(--n0), var(--n1)) 8.33% 16.67%,
+    var(--n1) 16.67% 25%,
+    var(--n2) 25% 33.33%,
+    color-mix(in oklab, var(--n2), var(--n3)) 33.33% 41.67%,
+    var(--n3) 41.67% 50%,
+    var(--n4) 50% 58.33%,
+    color-mix(in oklab, var(--n4), var(--n5)) 58.33% 66.67%,
+    var(--n5) 66.67% 75%,
+    var(--n6) 75% 83.33%,
+    color-mix(in oklab, var(--n6), var(--n7)) 83.33% 91.67%,
+    var(--n7) 91.67% 100%);
+}
+
+/* --------------------------- how to play --------------------------- */
+.how-to-play {
+  padding-block: var(--s12);
+  background:
+    repeating-linear-gradient(90deg,
+      rgba(74, 54, 112, 0.10) 0 2px, transparent 2px 30px),
+    linear-gradient(180deg, var(--bg-root), var(--n1) 130%);
+}
+/* timeline + sticky knotlight aside: fills the right half at desktop */
+.howto-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: var(--s8) 64px;
+  align-items: start;
+  margin-top: var(--s6);
+}
+.steps {
+  counter-reset: step;
+}
+.step {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--s3);
+  position: relative;
+  padding-bottom: var(--s6);
+}
+.step:last-child { padding-bottom: 0; }
+/* the thread that connects the steps */
+.step:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  left: calc(1.375rem - 1px);
+  top: 3rem;
+  bottom: var(--s1);
+  width: 2px;
+  background: repeating-linear-gradient(180deg,
+    var(--gold) 0 10px, transparent 10px 18px);
+  opacity: 0.6;
+}
+.step-num {
+  flex: none;
+  width: 2.75rem;
+  height: 2.75rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--void);
+  border: 3px solid var(--gold);
+  color: var(--gold);
+  font-weight: 800;
+  font-size: 1.1875rem;
+  box-shadow: 0 0 16px rgba(242, 193, 78, 0.3);
+}
+.step h3 {
+  font-size: 1.3125rem;
+  color: var(--text-heading);
+  padding-top: calc(var(--s1) / 2);
+}
+.step p { margin-top: var(--s1); color: var(--text-body); }
+.step strong { color: var(--gold-glow); font-weight: 700; }
+
+/* the knotlight aside: the game's most sellable rule, kept in view */
+.knotlight-card {
+  position: sticky;
+  top: 6.5rem;
+  background:
+    radial-gradient(24rem 14rem at 50% -3rem, rgba(242, 193, 78, 0.14), transparent 70%),
+    #241E36;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 3px solid var(--gold);
+  border-radius: 10px;
+  padding: var(--s4);
+  box-shadow: 0 14px 34px rgba(12, 10, 22, 0.5);
+}
+.knotlight-icon {
+  width: 4rem;
+  height: 4rem;
+  margin-bottom: var(--s3);
+  filter: drop-shadow(0 0 16px rgba(255, 222, 138, 0.4));
+}
+.knotlight-kicker {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+.knotlight-card h3 {
+  margin-top: var(--s1);
+  font-size: 1.3125rem;
+  color: var(--text-heading);
+}
+.knotlight-card p:not(.knotlight-kicker) {
+  margin-top: var(--s2);
+  font-size: 0.96875rem;
+  color: var(--text-body);
+}
+.knotlight-card strong { color: var(--gold-glow); font-weight: 700; }
+
+/* ----------------------------- download ---------------------------- */
+.download {
+  border-block: 1px solid var(--violet-deep);
+  background:
+    radial-gradient(46rem 20rem at 50% 120%, rgba(242, 193, 78, 0.12), transparent 70%),
+    var(--bg-panel);
+}
+.download-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding-block: var(--s12);
+}
+.download h2 {
+  font-size: clamp(1.75rem, 1.3rem + 2.1vw, 2.625rem);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--text-heading);
+}
+.download p { margin-top: var(--s2); color: var(--text-dim); max-width: 34rem; }
+.download .btn { margin-top: var(--s4); }
+.download-note { font-size: 0.9375rem; }
+
+/* ------------------------------ footer ----------------------------- */
+.site-footer { background: var(--bg-tooltip); }
+.footer-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s3);
+  text-align: center;
+  padding-block: var(--s8);
+}
+.footer-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s2);
+}
+.footer-brand p { color: var(--text-body); }
+.footer-brand strong { color: var(--text-heading); letter-spacing: 0.03em; }
+.footer-line {
+  font-style: italic;
+  color: var(--text-dim);
+  font-size: 0.9375rem;
+}
+
+/* ---------------------------- responsive --------------------------- */
+/* tablet: aside drops below the timeline */
+@media (max-width: 64rem) {
+  .howto-grid { grid-template-columns: 1fr; gap: var(--s6); }
+  .knotlight-card { position: static; }
+}
+
+@media (max-width: 44rem) {
+  /* single-row condensed nav: icon + three short links + pill, no wrap */
+  .header-row { flex-wrap: nowrap; gap: var(--s2); }
+  .brand-name { display: none; }
+  .site-nav { flex-wrap: nowrap; gap: var(--s2); }
+  .site-nav a { font-size: 0.8125rem; white-space: nowrap; }
+  .site-nav .nav-cta { padding: calc(var(--s1) * 0.75) var(--s2); }
+  .nav-full { display: none; }
+  .nav-short { display: inline; }
+
+  .hero-inner { padding-block: var(--s6) var(--s8); }
+  .hero-wordmark { width: calc(100vw - 48px); } /* frayed tail keeps 24px clearance */
+  .hero-horizon { height: 80px; }
+
+  .realm-inner { grid-template-columns: 1fr; }
+  .realm-swatch { min-height: 4.5rem; }
+  .realm-text { max-width: none; }
+  .hero-actions .btn { width: 100%; text-align: center; }
+  .hero-actions { width: 100%; max-width: 20rem; }
+}

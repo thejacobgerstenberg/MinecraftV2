@@ -1,0 +1,230 @@
+{
+  "$comment": "LOOMFALL canonical color system — 'Light Through the Warp'. Every color behaves like light passing through taut thread: it enters gold and leaves violet. One luminous axis (Everthread gold #F2C14E -> Void Ink #14101F) governs brand, UI, and world. Three laws: (1) hue-shift-don't-darken — shadows rotate toward the cool ~250deg violet anchor holding saturation, highlights toward the warm ~50deg gold anchor shedding it; saturation is a hump peaking in the midtones. (2) Nothing is ever gray — every neutral carries a 3-8% saturation bias, warm ecru in the lights, violet in the darks. (3) Realm hues are oaths — saturated ember orange (hue 8-42) appears ONLY in the Cinderloom; saturated cold cyan (hue 165-205) appears ONLY in Nevermend; the Warpwold owns green-through-gold and keeps day-sky blues at hue >=208. Grafted from the dyed-thread school: the primary CTA is the gold thread itself (Everthread fill, void-ink label), tooltips stay dark loom-room cards in both themes, and Everthread gold bookends the journey (first stitch at the unfinished_hem accent; the Last Selvage stays entropy-cold cyan). All ui.pairs are WCAG 2.1 verified by scratchpad/wcag_check.py. Never rely on hue alone: warn=fray-knot triangle, error=frayed-X, success=stitch-check, info=droplet glyphs, each with a >=0.15 luminance edge vs its surface.",
+  "brand": {
+    "primary": {
+      "name": "Everthread Gold",
+      "hex": "#F2C14E",
+      "role": "The First Thread. Logo stroke, primary CTA fill, focus rings, knotlight glow, the one warm thing in Nevermend.",
+      "tints": { "glow": "#FFDE8A", "pale": "#FFF6DF", "deep_ochre": "#6E4E07" }
+    },
+    "secondary": {
+      "name": "Duskwarp Violet",
+      "hex": "#4A3670",
+      "role": "The cloth at dusk. Secondary buttons, panels, light-theme hover ink.",
+      "tints": { "lift": "#A48FD4", "mid": "#61539E", "deep": "#292050" }
+    },
+    "void": {
+      "name": "Void Ink",
+      "hex": "#14101F",
+      "role": "Violet-biased near-black (never pure black). Dark-theme root, hero backgrounds, the dark every thread is drawn through."
+    },
+    "muslin": {
+      "name": "Unbleached Muslin",
+      "hex": "#EDE7DA",
+      "role": "Warm off-white (never pure white). Body text on dark; light-theme root at #EFE9DB — the undyed cloth."
+    },
+    "accents": {
+      "warp_green": { "hex": "#5F8A46", "role": "Warpwold identity green; growth, grass LUT anchor." },
+      "dye_indigo": { "hex": "#35509E", "role": "Dreamdye indigo; info/water family, dyewater band. Hue ~226 — never trespasses on Nevermend cyan." },
+      "madder": { "hex": "#B03A52", "role": "Dye-band red, decorative; kept distinct from functional error red." },
+      "weld": { "hex": "#D9B93A", "role": "Dye-band yellow, decorative." },
+      "knotlight": { "hex": "#FFDE8A", "role": "Captured-flame glow for anchor/waypoint icons; always haloed against dark." },
+      "hemstone_cyan": { "hex": "#9CC8D6", "role": "Cold gleam of the finished edge. Nevermend-exclusive family with #DDF3F0." }
+    },
+    "forbidden": {
+      "ember_outside_cinderloom": "hue 8-42 at S>0.62, V>0.55 is Cinderloom-exclusive",
+      "cyan_outside_nevermend": "hue 165-205 at S>0.30 is Nevermend-exclusive",
+      "pure_gray_black_white": "all neutrals carry 3-8% saturation bias; #000000/#FFFFFF only as sub-1% pixel accents"
+    }
+  },
+  "ui": {
+    "dark": {
+      "bg_root": "#14101F",
+      "bg_panel": "#221B33",
+      "bg_raised": "#2E2645",
+      "bg_input": "#1A1430",
+      "bg_tooltip": "#100C1B",
+      "border_hem": "#6A5F8C",
+      "text_body": "#EDE7DA",
+      "text_heading": "#F7F2E4",
+      "text_dim": "#B4AAC9",
+      "text_disabled": "#6E6584",
+      "link": "#F2C14E",
+      "link_hover": "#FFDE8A",
+      "button_primary_bg": "#F2C14E",
+      "button_primary_fg": "#1B1528",
+      "button_primary_hover_bg": "#FFDE8A",
+      "button_primary_hover_fg": "#14101F",
+      "button_secondary_bg": "#3B3158",
+      "button_secondary_fg": "#F4EFE3",
+      "button_secondary_hover_bg": "#4B3F70",
+      "button_disabled_bg": "#282239",
+      "warn": "#FFD24A",
+      "error": "#FF8578",
+      "success": "#A3E060",
+      "info": "#A9CBF0",
+      "input_text": "#EDE7DA",
+      "input_placeholder": "#8E84A8",
+      "tooltip_text": "#EDE7DA",
+      "focus_ring": "#FFD24A",
+      "icon_glyph": "#CFC6E0",
+      "screen_dim": { "hex": "#14101F", "alpha": 0.55 },
+      "hud_shadow": "#14101F"
+    },
+    "light": {
+      "bg_root": "#EFE9DB",
+      "bg_panel": "#E4DCC7",
+      "bg_raised": "#F7F2E6",
+      "bg_input": "#FBF7ED",
+      "bg_tooltip": "#2A2338",
+      "border_hem": "#B9AE94",
+      "text_body": "#2A2338",
+      "text_heading": "#1B1528",
+      "text_dim": "#5B5370",
+      "text_disabled": "#8A8270",
+      "link": "#6E4E07",
+      "link_hover": "#4A3670",
+      "button_primary_bg": "#F2C14E",
+      "button_primary_fg": "#1B1528",
+      "button_primary_hover_bg": "#FFDE8A",
+      "button_primary_hover_fg": "#14101F",
+      "button_secondary_bg": "#463668",
+      "button_secondary_fg": "#F4EFE3",
+      "button_secondary_hover_bg": "#574680",
+      "button_disabled_bg": "#C9C2B2",
+      "warn": "#7A4E00",
+      "error": "#9C2A1D",
+      "success": "#38601A",
+      "info": "#2C517E",
+      "input_text": "#2A2338",
+      "input_placeholder": "#6E6683",
+      "tooltip_text": "#F4EFE3",
+      "focus_ring": "#463668",
+      "icon_glyph": "#4E4566",
+      "screen_dim": { "hex": "#14101F", "alpha": 0.45 },
+      "hud_shadow": "#EFE9DB"
+    },
+    "pairs": [
+      { "id": "dark_text_body", "fg": "#EDE7DA", "bg": "#221B33", "usage": "body text on panel (dark)", "minRatio": 4.5 },
+      { "id": "dark_text_body_root", "fg": "#EDE7DA", "bg": "#14101F", "usage": "body text on root (dark)", "minRatio": 4.5 },
+      { "id": "dark_text_heading", "fg": "#F7F2E4", "bg": "#14101F", "usage": "headings on root (dark)", "minRatio": 4.5 },
+      { "id": "dark_text_dim", "fg": "#B4AAC9", "bg": "#221B33", "usage": "secondary/dim text on panel (dark)", "minRatio": 4.5 },
+      { "id": "dark_link", "fg": "#F2C14E", "bg": "#221B33", "usage": "links on panel (dark); underline always on", "minRatio": 4.5 },
+      { "id": "dark_link_hover", "fg": "#FFDE8A", "bg": "#221B33", "usage": "link hover (dark)", "minRatio": 4.5 },
+      { "id": "dark_button_primary", "fg": "#1B1528", "bg": "#F2C14E", "usage": "primary CTA — void-ink label on Everthread gold", "minRatio": 4.5 },
+      { "id": "dark_button_primary_hover", "fg": "#14101F", "bg": "#FFDE8A", "usage": "primary CTA hover — brighten bg, deepen label (>=5% pixel diff)", "minRatio": 4.5 },
+      { "id": "dark_button_secondary", "fg": "#F4EFE3", "bg": "#3B3158", "usage": "secondary button label (dark)", "minRatio": 4.5 },
+      { "id": "dark_warn", "fg": "#FFD24A", "bg": "#221B33", "usage": "warning text + fray-knot triangle glyph (dark)", "minRatio": 4.5 },
+      { "id": "dark_error", "fg": "#FF8578", "bg": "#221B33", "usage": "error text + frayed-X glyph (dark)", "minRatio": 4.5 },
+      { "id": "dark_success", "fg": "#A3E060", "bg": "#221B33", "usage": "success/XP text + stitch-check glyph (dark)", "minRatio": 4.5 },
+      { "id": "dark_info", "fg": "#A9CBF0", "bg": "#221B33", "usage": "info/water text + droplet glyph (dark); hue ~213, not cyan", "minRatio": 4.5 },
+      { "id": "dark_hud", "fg": "#F7F2E4", "bg": "#14101F", "usage": "HUD values; over world, 1px #14101F outline carries contrast", "minRatio": 4.5 },
+      { "id": "dark_input", "fg": "#EDE7DA", "bg": "#1A1430", "usage": "input text (dark)", "minRatio": 4.5 },
+      { "id": "dark_placeholder", "fg": "#8E84A8", "bg": "#1A1430", "usage": "input placeholder (dark)", "minRatio": 4.5 },
+      { "id": "dark_tooltip", "fg": "#EDE7DA", "bg": "#100C1B", "usage": "tooltip text — dark loom-room card", "minRatio": 4.5 },
+      { "id": "dark_focus_ring", "fg": "#FFD24A", "bg": "#14101F", "usage": "focus ring vs root (dark); non-text indicator", "minRatio": 3 },
+      { "id": "dark_icon", "fg": "#CFC6E0", "bg": "#221B33", "usage": "UI glyphs/icons on panel (dark); non-text", "minRatio": 3 },
+      { "id": "light_text_body", "fg": "#2A2338", "bg": "#E4DCC7", "usage": "body text on panel (light)", "minRatio": 4.5 },
+      { "id": "light_text_body_root", "fg": "#2A2338", "bg": "#EFE9DB", "usage": "body text on root (light)", "minRatio": 4.5 },
+      { "id": "light_text_heading", "fg": "#1B1528", "bg": "#EFE9DB", "usage": "headings on root (light)", "minRatio": 4.5 },
+      { "id": "light_text_dim", "fg": "#5B5370", "bg": "#E4DCC7", "usage": "secondary/dim text on panel (light)", "minRatio": 4.5 },
+      { "id": "light_link", "fg": "#6E4E07", "bg": "#EFE9DB", "usage": "links (light) — Everthread darkened to ochre; underline always on", "minRatio": 4.5 },
+      { "id": "light_link_hover", "fg": "#4A3670", "bg": "#EFE9DB", "usage": "link hover (light) — duskwarp violet", "minRatio": 4.5 },
+      { "id": "light_button_primary", "fg": "#1B1528", "bg": "#F2C14E", "usage": "primary CTA — same gold thread in both themes", "minRatio": 4.5 },
+      { "id": "light_button_secondary", "fg": "#F4EFE3", "bg": "#463668", "usage": "secondary button label (light)", "minRatio": 4.5 },
+      { "id": "light_warn", "fg": "#7A4E00", "bg": "#E4DCC7", "usage": "warning text + fray-knot triangle glyph (light)", "minRatio": 4.5 },
+      { "id": "light_error", "fg": "#9C2A1D", "bg": "#E4DCC7", "usage": "error text + frayed-X glyph (light)", "minRatio": 4.5 },
+      { "id": "light_success", "fg": "#38601A", "bg": "#E4DCC7", "usage": "success/XP text + stitch-check glyph (light)", "minRatio": 4.5 },
+      { "id": "light_info", "fg": "#2C517E", "bg": "#E4DCC7", "usage": "info/water text + droplet glyph (light)", "minRatio": 4.5 },
+      { "id": "light_hud", "fg": "#1B1528", "bg": "#EFE9DB", "usage": "HUD values (light)", "minRatio": 4.5 },
+      { "id": "light_input", "fg": "#2A2338", "bg": "#FBF7ED", "usage": "input text (light)", "minRatio": 4.5 },
+      { "id": "light_placeholder", "fg": "#6E6683", "bg": "#FBF7ED", "usage": "input placeholder (light)", "minRatio": 4.5 },
+      { "id": "light_tooltip", "fg": "#F4EFE3", "bg": "#2A2338", "usage": "tooltip — inverts to dark loom-room card in light theme", "minRatio": 4.5 },
+      { "id": "light_focus_ring", "fg": "#463668", "bg": "#EFE9DB", "usage": "focus ring vs root (light); non-text indicator", "minRatio": 3 },
+      { "id": "light_icon", "fg": "#4E4566", "bg": "#E4DCC7", "usage": "UI glyphs/icons on panel (light); non-text", "minRatio": 3 }
+    ]
+  },
+  "dimensions": {
+    "warpwold": {
+      "ramp": ["#2C3247", "#355040", "#436844", "#5F8A46", "#87AB4C", "#B8BC5E", "#E4D68A", "#F6ECC8"],
+      "notes": "The lush woven surface. Hue path 227->144->122->98->83->63->51->47: cool violet-blue understitch shadow rotating through canon grass greens (132->85) into dawn gold ~50. W3 #5F8A46 is the identity midtone and saturation peak (grass albedo, foliage LUT anchor); W0 is night ambient/cave mouths; W7 is tiny sky-facing highlights only. Per-texture ramps sample 4-5 adjacent stops (grass = W1-W5) keeping value spread ~0.35 and albedo in the 0.25-0.85 band. Sky #9FC1E8 day zenith (hue ~215, never cyan), lerping to W6 at dawn/dusk and #2C3247 at night; base fog #DAE4EC. Lighting: warm sun multiply (1.05, 1.00, 0.88) vs cool shade multiply (0.58, 0.63, 0.82) — this pair IS the realm's look."
+    },
+    "cinderloom": {
+      "ramp": ["#191210", "#33221B", "#55291E", "#8A3220", "#C24A20", "#E8722A", "#F7A93E", "#FFDF96"],
+      "notes": "The ember and ash making-below. Hue path 13->17->12->10->16->23->35->42 (canon lava path 6->48: red heart to amber heat). C4 #C24A20 is the saturation peak (live ember/glowing warp-lines); C0-C1 = ash vault and spent skein; C7 = fire cores and sparks only (tiny accents). Sky is #191210 smoke vault — no sky, no night; the ceiling is darkness lit from below. Fog #7E2F18 ember haze near fire, #3A2E24 cool tallow haze in the vaults. Lighting inverts: ember UPLIGHT multiply (1.10, 0.74, 0.46) on downward faces, upward faces fall to C0-C1. OATH: every saturated orange in the game lives in this ramp — seeing ember means you are in, or looking into, the Cinderloom."
+    },
+    "nevermend": {
+      "ramp": ["#0C0A16", "#181330", "#292050", "#453672", "#61539E", "#7F7BC2", "#9CC8D6", "#DDF3F0"],
+      "notes": "The frayed void past the last selvage. Hue path 250->250->251->255->251->243->194->172: violet-black holding at the cool anchor, breaking into cold cyan gleam only at the top. N3 #453672 is the main frayed-island terrain (saturation shoulder); N0 is the one legal near-black — it is absence, not surface; N6 is the cyan threshold (needle glints, fray edges, stitch-light); N7 = hemstone pale, the finished rim. Sky #0A0812->#131022 starless; fog #171327 deep / #2E2846 among frays / #3C355C at the selvage. Lighting: flat cold hemstone key multiply (0.72, 0.86, 0.90) from nowhere in particular; the player's Everthread gold #F2C14E reads as the only warm thing in the realm — that contrast is the emotional design. OATH: every saturated cold cyan lives here — cyan means you are beyond the hem."
+    }
+  },
+  "biomes": {
+    "sennmeadows": {
+      "sky": "#9FC1E8", "fog": "#DAE4EC", "terrain_primary": "#699247", "terrain_secondary": "#8A6B3F", "foliage_or_feature": "#93B04E", "accent": "#C7598C",
+      "notes": "Warm starting country; accent = embroidered flower-knots (madder-pink, luminance pop, never hue-only)."
+    },
+    "thrumwood": {
+      "sky": "#8FB2D9", "fog": "#B7C4B4", "terrain_primary": "#49703F", "terrain_secondary": "#5E4630", "foliage_or_feature": "#39592F", "accent": "#C9A648",
+      "notes": "Green-cast forest fog; secondary = braided-cord bark; accent = dyed-light gold patches through the brocade canopy (hue 46, clear of the ember band)."
+    },
+    "muslin_fens": {
+      "sky": "#C2CBD3", "fog": "#E5E3DA", "terrain_primary": "#788462", "terrain_secondary": "#6B6250", "foliage_or_feature": "#9AA378", "accent": "#E9E4F4",
+      "notes": "Fog is the biome: dense pale gauze desaturates everything; accent = silence-moths (pale violet-white, brightest value in scene)."
+    },
+    "understitch_downs": {
+      "sky": "#A9B4D4", "fog": "#CBC5DE", "terrain_primary": "#7C9152", "terrain_secondary": "#8F8AA8", "foliage_or_feature": "#A3B268", "accent": "#B7A8E0",
+      "notes": "Violet-shifted sky/fog signal ghost terrain; secondary = phantom-ridge violet-gray; accent = understitch echoes rendered at 30-40% opacity offsets."
+    },
+    "warpspine_reach": {
+      "sky": "#7FA3CC", "fog": "#C2CEDD", "terrain_primary": "#697080", "terrain_secondary": "#F0EDE3", "foliage_or_feature": "#55704A", "accent": "#E4BD52",
+      "notes": "Stone at canon hue 216 / S~7%; secondary = raw cotton snow (warm-white, never pure); accent = exposed ore seams in gold (hue 45)."
+    },
+    "the_frostlace": {
+      "sky": "#B8CBE2", "fog": "#DEE6EF", "terrain_primary": "#CBD5E4", "terrain_secondary": "#93A7BE", "foliage_or_feature": "#EBF0F7", "accent": "#B9C3E8",
+      "notes": "Brittle white lacework over blue-violet frost — deliberately blue (hue ~215-225), NOT cyan, so it cannot be mistaken for Nevermend; lethally quiet = lowest-saturation cold biome."
+    },
+    "bleachlands": {
+      "sky": "#C6C3BA", "fog": "#DBD7CC", "terrain_primary": "#B5AFA0", "terrain_secondary": "#948D7D", "foliage_or_feature": "#A19C8E", "accent": "#8C7FA0",
+      "notes": "The drained page: warm ecru grays at exactly the 3-8% saturation floor (never S=0); accent = the last faint stain of dreamdye, a bruised violet."
+    },
+    "dyewater_coast": {
+      "sky": "#9FBBDE", "fog": "#D3DBE0", "terrain_primary": "#E0CE96", "terrain_secondary": "#C4AD72", "foliage_or_feature": "#7FA050", "accent": "#35509E",
+      "notes": "Sand at canon hue 46; accent = indigo dye-band; sea renders in unmixed hard-edged bands indigo #35509E / madder #B03A52 / weld #D9B93A — banding carries value steps too, never hue alone."
+    },
+    "unfinished_hem": {
+      "sky": "#B6BCC6", "fog": "#E7E4DB", "terrain_primary": "#9AA285", "terrain_secondary": "#CAC5B4", "foliage_or_feature": "#ADB394", "accent": "#F2C14E",
+      "notes": "Detail thins to sketch: terrain fades toward raw-canvas secondary; fog is blank-page pale. Accent = Everthread gold, the one finished stitch on the frontier — the brand primary's first bookend."
+    },
+    "emberwarp": {
+      "sky": "#221410", "fog": "#7E2F18", "terrain_primary": "#241B18", "terrain_secondary": "#4A2B22", "foliage_or_feature": "#E85B26", "accent": "#FFC44E",
+      "notes": "Red-hot warp-lines (feature) over black ash; accent = molten thread-river amber; no shade, no night — the fog itself glows."
+    },
+    "ashskein_wastes": {
+      "sky": "#241A16", "fog": "#5C4A42", "terrain_primary": "#6E5F57", "terrain_secondary": "#40352F", "foliage_or_feature": "#332B33", "accent": "#F2A63C",
+      "notes": "Spent-yarn dunes in warm ash grays (7-8% sat bias); feature = ash-glass with a violet sheen hiding drops; accent = slagmoth ember-glints — the danger telegraph."
+    },
+    "tallow_vaults": {
+      "sky": "#1C1512", "fog": "#3A2E24", "terrain_primary": "#C9B27E", "terrain_secondary": "#8A6F4A", "foliage_or_feature": "#E6D3A0", "accent": "#5A5378",
+      "notes": "Wax-cream tallowstone cathedrals; the inversion biome: accent is cool violet-slate — the underworld's ONLY cool shadows, a visible relief from ember heat."
+    },
+    "cinderspindle_forges": {
+      "sky": "#16100E", "fog": "#6E2C16", "terrain_primary": "#2B211D", "terrain_secondary": "#5C332A", "foliage_or_feature": "#EE7A28", "accent": "#FFF3C4",
+      "notes": "Feature = rotating ember-spindles; accent = white-fire pit cores (near-white warm, tiny-area exception); hottest palette in the game — Molthkin's arena pushes C6-C7 coverage."
+    },
+    "the_fraying": {
+      "sky": "#131022", "fog": "#2E2846", "terrain_primary": "#4B3E72", "terrain_secondary": "#7B6FA6", "foliage_or_feature": "#7E9384", "accent": "#8FD3DC",
+      "notes": "Half-unravelled tapestry islands; feature = desaturated ghost-green, the memory of the meadow each island used to be; accent = cold cyan fray-edges (cyan begins here)."
+    },
+    "loosened_dark": {
+      "sky": "#0A0812", "fog": "#171327", "terrain_primary": "#2A2344", "terrain_secondary": "#171230", "foliage_or_feature": "#5E54A0", "accent": "#74E0E8",
+      "notes": "Genuine unspun nothing; terrain = only what you stitch; accent = saturated stitch-light cyan marking your own placed path — the highest-chroma cyan in the game, readable at max fog."
+    },
+    "last_selvage": {
+      "sky": "#201B38", "fog": "#3C355C", "terrain_primary": "#C6C1D6", "terrain_secondary": "#8E87AC", "foliage_or_feature": "#E4E0EE", "accent": "#9FE0E4",
+      "notes": "The shining finished rim: palest terrain in the game under the darkest sky; accent = the Last Needle's cold cyan-silver gleam — deliberately NOT gold. Gold is the player's hope; cyan-cold is entropy's finish."
+    }
+  },
+  "packVariants": {
+    "$comment": "This is the DEFAULT pack palette. smooth-cartoon derives by S x1.25 with ramp stops 0-1 and 6-7 merged (fewer bands, soft); gritty derives by S x0.65 with value contrast stretched x1.3 on the same hue anchors — pack identity stays measurably distinct per the UX rubric (cartoon mean-S >=1.2x default; gritty mean-S <=0.7x + contrast >=1.3x)."
+  }
+}
