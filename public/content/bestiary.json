@@ -1,0 +1,486 @@
+{
+  "$comment": "Loomfall bestiary: the 17 canonical mobs from naming.json, with the snake_case entity ids used by achievement triggers (kill_entity:*, tame_entity:*, trade_with:*). core=true marks the ten locked core species. audioArchetype is the sound-design bucket for the audio team: passive_grazer (soft browsing, breath, cropping sounds), trader (voiced murmur, greeting phrases), hostile_groaner (low creaks, strained-thread groans), exploder (pressure-swell then burst), flying_screecher (wingbeat with a thin rising keen). spawnRules.biomes use the canonical naming.json biome ids. stats are balanced against a ~20 hp player baseline, threat rising Warpwold < Cinderloom < Nevermend. Drop ids reference items.json item ids or naming.json block ids only; chance is per-kill (shear/graze drops noted). Kills are spoken gently — unpicked, unmade, laid straight — never gore.",
+  "mobs": [
+    {
+      "id": "skeinling",
+      "name": "Skeinlings",
+      "dimension": "Warpwold",
+      "role": "passive / livestock",
+      "core": true,
+      "audioArchetype": "passive_grazer",
+      "spawnRules": {
+        "biomes": ["sennmeadows"],
+        "lightLevel": "8-15",
+        "timeOfDay": "day",
+        "groupSize": "4-8",
+        "rarity": "common"
+      },
+      "behavior": "Grazes the Sennmeadows in soft flocks, cropping warpsod in a slow drift toward the nearest stand of knot-flowers; follows any player holding raw_skein within 8 blocks. Utterly trusting — it never flees, never fights, and re-approaches the thing that just struck it. Sheared with needle_iron_shears it yields raw_skein and the wool rewinds over two day-cycles; a freshly sheared skeinling grazes twice as often until regrown. A flock strays no more than 24 blocks from where it woke. Shear, do not slaughter: the flock remembers nothing, which is why someone should.",
+      "stats": {
+        "hp": 8,
+        "damage": 0,
+        "speed": 2.5
+      },
+      "drops": [
+        { "item": "raw_skein", "chance": 1.0, "note": "Sheared with needle_iron_shears; the wool grows back. Shear, do not slaughter." }
+      ],
+      "visual": {
+        "palette": ["#F2EAD8", "#DCCDB0", "#B8A47E", "#8A7350", "#C9938A"],
+        "silhouette": "A near-perfect ball of wound wool-thread on four two-pixel stub legs, the winding drawn as concentric curved pixel-bands; a small bare face pokes from the front of the ball with two dark dot eyes and a soft pink nose-pixel, and one loose thread-end pixel always trails from the flank, waiting for the shears."
+      }
+    },
+    {
+      "id": "bobbin_deer",
+      "name": "Bobbin-deer",
+      "dimension": "Warpwold",
+      "role": "passive",
+      "core": true,
+      "audioArchetype": "passive_grazer",
+      "spawnRules": {
+        "biomes": ["thrumwood", "understitch_downs"],
+        "lightLevel": "6-15",
+        "timeOfDay": "day",
+        "groupSize": "2-4",
+        "rarity": "common"
+      },
+      "behavior": "Browses the Thrumwood underbrush and the Understitch Downs in small bands, antlers wound like spooled bobbins that unspool a little more each season. Skittish: startles at 16 blocks from a sprinting player or any hostile mob and bounds away in 3-block leaps, unspooling a faint one-pixel thread-trail that fades over 10 seconds — the surest way to track a band to calmer ground. Calm grazing bobbin-deer are the sign the forest has not yet woken for the night; when every deer in earshot startles at once with nothing visible, night's first needlejack has already unbent, and you should already be walking home.",
+      "stats": {
+        "hp": 14,
+        "damage": 0,
+        "speed": 6
+      },
+      "drops": [
+        { "item": "thread_sinew", "chance": 0.9 },
+        { "item": "hide_cloth", "chance": 0.6 }
+      ],
+      "visual": {
+        "palette": ["#A5764A", "#7C5432", "#52371E", "#E0C9A8", "#D9B98C"],
+        "silhouette": "A slender deer on thin two-pixel legs, pale at the belly and darker along the back; the antlers are two short stacked spool-cylinders drawn as flat-topped pixel drums with a single loose thread-pixel unspooling from each, and the short tail is a snipped thread-end rather than a tuft."
+      }
+    },
+    {
+      "id": "spoolmare",
+      "name": "Spoolmares",
+      "dimension": "Warpwold",
+      "role": "passive / mount",
+      "core": false,
+      "audioArchetype": "passive_grazer",
+      "spawnRules": {
+        "biomes": ["understitch_downs"],
+        "lightLevel": "8-15",
+        "timeOfDay": "day",
+        "groupSize": "2-5",
+        "rarity": "uncommon"
+      },
+      "behavior": "Wild bands canter along the doubled ghost-rivers of the Downs and shy 12 blocks from any sprinting player. Taming is one mechanic (tame_entity:spoolmare): each mount attempt has a base 15% success chance, +10% for each raw_skein fed to the mare between attempts, capped at 75%; a failed attempt throws the rider without damage. A bonded spoolmare accepts a saddle_frame to sit and answers a whistle within 32 blocks. Ridden in Nevermend, a bonded mare stitches a one-block-wide thread-tread under its hooves across open fray; each stitch of ground unravels 5 seconds after it passes. Tamed spoolmares persist and never despawn. Unpicked, one comes apart into slack sinew — a poor trade for a friend that would have carried you over nothing.",
+      "stats": {
+        "hp": 26,
+        "damage": 0,
+        "speed": 9
+      },
+      "drops": [
+        { "item": "thread_sinew", "chance": 0.5, "note": "Only if unpicked — a poor trade for a friend that would have carried you over nothing." }
+      ],
+      "visual": {
+        "palette": ["#C8B7E0", "#9E86C2", "#6B5694", "#F0EAF7", "#3A2E52"],
+        "silhouette": "A horse silhouette whose body is visibly bundled parallel thread-lines rather than solid flesh — gaps of background show between strands at the belly and neck; the mane and tail trail off into three or four loose unattached thread-pixels that drift behind it."
+      }
+    },
+    {
+      "id": "wickerkin",
+      "name": "Wickerkin",
+      "dimension": "Warpwold",
+      "role": "neutral / trader",
+      "core": true,
+      "audioArchetype": "trader",
+      "spawnRules": {
+        "biomes": ["sennmeadows", "thrumwood", "understitch_downs", "dyewater_coast"],
+        "lightLevel": "0-15",
+        "timeOfDay": "any",
+        "groupSize": "3-8",
+        "rarity": "uncommon"
+      },
+      "behavior": "Structure-bound population: spawns only with the wickerkin_weft_hamlet structure (structures.json), never as free biome spawns. Daily schedule — tends understitch_loam plots at dawn, opens trades at midday, gathers around the hamlet knotlight at dusk; trades only during day (trade_with:wickerkin, trade_count:wickerkin). Interact opens a trade menu exchanging raw_skein, dye, knotwork charms, and map-lore for giltspool; each Wickerkin holds 4-6 rotating offers restocking at dawn. Never fights: a hostile within 10 blocks sends it indoors to bar the door, and attacking one locks all trade in that hamlet against the attacker for one full day. They dream they are alive, and they are courteous about it; they do not thank you for suggesting the ground is cloth. Unpicking one is a small murder of a small dream, and the charm it leaves is worth less than what it cost.",
+      "stats": {
+        "hp": 20,
+        "damage": 0,
+        "speed": 3.5
+      },
+      "drops": [
+        { "item": "knot_charm", "chance": 0.4, "note": "Unpicking a Wickerkin is a small murder of a small dream. The charm is worth less than what it cost." },
+        { "item": "lore_scroll", "chance": 0.1 }
+      ],
+      "visual": {
+        "palette": ["#C9A86A", "#A5854E", "#7C6136", "#3E2F1C", "#E8D9B5"],
+        "silhouette": "A villager-proportioned figure of visible basket-weave: the torso is a lattice of crossed cane strips with dark hollow diamonds between them, arms are single woven tubes, and the head is a rounded hollow basket with two warm dot-lights deep inside for eyes."
+      }
+    },
+    {
+      "id": "needlejack",
+      "name": "Needlejacks",
+      "dimension": "Warpwold",
+      "role": "hostile",
+      "core": false,
+      "audioArchetype": "hostile_groaner",
+      "spawnRules": {
+        "biomes": ["thrumwood", "sennmeadows", "bleachlands", "unfinished_hem"],
+        "lightLevel": "0-4",
+        "timeOfDay": "night",
+        "groupSize": "1-2",
+        "rarity": "common"
+      },
+      "behavior": "Stands folded and statue-still by day (invulnerable, untargetable); unbends at nightfall and pathfinds toward the nearest player within 24 blocks in a jerky stop-start gait, groaning like thread dragged through tight cloth. Attacks with alternating needle-limb stabs. Every player or mob kill it lands is stitched into its body — +2 hp and +1 damage per kill, visible as extra thread wound around its limbs — capped at 5 stitched kills; stacks persist through its daytime folded state but are lost on despawn. Obeys the standard knotlight ward: it will not path within 4 blocks of a lit knotlight. It is not cruel. It is only wrong-woven, and was never allowed to be anything else.",
+      "stats": {
+        "hp": 18,
+        "damage": 4,
+        "speed": 4.5
+      },
+      "drops": [
+        { "item": "thread_sinew", "chance": 0.7 },
+        { "item": "needle_iron", "chance": 0.15, "note": "A snapped limb, still sharp. The Loom wove even its mistakes from good material." }
+      ],
+      "visual": {
+        "palette": ["#4A4E57", "#2B2E35", "#8A8F9C", "#C0C6D4", "#5E1F1F"],
+        "silhouette": "A gaunt upright figure whose four limbs are single-pixel-wide straight needle-lines ending in sharp points, bent at wrong angles like a folding ruler; the narrow body is wrapped in horizontal thread-bands, and the small head is a blunt needle-eye — a vertical slot of background color where a face should be."
+      }
+    },
+    {
+      "id": "understruck",
+      "name": "The Understruck",
+      "dimension": "Warpwold",
+      "role": "hostile / mournful",
+      "core": true,
+      "audioArchetype": "hostile_groaner",
+      "spawnRules": {
+        "biomes": ["thrumwood", "muslin_fens", "bleachlands", "unfinished_hem"],
+        "lightLevel": "0-5",
+        "timeOfDay": "night",
+        "groupSize": "1-3",
+        "rarity": "uncommon"
+      },
+      "behavior": "Wakes at dusk where the cloth wears thin and walks — never runs — toward the nearest player within 20 blocks, dragging its own loose and trailing threads behind it with an audible snagging hiss. Each hit is a grasping pull: 5 damage, plus it draws 1 point of the player's hunger/thread meter into itself as it tries to take whole living thread to finish what it is. A player who stands completely still within 6 blocks and takes no action causes it to pause and simply watch for up to 4 seconds before hunger wins — a mercy window to back away, once per encounter. Obeys the standard knotlight ward (will not path within 4 blocks of a lit knotlight, but stands at the rim, waiting). Its groan is grief before it is threat: it hunts Menders because they were never allowed to be anything else, and never tidied away.",
+      "stats": {
+        "hp": 24,
+        "damage": 5,
+        "speed": 3.5
+      },
+      "drops": [
+        { "item": "loose_thread", "chance": 0.8, "note": "The trailing ends they could not keep. Laid straight at last." }
+      ],
+      "visual": {
+        "palette": ["#5E6E6A", "#3C4A47", "#8FA39D", "#232C2A", "#C4D4CF"],
+        "silhouette": "A hunched human figure that is solid only from the chest up: below the waist the body loosens into a dragging skirt of six or seven single-pixel trailing threads that snag two or three pixels behind it on the ground; one arm reaches forward whole, the other is half-unwound to a thin thread-line, and the bowed head has a single pale eye-pixel set too low."
+      }
+    },
+    {
+      "id": "frayed_hound",
+      "name": "Frayed Hounds",
+      "dimension": "Warpwold",
+      "role": "hostile",
+      "core": true,
+      "audioArchetype": "hostile_groaner",
+      "spawnRules": {
+        "biomes": ["muslin_fens", "unfinished_hem"],
+        "lightLevel": "0-7",
+        "timeOfDay": "night",
+        "groupSize": "3-6",
+        "rarity": "common"
+      },
+      "behavior": "Dens by day in the dark hollows of the Muslin Fens and the Unfinished Hem and hunts at night in packs, coordinating by a low sub-audible thrum the player feels as a faint screen-edge shiver 3-5 seconds before the first hound is visible. Pack tactics: hounds fan out to flank at 10 blocks and only commit to a lunge when two or more have line of sight on the target. A bite deals 3 damage and applies Fraying for 20 seconds — a random equipped armor piece loses 1 durability per second until the effect ends, a mothdust_poultice quiets it, or the player stands still for 3 uninterrupted seconds (stopping to mend). A lone hound cut off from its pack loses nerve, circling at 10 blocks without attacking until packmates arrive or dawn sends it home.",
+      "stats": {
+        "hp": 14,
+        "damage": 3,
+        "speed": 6
+      },
+      "drops": [
+        { "item": "thread_sinew", "chance": 0.6 },
+        { "item": "hide_cloth", "chance": 0.3 }
+      ],
+      "visual": {
+        "palette": ["#4A3F38", "#2E2620", "#6E6055", "#8C7D6E", "#B3453A"],
+        "silhouette": "A lean low-slung hound, ribs suggested by two darker vertical pixel-bands, head carried level with the spine; the whole outline is deliberately ragged — five or six single-pixel loose threads trail off the haunches and tail like wet fur mid-shed — and the single visible eye is one dull ember-red pixel."
+      }
+    },
+    {
+      "id": "silence_moth",
+      "name": "Silence-Moths",
+      "dimension": "Warpwold",
+      "role": "ambient",
+      "core": false,
+      "audioArchetype": "passive_grazer",
+      "spawnRules": {
+        "biomes": ["muslin_fens", "thrumwood"],
+        "lightLevel": "0-7",
+        "timeOfDay": "night",
+        "groupSize": "3-8",
+        "rarity": "common"
+      },
+      "behavior": "Ambient grazer of cloth rather than grass. Drifts in slow constellations toward the nearest light source within 24 blocks (knotlight included — the standard 4-block knotlight ward does NOT repel it), then settles and nibbles: every 10 seconds a settled moth deals 1 durability damage to a random woven block face (raw_skein, woven banners, knotwood_plank) or to a worn armor piece if a player stands still within 1 block for 8 or more seconds. It never aggresses and flees 6 blocks from any melee swing. Its shed dust cakes wherever clouds cluster and comes away freely as mothdust, the raw stuff of Mothdust Brick — unpicking one is unnecessary, and they never learn to fear you. A cloud of them stripping a wall to bare warp makes no sound at all. That is the unsettling part.",
+      "stats": {
+        "hp": 4,
+        "damage": 1,
+        "speed": 3
+      },
+      "drops": [
+        { "item": "mothdust", "chance": 1.0, "note": "Shed freely where they cluster; unpicking one is unnecessary, and they never learn to fear you." }
+      ],
+      "visual": {
+        "palette": ["#E8E6F0", "#C9C6D9", "#9B97AF", "#6A6680", "#F7F6FB"],
+        "silhouette": "A palm-sized moth with two broad rounded wings held flat, wing surfaces pale and powdery with a single darker eyespot pixel on each; the body is a soft two-pixel bar with feathered single-pixel antennae, and one faint pixel of shed dust hangs beneath it wherever it flies."
+      }
+    },
+    {
+      "id": "emberspinner",
+      "name": "Emberspinners",
+      "dimension": "Cinderloom",
+      "role": "hostile",
+      "core": true,
+      "audioArchetype": "hostile_groaner",
+      "spawnRules": {
+        "biomes": ["emberwarp", "cinderspindle_forges"],
+        "lightLevel": "0-15",
+        "timeOfDay": "any",
+        "groupSize": "1-3",
+        "rarity": "common"
+      },
+      "behavior": "Strings burning-thread web lines between warp-lines and terrain; webs slow players 60% and deal 1 fire damage per second on contact. Waits motionless at the web edge and skitters in when anything is snared, groaning like hot wire under strain; away from its web it stalks along walls and ceilings, spitting a slowing thread-line every 5 seconds at up to 12 blocks. Counterplay is cold, not water (nothing runs cool in the Cinderloom): placing frostlace or mothdust_brick against a web anchor block quenches that whole web in 3 seconds, dealing the spinner 4 damage and forcing it to retreat and respin. Quenched web strands come away as scorched_silk — quench it in your hands before it cools you. Fast, fragile, and endlessly numerous: the loose sparks of the furnace given the intent to hunt.",
+      "stats": {
+        "hp": 22,
+        "damage": 5,
+        "speed": 4
+      },
+      "drops": [
+        { "item": "scorched_silk", "chance": 0.75, "note": "Quench it in your hands before it cools you." }
+      ],
+      "visual": {
+        "palette": ["#D94F1E", "#F2A03D", "#8C2B12", "#3A1108", "#FFD98C"],
+        "silhouette": "A wide low spider shape whose eight legs are drawn as thin glowing thread-lines bent in two sharp segments each; the abdomen is a fat spool-cylinder banded with bright ember stripes, and a single incandescent thread-pixel trails from the spinneret."
+      }
+    },
+    {
+      "id": "waxling",
+      "name": "Waxlings",
+      "dimension": "Cinderloom",
+      "role": "hostile / swarm",
+      "core": true,
+      "audioArchetype": "exploder",
+      "spawnRules": {
+        "biomes": ["tallow_vaults", "ashskein_wastes"],
+        "lightLevel": "0-15",
+        "timeOfDay": "any",
+        "groupSize": "4-8",
+        "rarity": "common"
+      },
+      "behavior": "Swarms toward the nearest player in a waddling rush that is anything but quiet — a wet, quickening wax-squelch that rises in pitch as it softens, its body visibly slumping and losing height over the chase (a clear two-stage telegraph before it can burst). On reaching melee range, or on death by fire, it bursts in a 2.5-block splash of hot tallow: 7 damage at center, and splashed floor becomes a slick that slides sprinting players 3 extra blocks for 15 seconds. Swarm-mates path around fresh slicks, herding players onto them. A waxling felled by a ranged hit before it closes dies without bursting and drops double tallowstone — a cooled clot of what it was; it re-hardens quickly, like everything in the Vaults. It carries no bindwax: Bindwax is rendered, never dropped. Precious on purpose.",
+      "stats": {
+        "hp": 10,
+        "damage": 7,
+        "speed": 3.5
+      },
+      "drops": [
+        { "item": "tallowstone", "chance": 0.5, "note": "A cooled clot of what it was. It re-hardens quickly, like everything in the Vaults." }
+      ],
+      "visual": {
+        "palette": ["#E8C87A", "#D4A94F", "#B37E2E", "#F7E7B8", "#7A4E1C"],
+        "silhouette": "A squat half-melted candle-person: a rounded head slumping to one side and merging into the shoulders, no neck, stubby arms fused to the body at the elbow, the base spreading into a wide dripping skirt of wax with two or three pixel drips descending; a single soft flame-colored pixel glows in the chest like a sunken wick."
+      }
+    },
+    {
+      "id": "scaldwarden",
+      "name": "Scaldwardens",
+      "dimension": "Cinderloom",
+      "role": "neutral / guardian",
+      "core": false,
+      "audioArchetype": "trader",
+      "spawnRules": {
+        "biomes": ["cinderspindle_forges", "emberwarp"],
+        "lightLevel": "0-15",
+        "timeOfDay": "any",
+        "groupSize": "1-2",
+        "rarity": "uncommon"
+      },
+      "behavior": "Patrols fixed routes around ember-spindles, murmuring reports to empty niches, ignoring players entirely unless one steals from the forges: breaking or picking up emberskein_ore, everthread, or spindle structure blocks within its sight turns it and every warden within 20 blocks hostile to that thief for two minutes. Gathering common cinderthread from the open ground never provokes it — the floor is not the forge. Attacks by leveling its spindle-stave in a 3-block beam that draws the heat from your very threads: 6 damage plus a 30% slow for 10 seconds. Wardens never leave a 24-block leash from their spindle, still perfectly obedient to a Weaver who never came back to release them; one in the Tallow Reliquary will trade quenching-lore for emberskein_ore. Their low ceaseless murmur is not aggression; it is the sound of orders no one ever cancelled, and their quiet, endless, purposeless diligence is the most heartbreaking sight in the underworld.",
+      "stats": {
+        "hp": 40,
+        "damage": 6,
+        "speed": 3
+      },
+      "drops": [
+        { "item": "emberskein_ore", "chance": 0.6 },
+        { "item": "scorched_silk", "chance": 0.3, "note": "Tithed bales, carried on rounds no one set. Grant it its sorrow." }
+      ],
+      "visual": {
+        "palette": ["#8C1F1F", "#5E1212", "#D9803C", "#2E0A0A", "#F2C066"],
+        "silhouette": "A tall robed figure, floor-length robe flaring slightly so no feet show, deep hood entirely dark except two small ember-orange eye-pixels; both hands hold a vertical stave one head taller than the figure, topped with a diamond of bright heat, and thin glowing seam-lines run down the robe like stitching."
+      }
+    },
+    {
+      "id": "slagmoth",
+      "name": "Slagmoths",
+      "dimension": "Cinderloom",
+      "role": "ambient / hostile",
+      "core": true,
+      "audioArchetype": "flying_screecher",
+      "spawnRules": {
+        "biomes": ["ashskein_wastes", "emberwarp"],
+        "lightLevel": "0-15",
+        "timeOfDay": "any",
+        "groupSize": "2-5",
+        "rarity": "common"
+      },
+      "behavior": "Flits above the ash-ridges in loose burning swarms, indifferent to light and drawn instead to cold: anything carrying the chill of Warpwold — a newly arrived player, placed frostlace, mothdust_brick — pulls every slagmoth within 32 blocks. Its keen rises as it closes; that thin climbing note is the only warning before the air goes bright. On contact it clings, dealing 3 fire damage per second while attached (armor does not block cling damage — it cooks you inside it); any melee swing, including from another player, knocks a clinging moth off. A placed frostlace block works as bait: the swarm abandons all other targets to smother it, cracking and consuming the block in 10 seconds — the standard toll for crossing the Wastes. It never lands on cinderthread and will not pursue a player standing on an open ember-flow: too warm to be worth wanting.",
+      "stats": {
+        "hp": 12,
+        "damage": 3,
+        "speed": 7
+      },
+      "drops": [
+        { "item": "cinderthread", "chance": 0.4, "note": "A smoldering scrap of the wing. It never fully cools." }
+      ],
+      "visual": {
+        "palette": ["#E86A28", "#F7B24E", "#A83C14", "#5C1E0A", "#2B0E06"],
+        "silhouette": "A moth half again the size of its pale surface cousin, wings drawn with jagged, torn trailing edges like slag cooling mid-drip; the wing surfaces grade from near-black at the tips to bright ember at the body, the fat two-pixel abdomen glows brightest of all, and one rising spark-pixel escapes above it every few frames."
+      }
+    },
+    {
+      "id": "molthkin",
+      "name": "Molthkin, the First Bobbin",
+      "dimension": "Cinderloom",
+      "role": "boss",
+      "core": false,
+      "audioArchetype": "hostile_groaner",
+      "spawnRules": {
+        "biomes": ["cinderspindle_forges"],
+        "lightLevel": "0-15",
+        "timeOfDay": "any",
+        "groupSize": "1-1",
+        "rarity": "rare"
+      },
+      "behavior": "Unique boss, structure-bound to the deepest ember-spindle; exactly one exists per world and it does not respawn once felled. A vast half-molten spool that turns in place, winding burning thread, kept turning so long alone that its duty has curdled into madness — feeding the fire things that should never burn, certain that enough new thread will bring the Weaver back to weave again. Phase 1 (above 50% hp): sweeps a rotating molten thread-arm (11 damage, 6-block reach) and periodically winds players toward itself, dragging anyone within 10 blocks 2 blocks per second for 3 seconds. Phase 2 (below 50%): feeds itself to the fire — sheds waves of 3-5 waxlings, and its groan becomes a labored spinning-song; standing on frostlace or mothdust_brick placed on the arena floor grants immunity to the winding pull. Felling it fires kill_entity:molthkin, releases the coil of Everthread it guarded — the only source in all three realms — and stills the forges for three full day-cycles: the spindles stop, the Scaldwardens kneel dormant, and the Cinderloom goes quiet for the first time since the beginning. It only wanted to finish its work. Do not mistake it for a victory.",
+      "stats": {
+        "hp": 280,
+        "damage": 11,
+        "speed": 2
+      },
+      "drops": [
+        { "item": "everthread", "chance": 1.0, "note": "The coil it guarded, released at last. It remembers being new." }
+      ],
+      "visual": {
+        "palette": ["#F2A03D", "#D94F1E", "#7A2A10", "#2B0E06", "#FFE9B8", "#E8C87A"],
+        "silhouette": "A colossal spool on its side, taller than four figures: two great end-discs sagging and half-melted like old candles, the barrel between them wound in thick banded thread that glows brighter toward the core; one molten thread-arm unspools from the barrel mid-swing, and dozens of small drip-pixels fall continuously from its lower rim."
+      }
+    },
+    {
+      "id": "unpicked",
+      "name": "The Unpicked",
+      "dimension": "Nevermend",
+      "role": "hostile",
+      "core": true,
+      "audioArchetype": "hostile_groaner",
+      "spawnRules": {
+        "biomes": ["the_fraying"],
+        "lightLevel": "0-15",
+        "timeOfDay": "any",
+        "groupSize": "2-5",
+        "rarity": "common"
+      },
+      "behavior": "Shambles across the tapestry-islands toward any player, arms out, with a hollow groan like wind through an empty sleeve; it never runs and never stops, pathing around obstacles and off island edges (it drifts down unharmed). Its touch deals 6 damage and pulls 1 durability of thread from a random equipped armor piece per hit — trying to pull a whole thread loose to replace what it has lost. Player deaths to The Unpicked follow the normal re-knotting rule — you are re-stitched at your last anchor losing a little gathered thread — but the thread lost in that tearing is unrecoverable: no death-site pickup ever appears; the pattern forgets it was carried at all. It leaves no corpse and no drops when it kills, and none when it is laid straight — only a gap. It obeys the standard knotlight ward: it will not cross within 4 blocks of a lit knotlight, standing at the rim and reaching in. Pity it. Then keep the light lit.",
+      "stats": {
+        "hp": 26,
+        "damage": 6,
+        "speed": 3
+      },
+      "drops": [],
+      "dropsNote": "Nothing. There is no corpse, only a gap the pattern forgets was ever filled.",
+      "visual": {
+        "palette": ["#7A8494", "#525A68", "#B8C0CE", "#2B303B", "#E4E9F2"],
+        "silhouette": "A human silhouette that is only half there: the left side of the body is solid, but the right arm, right leg, and right half of the head are drawn as unravelled outline — single-pixel thread-lines tracing where the limb used to be, with background showing through; both solid and unravelled arms reach forward, and there is no face at all."
+      }
+    },
+    {
+      "id": "raveler",
+      "name": "Ravelers",
+      "dimension": "Nevermend",
+      "role": "hostile",
+      "core": false,
+      "audioArchetype": "flying_screecher",
+      "spawnRules": {
+        "biomes": ["loosened_dark", "the_fraying", "last_selvage"],
+        "lightLevel": "0-15",
+        "timeOfDay": "any",
+        "groupSize": "1-3",
+        "rarity": "uncommon"
+      },
+      "behavior": "Drifts up out of the Loosened Dark and orbits a player at 8 blocks, near-silent on approach; the thin unravelling skirl it keens before each pass — like a seam giving way at the far edge of hearing — is the only tell. On a pass it does one of two things: unpicks one player-placed block within 2 blocks of its path (destroyed, not dropped — blocks bound in Bindwax are immune), or snatches the item from the player's active hand and flees upward with it, dealing 5 contact damage. A raveler slain within 20 seconds of a theft drops the stolen item; after that the item is unpicked from the record forever — it steals from the record and not just the moment. It obeys the standard knotlight ward — it will not approach within 4 blocks of a lit knotlight — and will not pass within 4 blocks of any bound block. It does not hate what you built. It only cannot leave a loose end alone. The Last Needle sheds Ravelers from its own length during its encounter (boss.json: Shed of Ravelers, Shed the Hollow); these boss-summoned Ravelers go for stitch-point placements, taut stitches, and perimeter knotlights rather than the player.",
+      "stats": {
+        "hp": 18,
+        "damage": 5,
+        "speed": 8
+      },
+      "drops": [
+        { "item": "loose_thread", "chance": 0.7 },
+        { "item": "voidknot", "chance": 0.2, "note": "Whatever it had gathered, spilled. Some of it may even have been yours." }
+      ],
+      "visual": {
+        "palette": ["#2E2440", "#4B3A6E", "#8A76B8", "#120D1F", "#C9BBE8"],
+        "silhouette": "No body to speak of — a loose airborne tangle of five or six curling single-pixel thread-lines knotted at a dark central clump, like a scribble given appetite; two thin lines extend forward of the clump as grasping feelers, and one pale pixel floats inside the knot where an eye would be if it had bothered."
+      }
+    },
+    {
+      "id": "selvage_warden",
+      "name": "Selvage Wardens",
+      "dimension": "Nevermend",
+      "role": "mini-boss",
+      "core": false,
+      "audioArchetype": "hostile_groaner",
+      "spawnRules": {
+        "biomes": ["last_selvage"],
+        "lightLevel": "0-15",
+        "timeOfDay": "any",
+        "groupSize": "1-2",
+        "rarity": "uncommon"
+      },
+      "behavior": "Mini-boss guardian wound from finished hem-thread, far more coherent than anything else in the void, patrolling the shining rim of the Last Selvage in slow, exact circuits; hostile to anything that steps onto the hem. Strikes with a sweeping hem-line lash (9 damage, 4-block reach) and mends its own wounds as fast as you can open them: regenerates 2 hp per second at all times, with regeneration suppressed for 3 seconds by any single hit dealing 6 or more damage — sustained heavy blows are the only way through, and Dawnthread-tier weapons or better are effectively required. It groans one long low note when cut, the sound of a seam under strain, and never pursues beyond the hem itself. Felling one fires kill_entity:selvage_warden. To pass one is to argue your way past something that has already decided how the argument ends: it is the finished edge defending its own finishing, and it was made well. That is the problem.",
+      "stats": {
+        "hp": 90,
+        "damage": 9,
+        "speed": 4
+      },
+      "drops": [
+        { "item": "hemstone", "chance": 1.0, "note": "Finished hem-thread, gone rigid and pale in the unwinding." }
+      ],
+      "visual": {
+        "palette": ["#E8DFC8", "#C9B98C", "#8C7B52", "#F7F2E4", "#3A3220", "#D4C7A3"],
+        "silhouette": "A tall broad-shouldered figure wound entirely from one continuous bright thread — the winding lines visible as parallel pixel-bands curving around torso, arms, and head like a mummy of light; no face, only a smooth wound-over oval, with one arm ending in a long trailing hem-line lash and small loose loops standing off the shoulders where the winding never quite lies flat."
+      }
+    },
+    {
+      "id": "last_needle",
+      "name": "The Last Needle",
+      "dimension": "Nevermend",
+      "role": "final boss",
+      "core": true,
+      "audioArchetype": "hostile_groaner",
+      "spawnRules": {
+        "biomes": ["last_selvage"],
+        "lightLevel": "0-15",
+        "timeOfDay": "any",
+        "groupSize": "1-1",
+        "rarity": "rare"
+      },
+      "behavior": "Final boss; unique; the Ravelling given form, shaped like a needle the length of a horizon. It cannot be killed — its hp value is total binding progress, not flesh (800 total, spent unevenly across three phases — 100%-60%, 60%-15%, 15%-0%, the bar clamping at 480 and 120 hp at each boundary, the last 120 hp sewn off only by the eight-stitch binding at 15 hp per stitch); no weapon damage reduces it. The encounter has three bind-phases: in each, the player must raise a loom-gate anchor on the hem — a cinderglass frame seated on voidknot — lure the Needle's horizon-long dive through the frame, and while it strains there, stitch it down with everthread (a 5-second channel consuming 1 everthread; taking damage interrupts the stitch). Between bindings it sweeps the Last Selvage at full speed with a groan like every thread in the weave drawn tight at once, unpicking a one-block-wide line of terrain along its path (Bindwax-bound blocks and knotlight anchor points survive) and dealing 14 damage on contact; each phase it calls 2-4 of The Unpicked or Ravelers up from the dark. When the third binding holds, the Needle stills, turns, and begins — for a while — to stitch instead of tear: closing that third binding is the encounter's completion event and fires the trigger kill_entity:last_needle at the binding-anvil in the Eye of the Last Hem (see boss.json; builders: wire the bind-completion event to that trigger id exactly — there is no death event). It does not hate what the Weaver made. It cannot bear that the cloth was left unfinished, and means to undo the flaw by undoing everything. It is not done. Neither, yet, are you.",
+      "stats": {
+        "hp": 800,
+        "damage": 14,
+        "speed": 12
+      },
+      "statsNote": "Boss encounter stats are canonical in content/boss.json (phased Eye-of-the-Needle fight); this entry mirrors it for the event system.",
+      "drops": [],
+      "dropsNote": "Nothing. It is not killed, and what you leave with is the ending you choose.",
+      "visual": {
+        "palette": ["#D8DEE8", "#8A93A8", "#3B4152", "#0B0D14", "#F2F5FA", "#5E1F1F"],
+        "silhouette": "A single impossibly long horizontal needle-line spanning the whole frame edge to edge, one pixel thick and tapering to a point that catches a bright highlight pixel; near the blunt end, the needle-eye is an open slot of pure background threaded with one loose dark strand that trails off-frame, and faint unravel-pixels scatter beneath its whole length like falling stitches."
+      }
+    }
+  ]
+}

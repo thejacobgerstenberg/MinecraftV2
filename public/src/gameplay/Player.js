@@ -59,6 +59,10 @@ export class Player {
     this.size = { ...SIZE };
     /** Spawn point: horizontal CENTER of the player (block column 8,8). */
     this.spawn = { x: 8.5, z: 8.5 };
+    /** Optional kill-plane handler: when set, falling below the kill plane
+     *  calls it (once per crossing) INSTEAD of the silent auto-respawn, so
+     *  the game can route it through the death flow ('void_unravel'). */
+    this.onKillPlane = null;
 
     this.respawn();
   }
@@ -167,7 +171,10 @@ export class Player {
     this.onGround = inWater ? false : res.onGround;
 
     // ── Kill plane ───────────────────────────────────────────────────────
-    if (this.position.y < KILL_PLANE_Y) this.respawn();
+    if (this.position.y < KILL_PLANE_Y) {
+      if (typeof this.onKillPlane === 'function') this.onKillPlane();
+      else this.respawn();
+    }
 
     // ── Camera follows the eyes; rotation belongs to Controls ────────────
     if (this.camera) {
