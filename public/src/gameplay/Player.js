@@ -25,17 +25,21 @@ const SIZE = { x: 0.6, y: 1.8, z: 0.6 };
 const EYE_HEIGHT = 1.62;
 const SNEAK_EYE_DROP = 0.12;   // eyes sit lower while sneaking (1.62 -> 1.50)
 
-const WALK_SPEED = 4.3;        // blocks/s
-const SPRINT_MULT = 1.35;      // ×4.3 = 5.805 blocks/s
-const SNEAK_MULT = 0.3;        // ×4.3 = 1.29 blocks/s; sneaking cancels sprint
-const FLY_SPEED = 10;
-const FLY_SPRINT_SPEED = 20;
-const GRAVITY = -24;           // blocks/s²
-// Jump tuned for a ~1.25-block peak: v = sqrt(2 * |GRAVITY| * 1.25) ≈ 7.75.
-const JUMP_VELOCITY = 7.75;    // only applied when onGround
+// Locomotion constants follow the tick-derived design spec (docs/PARITY.md
+// §8A.1, 20 Hz: b/tick × 20 = b/s, b/tick² × 400 = b/s²).
+const WALK_SPEED = 4.317;      // blocks/s (spec SPEED_WALK)
+const SPRINT_MULT = 1.3;       // ×4.317 ≈ 5.612 blocks/s (spec SPEED_SPRINT)
+const SNEAK_MULT = 0.3;        // ×4.317 ≈ 1.295 blocks/s (spec SPEED_SNEAK);
+                               // sneaking cancels sprint
+const FLY_SPEED = 10;          // deliberately NOT the spec's 10.89 — flight
+const FLY_SPRINT_SPEED = 20;   // speeds are a product decision, kept as-is
+const GRAVITY = -32;           // blocks/s² (spec −0.08 b/tick² × 400)
+const JUMP_VELOCITY = 8.4;     // blocks/s (spec 0.42 b/tick × 20); onGround only
 const SPRINT_JUMP_BOOST = 1.2; // forward impulse on the jump tick while sprinting
-const TERMINAL_FALL_SPEED = 50; // blocks/s cap on fall speed (physics tests
-                               // guarantee no tunneling at 50 b/s)
+const TERMINAL_FALL_SPEED = 78.4; // blocks/s cap (spec −3.92 b/tick × 20);
+                               // physics substepping is tunnel-free at any speed
+const STEP_HEIGHT = 0.6;       // auto step-up onto obstacles this low (spec
+                               // step_height; never while sneaking or flying)
 const AIR_CONTROL_RATE = 5;    // 1/s — how fast airborne velocity approaches the wish dir
 const WATER_SPEED_MULT = 0.5;  // horizontal damping in liquid
 const WATER_SINK_SPEED = -2.2; // slow sink terminal velocity
@@ -181,8 +185,8 @@ export class Player {
         Math.min(1, WATER_VERTICAL_RATE * dt);
     } else {
       this.velocity.y += GRAVITY * dt;
-      // Terminal velocity: cap fall speed at 50 b/s (physics substepping is
-      // verified tunnel-free at exactly this speed).
+      // Terminal velocity: cap fall speed at 78.4 b/s (physics substepping
+      // is verified tunnel-free at this speed).
       if (this.velocity.y < -TERMINAL_FALL_SPEED) {
         this.velocity.y = -TERMINAL_FALL_SPEED;
       }
@@ -216,7 +220,13 @@ export class Player {
     }
 
     // ── Integrate + collide (axis-separated, substepped) ─────────────────
-    const res = moveAndCollide(this.world, aabb, this.velocity, dt);
+    // Auto step-up (STEP_HEIGHT 0.6) only while walking on the ground: never
+    // while sneaking (the edge-guard owns sneak movement), flying, or
+    // swimming. onGround is preserved across a step.
+    const stepHeight =
+      (this.onGround && !this.flying && !this.sneaking && !inWater)
+        ? STEP_HEIGHT : 0;
+    const res = moveAndCollide(this.world, aabb, this.velocity, dt, { stepHeight });
     this.position = res.position;
     this.onGround = inWater ? false : res.onGround;
 

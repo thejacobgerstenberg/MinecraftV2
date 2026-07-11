@@ -27,7 +27,9 @@ function intBound(s, ds) {
  * @param {{getBlock:(x:number,y:number,z:number)=>number}} world
  * @param {{x:number,y:number,z:number}} origin  ray start (world units)
  * @param {{x:number,y:number,z:number}} dir     ray direction (normalized internally)
- * @param {number} [maxDist=5]                   maximum distance in blocks
+ * @param {number} [maxDist=6]                   maximum distance in blocks
+ *                                               (EDIT_REACH_BLOCKS — matches
+ *                                               the server's MAX_REACH 6)
  * @returns {{hit:boolean, x?:number, y?:number, z?:number,
  *            nx?:number, ny?:number, nz?:number, face?:string|null}}
  *   hit        — whether a block was hit within maxDist
@@ -44,7 +46,7 @@ function intBound(s, ds) {
  * stepped BACKWARD along the dominant axis of `dir` (toward the viewer), so
  * placement never targets the cell ahead of a buried camera.
  */
-export function raycastVoxel(world, origin, dir, maxDist = 5) {
+export function raycastVoxel(world, origin, dir, maxDist = 6) {
   const len = Math.hypot(dir.x, dir.y, dir.z);
   if (!(len > 0)) return { hit: false };
   const dx = dir.x / len, dy = dir.y / len, dz = dir.z / len;

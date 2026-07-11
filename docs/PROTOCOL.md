@@ -211,10 +211,14 @@ pings automatically; no client action is needed.
   dimension** (from validated moves). The `dim` field is kept for
   compatibility, but if present it must match the server's value or the edit
   is rejected — a client can never write into a dimension it is not in.
-- **Reach:** the block must be within **7** blocks of the player's
-  server-tracked position (distance from the player's collision column,
-  feet to feet+1.8, to the block center). Client-side reach is 5; the +2
-  covers eye-height and latency slack.
+- **Reach:** the block must be within **6** blocks of the player's
+  server-tracked collision box (0.6 x 1.8 x 0.6 — `move` frames carry the
+  AABB min corner — measured to the NEAREST point of the block cell's
+  volume). This is the single unified reach value (spec
+  `EDIT_REACH_BLOCKS = 6`): the client raycast uses the same 6 as its
+  eye-to-face max distance, and since the eye sits inside the box, the
+  box-nearest-point metric is always <= that ray distance — every
+  client-legal edit passes while anything past 6 is rejected.
 - **Rate:** at most **20 edits/s** per connection (token bucket, burst 20);
   excess edits are dropped (no `error` frame, but the sender does receive an
   `editReject` rollback frame — see §5).
@@ -392,7 +396,7 @@ regression test in `tests/security.test.mjs`, run via `npm test`):
 | 7 | Edit shape | integer coords, block `0..40`, `0 <= y < 128`, `\|x\|,\|z\| <= 30,000,000` | `error: bad_edit` |
 | 8 | Bedrock | **no edit at `y === 0`** (bedrock layer is always y=0 in every dimension; the server does not run worldgen, so the whole layer is protected) | `error: bad_edit` |
 | 9 | Edit dimension | bound to the **server-tracked** dimension; a `dim` field must match it | `error: bad_edit` |
-| 10 | Edit reach | <= **7** blocks from the server-tracked player column  (client reach is 5) | `error: bad_edit` |
+| 10 | Edit reach | <= **6** blocks from the server-tracked player collision box to the nearest point of the block cell (client raycast reach is the same 6 — one unified value) | `error: bad_edit` |
 | 11 | Edit rate | **20 edits/s** per connection (token bucket, burst 20) | excess dropped; sender gets an `editReject` rollback frame (no `error` frame) |
 | 12 | Names | strip control chars + `<>&"'`, cap 24, fallback `Wanderer-xxxx`, dedup per room with numeral suffix | sanitized transparently at join |
 | 13 | Chat | strip control chars, cap 256, HTML-escape `&<>"'` on broadcast (name too); **3 msgs / 2 s** | over-limit dropped + `error: chat_rate` to sender |

@@ -64,7 +64,8 @@ const VERSION = '0.1.0';
 const NAME_KEY = 'loomfall.name';
 const DAY_LENGTH_S = 600; // full day/night cycle: 10 minutes
 const START_TIME_OF_DAY = 0.42; // late morning, so new worlds open in daylight
-const REACH = 5.0; // block interaction raycast distance (server cap stays 7)
+const REACH = 6.0; // block interaction raycast distance — unified with the
+                   // server's MAX_REACH = 6 (spec EDIT_REACH_BLOCKS)
 
 // Timed block breaking (hold left mouse). Hardness -> seconds mapping:
 //   seconds = min(1.5, 0.15 + 0.5 * hardness); hardness < 0 = unbreakable.
@@ -1170,7 +1171,7 @@ async function bootSession(worldMeta) {
   function onBreak() {
     if (!gameplayActive()) return;
     S.fx.viewmodel.swing(); // arm swing on every break click
-    // Mob hitboxes take priority over blocks (reach 4 vs block reach 5).
+    // Mob hitboxes take priority over blocks (reach 4 vs block reach 6).
     if (tryAttackMob()) return;
     const t = computeTarget();
     if (!t.hit) return;

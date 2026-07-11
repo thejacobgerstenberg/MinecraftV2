@@ -72,8 +72,11 @@ const GRACE_COOLDOWN_MS = 2000;
 const RESPAWN_RADIUS = 8;
 /** Min interval between move_rejected notices to a violating sender. */
 const MOVE_REJECT_NOTICE_MS = 1000;
-/** Server-side edit reach cap; client reach is 5, +2 covers eye/latency slack. */
-const MAX_REACH = 7;
+/** Edit reach cap: 6 blocks (spec EDIT_REACH_BLOCKS) — the SAME value the
+ * client raycast uses, measured from the player's collision box to the
+ * nearest point of the block cell (a metric always <= the client's
+ * eye-to-face ray distance, so client-legal edits are never rejected). */
+const MAX_REACH = 6;
 /** World edit + movement horizontal bound. */
 const MAX_COORD_XZ = 30_000_000;
 /** Sanity bounds for move y (kill plane is -10; world height 128). */
@@ -81,6 +84,9 @@ const MOVE_MIN_Y = -64;
 const MOVE_MAX_Y = 512;
 /** Player collision height, for the reach check's vertical segment. */
 const PLAYER_HEIGHT = 1.8;
+/** Player collision width — move frames carry the AABB MIN corner, so the
+ * reach check spans [x, x+0.6] horizontally. */
+const PLAYER_WIDTH = 0.6;
 const NAME_MAX = 24;
 const CHAT_MAX = 256;
 
@@ -476,7 +482,7 @@ async function handleJoin(ws, msg) {
  *  - non-finite or out-of-world coordinates -> frame silently dropped;
  *  - displacement is charged against two token buckets: "controllable"
  *    (horizontal + upward, 25 b/s sustained, 25-block burst) and "fall"
- *    (downward, 90 b/s — free fall legitimately reaches ~81 b/s);
+ *    (downward, 90 b/s — terminal fall speed is 78.4 b/s);
  *  - a move that exceeds its budget is DROPPED (the server keeps the last
  *    valid position and notifies the sender with `error: move_rejected`,
  *    throttled to 1/s) unless one of the EXPLICIT grace teleports applies:
@@ -605,8 +611,10 @@ function rejectEdit(ws, msg, reason) {
  *  - y === 0 is the bedrock floor: NO edit (break or place) is accepted there;
  *  - the edit is bound to the sender's server-tracked dimension; a client
  *    `dim` field is accepted for compat but must match (else rejected);
- *  - reach: distance from the player's collision column (server-tracked feet
- *    position, height 1.8) to the block center must be <= 7 (client reach 5);
+ *  - reach: distance from the player's collision box (0.6x1.8x0.6 at the
+ *    server-tracked min-corner position) to the block cell (nearest point of
+ *    its volume) must be <= 6 — the same unified cap the client raycast uses
+ *    (spec EDIT_REACH_BLOCKS; box-nearest-point <= eye-to-face distance);
  *  - rate: 20 edits/s per connection (token bucket); excess edits are dropped.
  * EVERY rejection (including rate) also answers the sender with an
  * `editReject` rollback frame — see rejectEdit above and docs/PROTOCOL.md.
@@ -631,8 +639,16 @@ function handleEdit(ws, msg) {
     return send(ws, { t: 'error', code: 'bad_edit', message: 'edit dim does not match your dimension' });
   }
   const dim = player.dim;
-  const cy = y + 0.5 - clamp(y + 0.5, player.y, player.y + PLAYER_HEIGHT);
-  const dist = Math.hypot(x + 0.5 - player.x, cy, z + 0.5 - player.z);
+  // Distance from the player's collision BOX (0.6 x 1.8 x 0.6; move frames
+  // carry the AABB min corner, so the box spans [x,x+0.6]x[y,y+1.8]x
+  // [z,z+0.6]) to the NEAREST point of the block cell's volume
+  // [x,x+1]x[y,y+1]x[z,z+1]. The eye sits inside that box, so this metric is
+  // always <= the client's eye-to-face ray distance: every client-legal edit
+  // (raycast maxDist 6) passes the same 6-block cap — one unified value.
+  const dx = Math.max(0, x - (player.x + PLAYER_WIDTH), player.x - (x + 1));
+  const dy = Math.max(0, y - (player.y + PLAYER_HEIGHT), player.y - (y + 1));
+  const dz = Math.max(0, z - (player.z + PLAYER_WIDTH), player.z - (z + 1));
+  const dist = Math.hypot(dx, dy, dz);
   if (dist > MAX_REACH) {
     rejectEdit(ws, msg, 'reach');
     return send(ws, { t: 'error', code: 'bad_edit', message: `edit out of reach (max ${MAX_REACH})` });

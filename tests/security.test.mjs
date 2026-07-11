@@ -7,7 +7,7 @@
 //   S1  speed/teleport validation (grace ONLY on join, dimension change, and
 //       announced respawn into the spawn anchor — no unconditional resync;
 //       includes the benign-first-move-then-teleport regression)
-//   S1  edit reach cap (7 blocks), edit bounds, cross-dimension binding
+//   S1  edit reach cap (6 blocks, unified with client), edit bounds, cross-dimension binding
 //   S1  edit rate cap (20/s token bucket)
 //   S2  bedrock floor (no edits at y=0)
 //   S2  name sanitization / fallback / dedup

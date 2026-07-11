@@ -179,7 +179,7 @@ async function main() {
 
   // --- WS: edit -------------------------------------------------------------
   // (3,68,-2) is ~3 blocks from A's server-tracked position (1.5,70,-3.25):
-  // inside the server's 7-block reach cap.
+  // inside the server's 6-block reach cap.
   sendJson(A, { t: 'edit', x: 3, y: 68, z: -2, block: 3, dim: 'overworld' });
   const bEdit = await waitFor(B, (m) => m.t === 'edit');
   check('B receives A\'s edit with id + coords + block',
