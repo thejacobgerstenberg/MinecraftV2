@@ -34,6 +34,19 @@
 //    (BUILDER_TO_LAB below) exactly as the README prescribes, so water/leaves
 //    handling, the leaf-band scan and the caustic scan all work natively.
 //    Pass { ids: 'lab' } on the provider to skip the remap.
+//
+// EMISSIVE MATERIAL PATH (FINDINGS.md 3/6): blocks whose builder `emissive`
+// level is 1-15 (glowstone 24, lava 28, portal 29) are lifted OUT of the
+// solid remap and meshed into a THIRD geometry group rendered with an
+// emissive tiled material — meshChunk()/the facade world mesh now return/add
+// { solid, transparent, emissive }. Lava gets an animated warm UV-scrolled
+// glow (update() drives the scroll), glowstone/portal keep their tile look
+// but self-illuminate, and PostFX bloom halos all of them at night. Emissive
+// info comes from the provider: `emissiveOf(id) -> 0..15` (e.g. reading the
+// builder block registry), or an `emissiveMap` { id: level } object, or — for
+// `ids: 'builder'` providers — the DEFAULT_BUILDER_EMISSIVE map automatically
+// (opt out with `emissive: false`). Without any emissive info the old lossy
+// lava(28) -> glowstone(9) remap remains the documented fallback.
 
 import * as THREE from 'three';
 
@@ -58,6 +71,9 @@ import { AIR, WATER, LEAVES, isSolidId, isOpaqueId } from './src/blocks.js';
 import { createPackAtlas, PACK_REGISTRY } from './textures/labAdapter.js';
 import { BLOCK_TILES, tileForFace } from './textures/atlas.js';
 import { createSettingsPanel } from './settings/settings.js';
+import { DEFAULT_BUILDER_EMISSIVE } from './emitters.js';
+
+export { DEFAULT_BUILDER_EMISSIVE };
 
 // ---------------------------------------------------------------------------
 // Constants (mirrors of demo.js's proven preset fan-outs).
@@ -73,6 +89,10 @@ const DIMENSION_BIOME = { warpwold: 'plains', cinderloom: 'cinder', nevermend: '
 // boundary (README: "a game with a different palette remaps ids to this one
 // at the volume boundary"). Glass(12)/portal(29) have no lab analogue and map
 // to air; lava(28) maps to glowstone (emissive solid).
+// NOTE: when emissive info is available (the default for builder providers,
+// see DEFAULT_BUILDER_EMISSIVE) glowstone/lava/portal bypass this table and
+// take the emissive material path instead — the lava->glowstone entry below
+// is only the documented fallback for `emissive: false` / lab-id volumes.
 export const BUILDER_TO_LAB = Object.freeze([
   /* 0 air        */ 0, /* 1 grass      */ 1, /* 2 dirt       */ 2,
   /* 3 stone      */ 3, /* 4 cobble     */ 3, /* 5 sand       */ 4,
@@ -110,30 +130,53 @@ function buildStackAtlas(packId, seed) {
 // Volume adaptation: accept { volume } / a Volume / { getBlock, size } and
 // return the mesher volume contract { sx, sy, sz, get, isSolid, isOpaque }
 // as `this`-free closures (the meshers hoist the accessors).
+//
+// Emissive info (optional, drives the third geometry group):
+//   provider.emissiveOf   (id) -> 0..15 in the provider's OWN id space
+//   provider.emissiveMap  { id: level } plain object alternative
+//   builder providers default to DEFAULT_BUILDER_EMISSIVE (glowstone 15,
+//   lava 15, portal 11); pass `emissive: false` to opt out and fall back to
+//   the pure BUILDER_TO_LAB remap (lava renders as glowstone again).
+// When present, the adapted volume carries `_emissive = { rawGet, emissiveOf }`
+// (raw, un-remapped ids) consumed by the emissive meshing pass below. The
+// public accessor surface (get/isSolid/isOpaque) is unchanged.
 // ---------------------------------------------------------------------------
+function emissiveOfOption(provider) {
+  if (typeof provider.emissiveOf === 'function') return provider.emissiveOf;
+  if (provider.emissiveMap && typeof provider.emissiveMap === 'object') {
+    const map = provider.emissiveMap;
+    return (id) => map[id] | 0;
+  }
+  return null;
+}
+
 function adaptVolume(provider) {
   if (!provider) return null;
   const vol = provider.volume && typeof provider.volume.get === 'function'
     ? provider.volume
     : (typeof provider.get === 'function' ? provider : null);
+  const emOpt = provider.emissive === false ? null : emissiveOfOption(provider);
 
   if (vol) {
+    const rawGet = (x, y, z) => vol.get(x, y, z) | 0;
     if (typeof vol.isSolid === 'function' && typeof vol.isOpaque === 'function') {
       // Full worldgen-style Volume; keep it verbatim (accessors are already
-      // `this`-free closures per the worldgen contract).
-      return vol;
+      // `this`-free closures per the worldgen contract). With emissive info a
+      // shallow copy carries the metadata so the caller's object stays clean.
+      if (!emOpt) return vol;
+      return { ...vol, _emissive: { rawGet, emissiveOf: emOpt } };
     }
-    const get = (x, y, z) => vol.get(x, y, z) | 0;
     return {
       sx: vol.sx | 0,
       sy: vol.sy | 0,
       sz: vol.sz | 0,
-      get,
-      isSolid: (x, y, z) => isSolidId(get(x, y, z)),
-      isOpaque: (x, y, z) => isOpaqueId(get(x, y, z)),
+      get: rawGet,
+      isSolid: (x, y, z) => isSolidId(rawGet(x, y, z)),
+      isOpaque: (x, y, z) => isOpaqueId(rawGet(x, y, z)),
       WATER_LEVEL: vol.WATER_LEVEL,
       blocks: vol.blocks,
       lights: vol.lights,
+      _emissive: emOpt ? { rawGet, emissiveOf: emOpt } : null,
     };
   }
 
@@ -143,12 +186,22 @@ function adaptVolume(provider) {
     const sy = size.sy | 0;
     const sz = size.sz | 0;
     const remap = (provider.ids || 'builder') === 'builder' ? BUILDER_TO_LAB : null;
-    const get = (x, y, z) => {
+    const rawGet = (x, y, z) => {
       if (x < 0 || y < 0 || z < 0 || x >= sx || y >= sy || z >= sz) return AIR;
-      const id = provider.getBlock(x, y, z) | 0;
+      return provider.getBlock(x, y, z) | 0;
+    };
+    const get = (x, y, z) => {
+      const id = rawGet(x, y, z);
       if (!remap) return id;
       return id >= 0 && id < remap.length ? remap[id] : AIR;
     };
+    // Builder volumes get the registry's emissive levels by default — the
+    // whole point of the emissive path is that real nether lava glows without
+    // extra wiring. `emissive: false` restores the pure remap.
+    const emissiveOf = emOpt
+      || (remap && provider.emissive !== false
+        ? (id) => DEFAULT_BUILDER_EMISSIVE[id] | 0
+        : null);
     return {
       sx,
       sy,
@@ -158,10 +211,202 @@ function adaptVolume(provider) {
       isOpaque: (x, y, z) => isOpaqueId(get(x, y, z)),
       WATER_LEVEL: provider.waterLevel,
       lights: provider.lights,
+      _emissive: emissiveOf ? { rawGet, emissiveOf } : null,
     };
   }
 
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Emissive geometry group (FINDINGS.md 3/6).
+//
+// Base pass: the world volume with emissive blocks blanked to AIR (their
+// faces move to the emissive group) while occlusion (isOpaque) is left
+// untouched, so hidden faces stay hidden exactly as under the plain remap.
+// Emissive pass: one greedy sweep PER distinct emissive id over a
+// single-id sub-volume (its RAW id — the stack atlas resolves builder tiles
+// natively, e.g. lava 28 -> the 'lava' tile), then the per-id geometries are
+// merged into ONE BufferGeometry with an extra `emissiveParams` vec2
+// attribute: x = emissive level / 15, y = UV-scroll weight (1 for lava).
+// ---------------------------------------------------------------------------
+
+// Raw ids whose tile scrolls (and takes the warm lava tint) in the emissive
+// material. Builder lava only; glowstone/portal glow statically.
+const EMISSIVE_SCROLL = Object.freeze({ 28: 1 });
+
+const EMISSIVE_BOOST = 1.6;          // emissive radiance multiplier (bloom
+                                     // threshold is 0.75 — level-15 tiles halo)
+const EMISSIVE_LAVA_TINT = 0xffb36b; // warm tint mixed in by scroll weight
+const LAVA_SCROLL_U = 0.013;         // tile-space scroll speed, u axis (per s)
+const LAVA_SCROLL_V = 0.041;         // tile-space scroll speed, v axis (per s)
+
+function makeBasePassVolume(vol) {
+  const em = vol._emissive;
+  if (!em) return vol;
+  const { rawGet, emissiveOf } = em;
+  const baseGet = (x, y, z) =>
+    ((emissiveOf(rawGet(x, y, z)) | 0) > 0 ? AIR : vol.get(x, y, z));
+  return {
+    sx: vol.sx,
+    sy: vol.sy,
+    sz: vol.sz,
+    get: baseGet,
+    isSolid: vol.isSolid,
+    isOpaque: vol.isOpaque,
+    WATER_LEVEL: vol.WATER_LEVEL,
+    blocks: vol.blocks,
+    lights: vol.lights,
+  };
+}
+
+const EMISSIVE_MERGE_ATTRS = [
+  ['position', 3], ['normal', 3], ['uv', 2], ['color', 3], ['ao', 1],
+  ['tileOrigin', 2], ['tileSpan', 2],
+];
+
+function mergeEmissiveParts(parts) {
+  let verts = 0;
+  let indices = 0;
+  for (const p of parts) {
+    verts += p.geom.getAttribute('position').count;
+    indices += p.geom.getIndex().count;
+  }
+  const arrays = {};
+  for (const [name, size] of EMISSIVE_MERGE_ATTRS) {
+    arrays[name] = new Float32Array(verts * size);
+  }
+  const emParams = new Float32Array(verts * 2);
+  const indexArr = verts > 65535 ? new Uint32Array(indices) : new Uint16Array(indices);
+  let vo = 0;
+  let io = 0;
+  for (const p of parts) {
+    const g = p.geom;
+    const n = g.getAttribute('position').count;
+    for (const [name, size] of EMISSIVE_MERGE_ATTRS) {
+      arrays[name].set(g.getAttribute(name).array, vo * size);
+    }
+    for (let i = 0; i < n; i++) {
+      emParams[(vo + i) * 2] = p.strength;
+      emParams[(vo + i) * 2 + 1] = p.scroll;
+    }
+    const gi = g.getIndex().array;
+    for (let i = 0; i < gi.length; i++) indexArr[io + i] = gi[i] + vo;
+    io += gi.length;
+    vo += n;
+    g.dispose();
+  }
+  const out = new THREE.BufferGeometry();
+  for (const [name, size] of EMISSIVE_MERGE_ATTRS) {
+    out.setAttribute(name, new THREE.BufferAttribute(arrays[name], size));
+  }
+  out.setAttribute('emissiveParams', new THREE.BufferAttribute(emParams, 2));
+  out.setIndex(new THREE.BufferAttribute(indexArr, 1));
+  out.computeBoundingSphere();
+  out.computeBoundingBox();
+  return out;
+}
+
+// -> merged emissive BufferGeometry (attribute superset of the greedy
+// contract + emissiveParams) or null when the volume has no emissive blocks.
+function buildEmissiveGeometry(vol, atlas, { ao = true } = {}) {
+  const em = vol._emissive;
+  if (!em) return null;
+  const { rawGet, emissiveOf } = em;
+  const { sx, sy, sz } = vol;
+
+  // Distinct emissive ids present in the volume (one cheap full scan).
+  const seen = new Uint8Array(256);
+  const ids = [];
+  for (let y = 0; y < sy; y++) {
+    for (let z = 0; z < sz; z++) {
+      for (let x = 0; x < sx; x++) {
+        const id = rawGet(x, y, z) & 255;
+        if (seen[id]) continue;
+        seen[id] = 1;
+        if ((emissiveOf(id) | 0) > 0) ids.push(id);
+      }
+    }
+  }
+  if (!ids.length) return null;
+
+  const parts = [];
+  for (const id of ids) {
+    const level = Math.max(0, Math.min(15, emissiveOf(id) | 0));
+    const sub = {
+      sx,
+      sy,
+      sz,
+      get: (x, y, z) => (rawGet(x, y, z) === id ? id : AIR),
+      // World occlusion PLUS same-id cells: interior faces of a lava ocean /
+      // portal sheet cull against themselves, faces against air/leaves emit.
+      isOpaque: (x, y, z) => vol.isOpaque(x, y, z) || rawGet(x, y, z) === id,
+    };
+    const g = buildGreedyChunkGeometry(sub, { ao, atlas });
+    if (g.transparent) g.transparent.dispose(); // ids here never route to leaves
+    if (g.solid.getAttribute('position').count === 0) {
+      g.solid.dispose();
+      continue;
+    }
+    parts.push({ geom: g.solid, strength: level / 15, scroll: EMISSIVE_SCROLL[id] || 0 });
+  }
+  if (!parts.length) return null;
+  return mergeEmissiveParts(parts);
+}
+
+// Tiled voxel material extended with a self-illumination term:
+//   totalEmissiveRadiance += tile.rgb * mix(1, lavaTint, scroll) * boost * level
+// plus a per-fragment UV scroll (weighted by emissiveParams.y) through the
+// greedy tile-repeat sampler, so lava crawls while glowstone holds still.
+// Composes the exact same way windsway does: wraps createVoxelMaterial's
+// onBeforeCompile and appends after its anchors.
+function createEmissiveChunkMaterial(atlas) {
+  const mat = createVoxelMaterial(atlas
+    ? { transparent: false, map: atlas.texture, tiled: true, atlasInfo: atlas }
+    : { transparent: false });
+  const uEmScroll = { value: new THREE.Vector2(0, 0) };
+  const uEmBoost = { value: EMISSIVE_BOOST };
+  const uEmTint = { value: new THREE.Color(EMISSIVE_LAVA_TINT) };
+  const prev = mat.onBeforeCompile;
+  mat.onBeforeCompile = (shader) => {
+    prev(shader);
+    shader.uniforms.uEmScroll = uEmScroll;
+    shader.uniforms.uEmBoost = uEmBoost;
+    shader.uniforms.uEmTint = uEmTint;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>',
+        '#include <common>\nattribute vec2 emissiveParams;\nvarying vec2 vEmissiveParams;')
+      .replace('#include <begin_vertex>',
+        '#include <begin_vertex>\n\tvEmissiveParams = emissiveParams;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>',
+        '#include <common>\nvarying vec2 vEmissiveParams;\nuniform vec2 uEmScroll;\nuniform float uEmBoost;\nuniform vec3 uEmTint;')
+      // Scroll the LOCAL tile-space uv before the tiled sampler wraps it
+      // (this exact substring is emitted by createVoxelMaterial's tiled
+      // map_fragment replacement; absent in non-tiled mode -> no-op).
+      .replace('fract( vMapUv )', 'fract( vMapUv + uEmScroll * vEmissiveParams.y )')
+      .replace('#include <emissivemap_fragment>', [
+        '#include <emissivemap_fragment>',
+        '{',
+        '\tvec3 vxlEmTint = mix( vec3( 1.0 ), uEmTint, clamp( vEmissiveParams.y, 0.0, 1.0 ) );',
+        '#ifdef USE_MAP',
+        '\ttotalEmissiveRadiance += sampledDiffuseColor.rgb * vxlEmTint * ( uEmBoost * vEmissiveParams.x );',
+        '#else',
+        '\ttotalEmissiveRadiance += diffuseColor.rgb * vxlEmTint * ( uEmBoost * vEmissiveParams.x );',
+        '#endif',
+        '}',
+      ].join('\n'));
+  };
+  // Distinct program identity vs the plain tiled material (same rationale as
+  // the tiled cache key in voxelMaterial.js).
+  mat.customProgramCacheKey = function () {
+    return 'graphicslab-voxel|emissive|' + (atlas ? 'tiled' : 'plain');
+  };
+  mat.userData.emissiveUniforms = { uEmScroll, uEmBoost, uEmTint };
+  mat.userData.setEmissiveBoost = (v) => {
+    uEmBoost.value = typeof v === 'number' ? v : EMISSIVE_BOOST;
+  };
+  return mat;
 }
 
 // ---------------------------------------------------------------------------
@@ -206,9 +451,10 @@ export class GraphicsStack {
     this._clock = new THREE.Clock();
     this._ctx = null;
     this._atlas = null;
-    this._materials = null;      // tiled pair { solid, leaves }
+    this._materials = null;      // tiled trio { solid, leaves, emissive }
     this._plainMats = null;      // lazy plain pair (naive-mesher fallback)
-    this._worldMeshes = null;    // { solid, leaves, geom } when init auto-meshed
+    this._emissiveUniforms = null; // emissive material scroll/boost uniforms
+    this._worldMeshes = null;    // { solid, leaves, emissive, geom } when init auto-meshed
     this._volume = null;
     this._waterLevel = 10;
     this._settingsPanel = null;
@@ -243,7 +489,12 @@ export class GraphicsStack {
    * @param {object} p
    *   scene, camera, renderer  existing three.js objects (created if omitted)
    *   domElement               container the (created) canvas is appended to
-   *   volumeProvider           { volume } | Volume | { getBlock, size, ids? }
+   *   volumeProvider           { volume } | Volume | { getBlock, size, ids?,
+   *                            emissiveOf?, emissiveMap?, emissive? } — the
+   *                            optional emissiveOf(id)->0..15 (or map) routes
+   *                            emissive blocks to the emissive material path;
+   *                            builder-id providers default to
+   *                            DEFAULT_BUILDER_EMISSIVE (emissive:false opts out)
    *   waterLevel               world water plane Y (default volume.WATER_LEVEL ?? 10)
    *   worldSize                { sx, sy, sz } | number (default from the volume)
    */
@@ -313,7 +564,9 @@ export class GraphicsStack {
       leaves: createVoxelMaterial(atlas
         ? { transparent: true, map: atlas.texture, tiled: true, atlasInfo: atlas }
         : { transparent: true }),
+      emissive: createEmissiveChunkMaterial(atlas),
     };
+    this._emissiveUniforms = this._materials.emissive.userData.emissiveUniforms;
 
     // --- World mesh (skippable for games that stream their own chunks) ------
     if (volume && this._on('worldMesh')) {
@@ -480,11 +733,14 @@ export class GraphicsStack {
     return this;
   }
 
-  // Internal: mesh this._volume with the pack atlas and add solid+leaves
-  // meshes to the scene (re-run on texture-pack switches).
+  // Internal: mesh this._volume with the pack atlas and add solid+leaves(+
+  // emissive) meshes to the scene (re-run on texture-pack switches).
   _buildWorldMeshes() {
     const volume = this._volume;
-    const geom = buildGreedyChunkGeometry(volume, { ao: true, atlas: this._atlas });
+    const geom = buildGreedyChunkGeometry(
+      makeBasePassVolume(volume), { ao: true, atlas: this._atlas },
+    );
+    geom.emissive = buildEmissiveGeometry(volume, this._atlas, { ao: true });
     if (this._worldMeshes) {
       const wmPrev = this._worldMeshes;
       wmPrev.solid.geometry = geom.solid;
@@ -494,8 +750,15 @@ export class GraphicsStack {
       } else {
         wmPrev.leaves.visible = false;
       }
+      if (geom.emissive) {
+        wmPrev.emissive.geometry = geom.emissive;
+        wmPrev.emissive.visible = true;
+      } else {
+        wmPrev.emissive.visible = false;
+      }
       wmPrev.geom.solid.dispose();
       if (wmPrev.geom.transparent) wmPrev.geom.transparent.dispose();
+      if (wmPrev.geom.emissive) wmPrev.geom.emissive.dispose();
       wmPrev.geom = geom;
       return wmPrev;
     }
@@ -509,7 +772,13 @@ export class GraphicsStack {
     leaves.renderOrder = 1;
     leaves.visible = !!geom.transparent;
     this.scene.add(leaves);
-    this._worldMeshes = { solid, leaves, geom };
+    const emissive = new THREE.Mesh(
+      geom.emissive || new THREE.BufferGeometry(), this._materials.emissive,
+    );
+    emissive.name = 'GraphicsStackChunkEmissive';
+    emissive.visible = !!geom.emissive;
+    this.scene.add(emissive);
+    this._worldMeshes = { solid, leaves, emissive, geom };
     return this._worldMeshes;
   }
 
@@ -529,21 +798,30 @@ export class GraphicsStack {
 
   /**
    * Mesh a chunk volume against the pack atlas.
-   * @param {object} volume Volume | { volume } | { getBlock, size, ids? }
+   * @param {object} volume Volume | { volume } | { getBlock, size, ids?,
+   *   emissiveOf?, emissiveMap?, emissive? } — see adaptVolume.
    * @param {object} opts { ao = true, greedy = true }. greedy:false uses the
    *   classic buildChunkGeometry fallback (absolute atlas UVs — pair with
-   *   stack.plainMaterials, not the tiled pair).
-   * @returns {{ solid, transparent, stats? }} BufferGeometries.
+   *   stack.plainMaterials, not the tiled pair; no emissive group — emissive
+   *   blocks keep the BUILDER_TO_LAB remap there).
+   * @returns {{ solid, transparent, emissive?, stats? }} BufferGeometries.
+   *   `emissive` (greedy only) is non-null when the volume carries emissive
+   *   info and contains emissive blocks; render it with stack.materials
+   *   .emissive (or your own material reading the emissiveParams attribute).
    */
   meshChunk(volume, { ao = true, greedy = true } = {}) {
     const vol = adaptVolume(volume);
     if (!vol) throw new Error('[GraphicsStack] meshChunk: unrecognised volume');
-    return greedy
-      ? buildGreedyChunkGeometry(vol, { ao, atlas: this._atlas })
-      : buildChunkGeometry(vol, { ao, atlas: this._atlas });
+    if (!greedy) return buildChunkGeometry(vol, { ao, atlas: this._atlas });
+    const out = buildGreedyChunkGeometry(
+      makeBasePassVolume(vol), { ao, atlas: this._atlas },
+    );
+    out.emissive = buildEmissiveGeometry(vol, this._atlas, { ao });
+    return out;
   }
 
-  /** Tiled material pair matching greedy meshChunk output: { solid, leaves }. */
+  /** Tiled material trio matching greedy meshChunk output:
+   *  { solid, leaves, emissive }. */
   get materials() { return this._materials; }
 
   /** Plain material pair matching greedy:false (classic mesher) output. */
@@ -604,6 +882,11 @@ export class GraphicsStack {
     if (m.torches) m.torches.update(step, ctx);      //    nearest-N pooling
     if (m.viewmodel) m.viewmodel.update(step, ctx);  //    idle bob + fill
     if (m.wind) m.wind.update(step, ctx);            //    2 uniform writes
+    if (this._emissiveUniforms) {                    //    lava emissive crawl
+      this._emissiveUniforms.uEmScroll.value.set(
+        ctx.elapsed * LAVA_SCROLL_U, ctx.elapsed * LAVA_SCROLL_V,
+      );
+    }
     if (m.biomes) m.biomes.update(step, ctx);        //    no-op (post eases)
     if (m.post) m.post.update(step, ctx);            // 8. auto night boost
   }
@@ -685,8 +968,8 @@ export class GraphicsStack {
     }
     this._texturePack = packId;
     this._atlas = atlas;
-    // Swap the atlas on every live material (tiled pair needs the dims too).
-    for (const key of ['solid', 'leaves']) {
+    // Swap the atlas on every live material (tiled ones need the dims too).
+    for (const key of ['solid', 'leaves', 'emissive']) {
       const mat = this._materials && this._materials[key];
       if (mat && mat.userData.setMap) {
         mat.userData.setMap(atlas.texture);
@@ -768,7 +1051,7 @@ export class GraphicsStack {
         const all = [this._materials, this._plainMats];
         for (const pair of all) {
           if (!pair) continue;
-          for (const key of ['solid', 'leaves']) {
+          for (const key of ['solid', 'leaves', 'emissive']) {
             const mat = pair[key];
             if (mat && mat.userData.setAoEnabled) mat.userData.setAoEnabled(b);
           }
@@ -894,16 +1177,21 @@ export class GraphicsStack {
       const wm = this._worldMeshes;
       this.scene.remove(wm.solid);
       this.scene.remove(wm.leaves);
+      this.scene.remove(wm.emissive);
       wm.geom.solid.dispose();
       if (wm.geom.transparent) wm.geom.transparent.dispose();
+      if (wm.geom.emissive) wm.geom.emissive.dispose();
       this._worldMeshes = null;
     }
     for (const pair of [this._materials, this._plainMats]) {
       if (!pair) continue;
-      for (const key of ['solid', 'leaves']) if (pair[key]) pair[key].dispose();
+      for (const key of ['solid', 'leaves', 'emissive']) {
+        if (pair[key]) pair[key].dispose();
+      }
     }
     this._materials = null;
     this._plainMats = null;
+    this._emissiveUniforms = null;
     if (this._atlas && this._atlas.texture) this._atlas.texture.dispose();
     this._atlas = null;
     if (this._ownsRenderer && this.renderer) {

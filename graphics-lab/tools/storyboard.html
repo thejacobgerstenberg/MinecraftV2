@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<!-- storyboard.html — in-browser canvas compositor for the showcase contact
+     sheets. Driven headlessly by tools/storyboard.mjs: it calls
+     window.composite(spec) with image data URLs + labels and reads back a
+     PNG dataURL. No dependencies, no network fetches (images arrive inline).
+
+     spec = {
+       width,                 // sheet pixel width
+       title,                 // sheet title line
+       segments: [{           // one 2x2 grid per segment, side by side
+         header, accent,      // segment title + accent colour
+         cells: [{ src, label, sub }],   // 4 cells (row-major)
+       }],
+     }
+-->
+<meta charset="utf-8">
+<link rel="icon" href="data:,"><!-- no favicon fetch -> no 404 console noise -->
+<title>graphics-lab storyboard compositor</title>
+<canvas id="c"></canvas>
+<script>
+  const CELL_W = 768, CELL_H = 432;      // 16:9, half-ish of the 1600x900 stills
+  const LABEL_H = 46, GUT = 12, SEG_GAP = 36, MARGIN = 24;
+  const HEADER_H = 78, TITLE_H = 64;
+
+  function loadImage(src) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('image failed to decode'));
+      img.src = src;
+    });
+  }
+
+  window.composite = async function composite(spec) {
+    const segW = CELL_W * 2 + GUT;
+    const segH = HEADER_H + (CELL_H + LABEL_H) * 2 + GUT;
+    const width = spec.width || (MARGIN * 2 + segW * 2 + SEG_GAP);
+    const height = TITLE_H + segH + MARGIN * 2;
+
+    const canvas = document.getElementById('c');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+
+    // Sheet background + title.
+    ctx.fillStyle = '#0d1015';
+    ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = '#f2f5fa';
+    ctx.font = '700 40px system-ui, sans-serif';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(spec.title, MARGIN, TITLE_H / 2 + 8);
+    ctx.font = '400 24px system-ui, sans-serif';
+    ctx.fillStyle = '#8b94a7';
+    const tw = ctx.measureText(spec.subtitle || '').width;
+    if (spec.subtitle) ctx.fillText(spec.subtitle, width - MARGIN - tw, TITLE_H / 2 + 10);
+
+    for (let s = 0; s < spec.segments.length; s++) {
+      const seg = spec.segments[s];
+      const x0 = MARGIN + s * (segW + SEG_GAP);
+      const y0 = TITLE_H + MARGIN;
+
+      // Segment header: accent bar + dimension name.
+      ctx.fillStyle = seg.accent;
+      ctx.fillRect(x0, y0 + 10, 10, HEADER_H - 26);
+      ctx.fillStyle = '#f2f5fa';
+      ctx.font = '800 44px system-ui, sans-serif';
+      ctx.fillText(seg.header, x0 + 26, y0 + HEADER_H / 2 - 4);
+
+      for (let i = 0; i < seg.cells.length; i++) {
+        const cell = seg.cells[i];
+        const cx = x0 + (i % 2) * (CELL_W + GUT);
+        const cy = y0 + HEADER_H + Math.floor(i / 2) * (CELL_H + LABEL_H + GUT);
+
+        const img = await loadImage(cell.src);
+        ctx.drawImage(img, cx, cy, CELL_W, CELL_H);
+        ctx.strokeStyle = '#2a3140';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(cx + 0.5, cy + 0.5, CELL_W - 1, CELL_H - 1);
+
+        // Label bar: time-of-day chip + framing note.
+        ctx.fillStyle = '#151a23';
+        ctx.fillRect(cx, cy + CELL_H, CELL_W, LABEL_H);
+        ctx.fillStyle = seg.accent;
+        ctx.font = '800 27px system-ui, sans-serif';
+        ctx.fillText(cell.label, cx + 12, cy + CELL_H + LABEL_H / 2 + 2);
+        const lw = ctx.measureText(cell.label).width;
+        ctx.fillStyle = '#c9d1e0';
+        ctx.font = '600 25px system-ui, sans-serif';
+        ctx.fillText(cell.sub, cx + 12 + lw + 18, cy + CELL_H + LABEL_H / 2 + 2);
+      }
+    }
+    return canvas.toDataURL('image/png');
+  };
+  window.__compositorReady = true;
+</script>

@@ -83,10 +83,16 @@ produced the screenshots below.
 | ![real worldgen night](./screenshots/27-realworld-night.png) | Integration proof (night): same real overworld slice at t=0.85 — stars, moonlight key, auto night bloom. The builder palette has NO torch block and the overworld generator places zero emissive blocks, so this is what unlit builder nights look like (FINDINGS #4). |
 | ![real worldgen cinderloom](./screenshots/28-realworld-cinderloom.png) | Integration proof (nether → cinderloom sky): inside the builder's real nether cavern under a glowstone ceiling blob, ~400 lights derived from real emissive blocks (registered on the ADJACENT AIR cell — FINDINGS #5). Lava ocean maps to glowstone (FINDINGS #3/#6); the orange band is dusk sky through the slice's open sides. |
 | ![real worldgen nevermend](./screenshots/29-realworld-nevermend.png) | Integration proof (end → nevermend sky): the builder's real end island under the aurora curtains, water/underwater features disabled (floating islands over void — FINDINGS #10); the drop at frame right is the real island edge. |
+| ![storyboard 1](./screenshots/30-storyboard-1.png) | Showcase storyboard 1/2 (`tools/flythrough.mjs` + `tools/storyboard.mjs`): warpwold and cinderloom dawn→day→dusk→night beats — waterfall/lavafall closeups, underwater caustics, island diorama, portal gate, ember dusk, torch terraces. |
+| ![storyboard 2](./screenshots/31-storyboard-2.png) | Showcase storyboard 2/2: nevermend dawn→night (snow squall, cabin, aurora + moon) plus a best-of row — the scripted flythrough's definitive contact sheets, 1600×900 stills at quality high with everything on. |
 
 ## Module catalog
 
 **Integration facade:** [`integrate.js`](./integrate.js) exports `GraphicsStack` — ONE composition of everything below (7-statement adoption, proven against the builder's real worldgen); the ordered adoption checklist + findings live in [`INTEGRATION.md`](./INTEGRATION.md).
+
+**Emitter helper:** [`emitters.js`](./emitters.js) — `registerEmitterLights` derives pooled torch lights from the builder's emissive blocks, always registering the best ADJACENT AIR cell (FINDINGS #5) and skipping enclosed emitters, plus `makeEmissiveBlockMaterial`/`attachTorchVisual` for a future torch id.
+
+**Emitter doc:** [`EMITTERS.md`](./EMITTERS.md) — the builder-facing one-pager for the above: derive lights from `blocks.js` `emissive` values, the adjacent-air rule explained, and what to wire when a torch id is added.
 
 All modules are native ES modules importing the bare specifier `three`.
 Shared `ctx` shape (see "Integration guide" for the demo's exact object):
@@ -166,6 +172,8 @@ With a map + `transparent: true` the material switches to alpha-cutout
 **Toggle/quality.** AO toggles per-material via a uniform
 (`userData.setAoEnabled`) — instant, no re-mesh. `{ ao: false }` at build time
 writes `ao = 1` everywhere instead.
+
+**Emissive blocks.** Builder blocks with `emissive` 1–15 (lava/glowstone/portal) now mesh into a THIRD, self-lit geometry group via the facade's `meshChunk` (`geom.emissive` + `createEmissiveChunkMaterial` in `integrate.js` — animated UV-scrolling lava glow, feeds bloom).
 
 ### sky.js — `DynamicSky`
 

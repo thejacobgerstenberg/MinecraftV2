@@ -16,6 +16,7 @@
 //   nevermend    -> builder 'end'        + lab 'nevermend'   (night + aurora)
 
 import { GraphicsStack } from '../integrate.js';
+import { registerEmitterLights } from '../emitters.js';
 import { TerrainGenerator } from './builder/public/src/world/TerrainGenerator.js';
 import {
   CHUNK_SX, CHUNK_SZ, CHUNK_SY, SEA_LEVEL, blockIndex,
@@ -37,6 +38,14 @@ const PRESETS = {
     seed: '1337', builderDim: 'overworld', labDim: 'warpwold',
     origin: { cx: 0, cz: -2 }, timeOfDay: 0.85,
     camera: { pos: [8, 56, 44], look: [52, 50, 2] },
+    // The overworld generator places ZERO emissive blocks (FINDINGS.md 4) —
+    // night scenes would have no derived emitters at all. To exercise the
+    // emitters helper + emissive path on the overworld, the demo (NOT the
+    // generator) drops a few glowstone blocks onto the terrain surface.
+    demoGlowstone: [
+      [20, 16], [28, 24], [36, 18], [44, 28], [24, 36], [40, 40], [52, 12], [16, 28],
+      [12, 20], [32, 8], [48, 20], [56, 24],
+    ],
   },
   cinderloom: {
     seed: '1337', builderDim: 'nether', labDim: 'cinderloom',
@@ -95,49 +104,35 @@ for (let i = 0; i < CHUNKS; i++) {
 const genMs = performance.now() - genT0;
 
 // ---------------------------------------------------------------------------
-// 2. Derive light emitters from the REAL generated blocks. The builder palette
-//    has NO torch block; its emissive blocks are glowstone(24), lava(28),
-//    portal(29) — see blocks.js `emissive`. We register every air-exposed
-//    glowstone block and a sparse sample of the lava surface.
+// 2. Demo-only glowstone drops (night preset): the overworld generator places
+//    no emissive blocks, so a handful of glowstone blocks are set onto the
+//    terrain surface to exercise the emissive mesh group + emitters helper.
+//    Clearly demo-injected — everything else in `world` is raw generator
+//    output.
 // ---------------------------------------------------------------------------
-const lights = [];
-const MAX_LIGHTS = 400;
-const isAir = (x, y, z) => {
-  if (x < 0 || y < 0 || z < 0 || x >= SX || y >= SY || z >= SZ) return true;
-  return world[worldIndex(x, y, z)] === BLOCK_ID.air;
-};
-for (let y = 0; y < SY && lights.length < MAX_LIGHTS; y++) {
-  for (let z = 0; z < SZ; z++) {
-    for (let x = 0; x < SX; x++) {
+let emitterSpot = null;
+if (preset.demoGlowstone) {
+  for (const [x, z] of preset.demoGlowstone) {
+    for (let y = SY - 2; y >= 0; y--) {
       const id = world[worldIndex(x, y, z)];
-      const def = getBlockDef(id);
-      if (!def || !def.emissive) continue;
-      if (id === BLOCK_ID.lava) {
-        // Lava ocean: sample the surface on a 4-block grid or it would
-        // register thousands of emitters.
-        if (!isAir(x, y + 1, z) || x % 4 !== 0 || z % 4 !== 0) continue;
+      if (id === BLOCK_ID.air) continue;
+      // Solid ground only — water columns would leave glowstone afloat.
+      if (id !== BLOCK_ID.water && world[worldIndex(x, y + 1, z)] === BLOCK_ID.air) {
+        world[worldIndex(x, y + 1, z)] = BLOCK_ID.glowstone;
+        // Expose the HIGHEST placed block for inspection tooling (a camera
+        // above a hilltop spot has clear line of sight over the terrain).
+        if (!emitterSpot || y + 1 > emitterSpot.y) emitterSpot = { x, y: y + 1, z };
       }
-      // Register the ADJACENT AIR cell, not the emitting block itself — the
-      // torch pool centres its point light inside the given cell, and a light
-      // inside an opaque block cannot illuminate that block's own faces.
-      let pos = null;
-      if (isAir(x, y + 1, z)) pos = { x, y: y + 1, z };
-      else if (isAir(x, y - 1, z)) pos = { x, y: y - 1, z };
-      else if (isAir(x + 1, y, z)) pos = { x: x + 1, y, z };
-      else if (isAir(x - 1, y, z)) pos = { x: x - 1, y, z };
-      else if (isAir(x, y, z + 1)) pos = { x, y, z: z + 1 };
-      else if (isAir(x, y, z - 1)) pos = { x, y, z: z - 1 };
-      if (!pos) continue; // buried emitter: invisible, skip
-      lights.push(pos);
-      if (lights.length >= MAX_LIGHTS) break;
+      break;
     }
-    if (lights.length >= MAX_LIGHTS) break;
   }
 }
 
 // ---------------------------------------------------------------------------
 // 3. Adapt builder chunk storage -> volumeProvider. Builder ids 0-29 pass
-//    through untouched; GraphicsStack's BUILDER_TO_LAB remap handles them.
+//    through untouched; GraphicsStack's BUILDER_TO_LAB remap handles them,
+//    and `emissiveOf` reads the REAL block registry so glowstone/lava/portal
+//    take the stack's emissive material path (FINDINGS.md 3/6).
 // ---------------------------------------------------------------------------
 const volumeProvider = {
   getBlock: (x, y, z) => {
@@ -147,7 +142,7 @@ const volumeProvider = {
   size: { sx: SX, sy: SY, sz: SZ },
   ids: 'builder',
   waterLevel: preset.waterLevel ?? SEA_LEVEL,
-  lights,
+  emissiveOf: (id) => getBlockDef(id).emissive,
 };
 
 // ---------------------------------------------------------------------------
@@ -175,15 +170,41 @@ gfx.camera.position.set(cam.pos[0], cam.pos[1], cam.pos[2]);
 gfx.camera.lookAt(cam.look[0], cam.look[1], cam.look[2]);
 gfx.start();
 
+// ---------------------------------------------------------------------------
+// 4b. Dynamic lights from the REAL generated emissive blocks, via the
+//     emitters helper (graphics-lab/emitters.js): one pooled light per
+//     emitter, registered in the best ADJACENT AIR cell (top face preferred),
+//     intensity scaled by the registry's emissive level, buried emitters
+//     skipped. Flame particles reuse the same positions.
+// ---------------------------------------------------------------------------
+let emitters = { count: 0, ids: [], positions: [] };
+if (gfx.exposes.torches) {
+  emitters = registerEmitterLights({
+    volume: volumeProvider,
+    torchManager: gfx.exposes.torches,
+    emissiveOf: (id) => getBlockDef(id).emissive, // REAL registry read
+    minLevel: 8,
+    maxLights: 400,
+  });
+}
+if (gfx.exposes.particles) {
+  for (const p of emitters.positions) gfx.exposes.particles.addTorch(p);
+}
+window.__emitters = { count: emitters.count };
+window.__emitterSpot = emitterSpot;
+
 // Isolated re-mesh timing (same volume + atlas, output disposed) so the number
 // is honest and separable from the rest of init.
 const meshT0 = performance.now();
 const timed = gfx.meshChunk(volumeProvider);
 const meshMs = performance.now() - meshT0;
 let triangles = 0;
-for (const g of [timed.solid, timed.transparent]) {
+let emissiveTriangles = 0;
+for (const g of [timed.solid, timed.transparent, timed.emissive]) {
   if (!g) continue;
-  triangles += (g.index ? g.index.count : g.attributes.position.count) / 3;
+  const tris = (g.index ? g.index.count : g.attributes.position.count) / 3;
+  triangles += tris;
+  if (g === timed.emissive) emissiveTriangles = tris;
   g.dispose();
 }
 
@@ -199,7 +220,8 @@ window.__stats = {
   initMs: +initMs.toFixed(1),
   meshMs: +meshMs.toFixed(1),
   meshTriangles: Math.round(triangles),
-  lights: lights.length,
+  emissiveTriangles: Math.round(emissiveTriangles),
+  lights: emitters.count,
 };
 requestAnimationFrame(() => requestAnimationFrame(() => {
   // Post-frame renderer numbers (draw calls / tris for the composed frame).
