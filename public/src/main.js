@@ -16,6 +16,7 @@ import { TerrainGenerator } from './world/TerrainGenerator.js';
 import { World } from './engine/World.js';
 import { ChunkRenderer } from './engine/ChunkRenderer.js';
 import { Sky } from './engine/Sky.js';
+import { AutoQuality } from './engine/AutoQuality.js';
 import { Player } from './gameplay/Player.js';
 import { Controls } from './gameplay/Controls.js';
 import { raycastVoxel } from './gameplay/raycast.js';
@@ -150,6 +151,7 @@ const settings = {};
 let G = null;
 
 let renderer = null; // one WebGLRenderer for the page (context is per-canvas)
+let quality = null; // AutoQuality — adaptive resolution + fast-lighting flag
 
 const ui = {}; // menus, hud, hotbar, chat, inventoryUI, debug — initialized at boot
 
@@ -275,8 +277,15 @@ async function bootSession(worldMeta) {
   const atlas = buildAtlas(settings.texturePack);
   if (!renderer) {
     renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
-    renderer.setPixelRatio(1);
+    // Adaptive quality: detects software rasterizers (SwiftShader/llvmpipe)
+    // and scales the internal resolution to keep the frame rate playable.
+    // On real GPUs it idles at scale 1 unless the machine can't keep up.
+    quality = new AutoQuality(renderer);
+    if (quality.software) {
+      console.info('[loomfall] software rasterizer detected — fast lighting + adaptive resolution enabled');
+    }
   }
+  quality.reset();
   renderer.setSize(window.innerWidth, window.innerHeight);
   const camera = new THREE.PerspectiveCamera(
     settings.fov, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -318,7 +327,9 @@ async function bootSession(worldMeta) {
   const controls = new Controls(canvas, camera);
   controls.sensitivity = BASE_SENSITIVITY * settings.sensitivity;
 
-  const chunkRenderer = new ChunkRenderer(scene, world, atlas);
+  const chunkRenderer = new ChunkRenderer(scene, world, atlas, {
+    fastLighting: quality.fastLighting,
+  });
   const inventory = new Inventory();
   const iconFor = makeIconFactory(atlas);
   const peers = new PeerAvatars(scene);
@@ -518,19 +529,28 @@ async function bootSession(worldMeta) {
     const dt = Math.min(MAX_DT, rawDt); // simulation dt, clamped to 50 ms
     S.lastFrame = now;
 
+    // Adaptive internal resolution (no-op at scale 1 on capable GPUs).
+    quality.update(rawDt);
+
     // Simulation (frozen while paused or with the inventory screen open;
     // chat leaves physics running but movement keys are cleared/guarded).
     if (!S.paused && !ui.inventoryUI.isOpen()) {
       S.player.update(dt, S.controls.input, S.controls.yaw);
     }
 
-    // Chunk streaming (renderDistance applied live from settings).
-    S.chunkRenderer.update(S.player.position, settings.renderDistance);
+    // Chunk streaming (renderDistance applied live from settings); the eye
+    // position drives exact fog-distance and directional backface culling.
+    S.chunkRenderer.update(S.player.position, settings.renderDistance, S.player.eyePosition);
 
     // Day/night cycle + sky (overworld only; nether/end use static ambience).
     S.elapsed += dt;
     const timeOfDay = (START_TIME_OF_DAY + S.elapsed / DAY_LENGTH_S) % 1;
     if (S.dim === 'overworld') sky.update(timeOfDay, S.player.eyePosition);
+    if (quality.fastLighting) {
+      // Unlit fast materials: drive the day/night tint by hand.
+      S.chunkRenderer.setLightLevel(
+        S.dim === 'overworld' ? S.sky.daylight ?? 1 : S.dim === 'nether' ? 0.9 : 0.85);
+    }
 
     // Crosshair target outline.
     const target = computeTarget();
@@ -728,7 +748,9 @@ async function switchDimension(dimId) {
   S.world = new World(S.generator);
   applyEdits(S.world, S.editsByDim[dimId]);
   S.player.world = S.world;
-  S.chunkRenderer = new ChunkRenderer(S.scene, S.world, S.atlas);
+  S.chunkRenderer = new ChunkRenderer(S.scene, S.world, S.atlas, {
+    fastLighting: quality.fastLighting,
+  });
 
   // Respawn appropriately for the dimension.
   if (dimId === 'overworld') {
@@ -782,5 +804,6 @@ function publishHooks() {
       hotbar: ui.hotbar,
     },
     settings,
+    quality,
   };
 }

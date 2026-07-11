@@ -47,6 +47,7 @@ are no test doubles.**
 | `__game.ui.inventoryUI` | inventory screen API | `toggle/open/close/isOpen/setBlocks(ids)` |
 | `__game.ui.hotbar` | hotbar API | `setSlots(ids)/setSelected(i)` |
 | `__game.settings` | object | live settings `{renderDistance, fov, sensitivity, texturePack}` — **same reference for the whole page lifetime**; mutate via the settings menu, not directly |
+| `__game.quality` | `AutoQuality` | adaptive performance governor: `software` (true when the WebGL context is a software rasterizer, e.g. SwiftShader), `scale` (current internal-resolution scale, applied as the renderer pixel ratio), `fastLighting` (true when chunks use the unlit fast materials) |
 
 ### Recipes
 
@@ -90,3 +91,16 @@ await window.__game.setDimension('nether');
   `_debugSetLocked(true)` and drive `page.mouse` / `_emit` instead.
 - The day cycle is 10 real minutes starting at ~0.42 (late morning), so
   fresh worlds are in daylight for screenshots.
+- On software rasterizers (headless Chromium's SwiftShader) the game
+  auto-engages a performance mode: `AutoQuality` scales the internal render
+  resolution adaptively (floor 0.1) and chunk meshes use unlit
+  `MeshBasicMaterial` with baked AO plus a day/night tint
+  (`ChunkRenderer.setFastLighting`/`setLightLevel`). `ChunkRenderer` also
+  applies exact culling every frame: chunks entirely beyond the fog wall are
+  hidden, and provably backfacing face segments (away-pointing ±x/±z sides
+  and bottom faces at or below the eye) are skipped via pre-sorted index
+  variants + `drawRange` (see `engine/DirectionalCulling.js`; the culled
+  faces are ones GL backface culling would discard anyway, so pixels are
+  identical). The F3 `Tris` counter reports post-cull submitted triangles.
+- Node suites cover the culling math: `tests/dircull.test.mjs` (including a
+  brute-force check that every front-facing face is always drawn).

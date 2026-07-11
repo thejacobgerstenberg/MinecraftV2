@@ -147,6 +147,7 @@ export class Sky {
     const sunDir = this._sunDir.set(Math.cos(ang), Math.sin(ang), 0.28).normalize();
     const daylight = THREE.MathUtils.smoothstep(sunDir.y, -0.06, 0.24); // 0 night .. 1 day
     const night = 1 - THREE.MathUtils.smoothstep(sunDir.y, -0.16, 0.04);
+    this.daylight = daylight; // public: 0 night .. 1 day (AutoQuality tinting)
 
     // Background color through keyframes.
     let k = 0;
