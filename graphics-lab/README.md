@@ -1077,6 +1077,36 @@ the game; the single-chunk demo stretches fog instead), `fov` → `demo.setFov`,
 `'wind'`, `biomeGrading` → `'biome'`, `portalFx` → `'portal'`). The panel does
 nothing per frame — renderer code reads its own copy of the settings.
 
+### textures/ — texture pack system
+
+Five switchable texture packs over a deterministic 55-tile procedural
+generator whose `buildAtlas(packId, seed)` is a drop-in match for the
+builder's `TextureAtlas` contract (frozen 33-name tile prefix + 22 appended
+tiles, 32px tiles, half-texel-inset `tileUV`, `BLOCK_TILES` ids 0–29 with the
+builder's face-fallback semantics). Packs are knob transforms (`sat / light /
+contrast / grain / wear / edge / outline / weave…`) plus optional per-tile
+painter overrides — a 6th pack is ~20 lines in `textures/packs.js`.
+`textures/labAdapter.js` bridges pack atlases into this demo's
+`createBlockAtlas()` contract (raw-rect UVs + square 256×256 re-blit), so both
+meshers, the tiled material and the viewmodel consume them unchanged:
+`demo.setTexturePack(id)` hot-swaps the world live, persists to
+`localStorage['mc2.texturePack']` and emits `'pack:switched'`; the in-game
+pack browser drawer (`textures/browser/`, ui-kit tokens vendored) sits next to
+the settings gear. Distinctness and seam-free tiling are enforced numerically
+by `textures/selftest.mjs` (smooth 1.39x saturation, gritty 0.57x sat / 1.34x
+contrast, accessible 1.66x contrast vs classic; 250/250 opaque tiles
+seam-clean). Full docs: [`textures/README.md`](./textures/README.md); visual
+gallery: `textures/gallery.html`.
+
+| Shot | Caption |
+|---|---|
+| ![pack default](./screenshots/14-pack-default.png) | Loomfall Classic (`default`): the reference pack — clean 32px pixel art straight off the brand palette. |
+| ![pack smooth](./screenshots/15-pack-smooth.png) | Softstone (`smooth`): cel-ish gradients, merged ramp ends, 1.39x saturation, grain nearly gone. |
+| ![pack gritty](./screenshots/16-pack-gritty.png) | Gritstone (`gritty`): desaturated to 0.57x, contrast up 1.34x, heavy grain, cracks and chipped edges. |
+| ![pack woven](./screenshots/17-pack-woven.png) | Threadbare (`woven`): lore-native stitched-cloth look — warp/weft weave, cross-stitch dither, frayed edges, thread sheen. |
+| ![pack accessible](./screenshots/18-pack-accessible.png) | Loudstone (`accessible`): 1.66x contrast, 2px outlines, colorblind-safe ore shapes (dots/stripes/diamonds/crosses/rings/zigzag). |
+| ![pack in scene](./screenshots/19-pack-inscene.png) | A pack hot-swapped into the live demo via `demo.setTexturePack()` — chunk re-meshed, held-item viewmodel rebuilt, same lighting/post chain. |
+
 ## Integration guide for the builder
 
 ### Per-frame update order (what demo.js does)

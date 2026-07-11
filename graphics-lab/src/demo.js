@@ -46,6 +46,8 @@ import { applyWindSway, getWindController } from './windsway.js';
 import { BiomeGrading } from './biomelut.js';
 import { createGUI } from './gui.js';
 import { createSettingsPanel } from '../settings/settings.js';
+import { createPackAtlas, PACK_REGISTRY } from '../textures/labAdapter.js';
+import { createPackBrowser } from '../textures/browser/packBrowser.js';
 
 // ---------------------------------------------------------------------------
 // Visible error surface (verification hook). Created lazily so a hard failure
@@ -194,7 +196,9 @@ function init() {
   //    program cache key — so tiled/plain and swayed/unswayed variants never
   //    collide in the program cache.
   // ==========================================================================
-  const atlas = createBlockAtlas();
+  // `atlas` is LIVE state: setTexturePack() swaps it for a pack-backed atlas
+  // (textures/labAdapter.js) with the exact same contract, then re-meshes.
+  let atlas = createBlockAtlas();
 
   // Tiled pair — greedy geometry (local tile-space uvs + tileOrigin attribute).
   const solidMatGreedy = createVoxelMaterial({
@@ -257,6 +261,83 @@ function init() {
       console.log('[graphics-lab] greedy mesh: ' + next.stats.quadsBefore
         + ' -> ' + next.stats.quadsAfter + ' quads');
     }
+  }
+
+  // ==========================================================================
+  // 3b. Texture packs. 'lab-classic' = the original createBlockAtlas() above;
+  //     every other id resolves through textures/packs.js PACK_REGISTRY via
+  //     the labAdapter (same atlas contract, so both meshers + materials +
+  //     viewmodel work unchanged). Choice persists in localStorage and is
+  //     restored after init; every switch emits 'pack:switched' on window.
+  // ==========================================================================
+  const PACK_STORAGE_KEY = 'mc2.texturePack';
+  const LAB_PACK_ID = 'lab-classic';
+  const atlasCache = new Map([[LAB_PACK_ID, atlas]]); // id -> built atlas
+  let currentPackId = LAB_PACK_ID;
+
+  function setTexturePackImpl(packId) {
+    const id = packId == null || packId === '' ? LAB_PACK_ID : String(packId);
+    if (id !== LAB_PACK_ID && !PACK_REGISTRY[id]) {
+      console.warn('[graphics-lab] unknown texture pack "' + id + '" — ignored');
+      return;
+    }
+    if (id === currentPackId) return;
+
+    let next = atlasCache.get(id);
+    if (!next) {
+      next = id === LAB_PACK_ID ? createBlockAtlas() : createPackAtlas(id);
+      atlasCache.set(id, next);
+    }
+    atlas = next;
+    currentPackId = id;
+    state.texturePack = id;
+
+    // Swap the atlas texture on all four chunk materials; the tiled (greedy)
+    // pair additionally needs the new atlas dimensions for its shader inset.
+    for (const m of voxelMats) m.userData.setMap(atlas.texture);
+    solidMatGreedy.userData.setAtlasInfo(atlas);
+    leavesMatGreedy.userData.setAtlasInfo(atlas);
+
+    // Re-mesh through the existing A-B rebuild path (UV rects live in the
+    // geometry), keeping whichever mesher is currently active.
+    rebuildChunk(usingGreedy);
+
+    // Keep the first-person viewmodel on the same atlas: drop its cached item
+    // meshes (their UVs/maps bake the old atlas in) and rebuild the held item.
+    syncViewmodelAtlas();
+
+    try { localStorage.setItem(PACK_STORAGE_KEY, id); } catch (e) { /* private mode */ }
+    window.dispatchEvent(new CustomEvent('pack:switched', {
+      detail: {
+        packId: id,
+        name: id === LAB_PACK_ID ? 'Lab Classic' : PACK_REGISTRY[id].name,
+      },
+    }));
+  }
+
+  // Viewmodel keeps a per-spec cache of built item meshes; on a pack switch we
+  // clear it (disposing GPU resources) and re-run setItem so the held block
+  // rebuilds against the new atlas. Reaches into FirstPersonViewModel's
+  // documented internals (_atlas/_atlasTexture/_cache/_holder) — a deliberate
+  // demo-side shim so viewmodel.js itself stays untouched.
+  function syncViewmodelAtlas() {
+    if (!viewmodel) return;
+    viewmodel._atlas = atlas;
+    viewmodel._atlasTexture = atlas.texture;
+    for (const item of viewmodel._cache.values()) {
+      viewmodel._holder.remove(item);
+      item.traverse((o) => {
+        if (o.isMesh) {
+          if (o.geometry) o.geometry.dispose();
+          const mats = Array.isArray(o.material) ? o.material : [o.material];
+          for (const m of mats) if (m) m.dispose();
+        }
+      });
+    }
+    viewmodel._cache.clear();
+    viewmodel._currentItem = null;
+    viewmodel._currentSpec = null;
+    viewmodel.setItem(state.heldItem || null);
   }
 
   // Torch/glowstone lighting is handled by the pooled TorchLightManager below
@@ -436,6 +517,7 @@ function init() {
     fpsCap: 0,             // 0 = uncapped; settings replay applies its own cap
     renderDistance: 8,     // chunks — stored + logged (single-chunk demo)
     vsync: true,
+    texturePack: LAB_PACK_ID, // mirrored by setTexturePackImpl
   };
 
   const ctxSkyColor = new THREE.Color().copy(sky.getFogColor());
@@ -503,6 +585,9 @@ function init() {
   // Scenic-capture state (window.demo.setScenicMode).
   let scenicMode = false;
   let scenicPrevViewmodel = true;
+
+  // Pack browser drawer (mounted below, after the GUI; null under ?nogui=1).
+  let packBrowser = null;
 
   window.demo = {
     setTimeOfDay(t) {
@@ -608,10 +693,12 @@ function init() {
         window.demo.toggle('viewmodel', false);
         gui.hide();
         if (settingsPanel) settingsPanel.element.style.display = 'none';
+        if (packBrowser) packBrowser.setVisible(false);
       } else {
         window.demo.toggle('viewmodel', scenicPrevViewmodel);
         if (!noGui) gui.show(); // show() would MOUNT the panel in nogui mode
         if (settingsPanel) settingsPanel.element.style.display = '';
+        if (packBrowser) packBrowser.setVisible(true);
       }
     },
 
@@ -667,6 +754,22 @@ function init() {
           break;
         default: break;
       }
+    },
+
+    // Texture packs: 'lab-classic' (original demo atlas) or a PACK_REGISTRY
+    // id ('default'|'smooth'|'gritty'|'woven'|'accessible'). Persists to
+    // localStorage 'mc2.texturePack', emits 'pack:switched' on window.
+    setTexturePack(packId) {
+      setTexturePackImpl(packId);
+    },
+
+    getTexturePack() {
+      return currentPackId;
+    },
+
+    // Open the in-game pack browser drawer (no-op under ?nogui=1).
+    openPackBrowser() {
+      if (packBrowser) packBrowser.open();
     },
 
     // Debug/demo helper: burst debris off a broken block face.
@@ -746,6 +849,24 @@ function init() {
       console.error('[graphics-lab] settings panel failed to mount:', err);
     }
   }
+
+  // Pack browser drawer + launcher (next to the settings gear). Skipped under
+  // ?nogui=1 (same rule as the settings panel); also hidden by scenic mode.
+  if (!noGui) {
+    try {
+      packBrowser = createPackBrowser({ demo: window.demo });
+      window.demo.packBrowser = packBrowser;
+    } catch (err) {
+      console.error('[graphics-lab] pack browser failed to mount:', err);
+    }
+  }
+
+  // Restore the persisted texture pack (default stays the original lab atlas
+  // unless a pack was chosen). Runs AFTER the viewmodel + materials exist.
+  try {
+    const savedPack = localStorage.getItem(PACK_STORAGE_KEY);
+    if (savedPack && savedPack !== LAB_PACK_ID) setTexturePackImpl(savedPack);
+  } catch (e) { /* storage unavailable */ }
 
   function onResize() {
     const w = window.innerWidth;

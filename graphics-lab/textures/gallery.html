@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Loomfall texture packs — gallery</title>
+  <link rel="icon" href="data:," />
+  <!-- Local ES-module resolution, same convention as ../index.html (no CDN). -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "../vendor/three.module.js"
+    }
+  }
+  </script>
+  <style>
+    :root { color-scheme: dark; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #14101F; /* brand void ink */
+      color: #EDE7DA;      /* brand muslin */
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      padding: 24px 28px 60px;
+    }
+    h1 { font-size: 20px; letter-spacing: 0.08em; text-transform: uppercase; color: #F2C14E; }
+    .sub { font-size: 13px; color: #B4AAC9; margin: 6px 0 18px; }
+    .packnav { margin-bottom: 22px; display: flex; gap: 8px; flex-wrap: wrap; }
+    .packnav a {
+      color: #EDE7DA; text-decoration: none; font-size: 13px;
+      padding: 5px 12px; border: 1px solid #6A5F8C; border-radius: 999px;
+      background: #221B33;
+    }
+    .packnav a.active { background: #F2C14E; color: #1B1528; border-color: #F2C14E; font-weight: 600; }
+    section.pack { margin-bottom: 44px; }
+    .packhead { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+    .packhead h2 { font-size: 17px; color: #F7F2E4; }
+    .packhead .pid { font-size: 12px; color: #8E84A8; font-family: monospace; }
+    .packdesc { font-size: 13px; color: #B4AAC9; max-width: 860px; margin-bottom: 14px; }
+    .grid { display: flex; flex-wrap: wrap; gap: 10px; }
+    .cell { width: 76px; text-align: center; }
+    .cell canvas {
+      width: 64px; height: 64px; display: block; margin: 0 auto;
+      image-rendering: pixelated; image-rendering: crisp-edges;
+      background:
+        repeating-conic-gradient(#221B33 0% 25%, #2E2645 0% 50%) 0 0 / 16px 16px; /* alpha checker */
+      border: 1px solid #3B3158; border-radius: 3px;
+    }
+    .cell .lbl { font-size: 9.5px; color: #B4AAC9; margin-top: 3px; word-break: break-all; line-height: 1.25; font-family: monospace; }
+    h3.striphead { font-size: 12px; color: #8E84A8; text-transform: uppercase; letter-spacing: 0.1em; margin: 20px 0 8px; }
+    .strip { display: flex; flex-wrap: wrap; gap: 10px; }
+    .strip .cell { width: 140px; }
+    .strip canvas { width: 128px; height: 128px; }
+  </style>
+</head>
+<body>
+  <h1>Loomfall texture packs</h1>
+  <div class="sub">55 procedural 32px tiles &times; 5 packs — deterministic, brand-palette-native, seam-free terrain tiling. Append <code>?pack=&lt;id&gt;</code> to filter.</div>
+  <nav class="packnav" id="nav"></nav>
+  <div id="root">building atlases…</div>
+
+<script type="module">
+import { buildAtlas, TILE_NAMES, PACK_REGISTRY } from './atlas.js';
+
+const params = new URLSearchParams(location.search);
+const only = params.get('pack');
+const packIds = Object.keys(PACK_REGISTRY).filter((id) => !only || id === only);
+
+// nav
+const nav = document.getElementById('nav');
+const mkLink = (href, label, active) => {
+  const a = document.createElement('a');
+  a.href = href; a.textContent = label;
+  if (active) a.className = 'active';
+  nav.appendChild(a);
+};
+mkLink('gallery.html', 'all packs', !only);
+for (const id of Object.keys(PACK_REGISTRY)) {
+  mkLink(`gallery.html?pack=${id}`, PACK_REGISTRY[id].name, only === id);
+}
+
+const root = document.getElementById('root');
+root.textContent = '';
+
+// Representative opaque tiles for the 2x2 tiling strips.
+const STRIP_TILES = ['grass_top', 'stone', 'cobblestone', 'planks', 'bricks', 'sand', 'weave_block', 'lava'];
+
+function blitTile(atlas, name, scale, repeat = 1) {
+  const px = atlas.tilePx;
+  const i = atlas.tileIndex(name);
+  const sx = (i % atlas.cols) * px;
+  const sy = Math.floor(i / atlas.cols) * px;
+  const c = document.createElement('canvas');
+  c.width = c.height = px * repeat; // backing stays 1:1; CSS scales it crisply
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  for (let ry = 0; ry < repeat; ry++) {
+    for (let rx = 0; rx < repeat; rx++) {
+      g.drawImage(atlas.canvas, sx, sy, px, px, rx * px, ry * px, px, px);
+    }
+  }
+  c.style.width = `${px * repeat * scale}px`;
+  c.style.height = `${px * repeat * scale}px`;
+  return c;
+}
+
+function cell(canvas, label) {
+  const div = document.createElement('div');
+  div.className = 'cell';
+  div.appendChild(canvas);
+  const lbl = document.createElement('div');
+  lbl.className = 'lbl';
+  lbl.textContent = label;
+  div.appendChild(lbl);
+  return div;
+}
+
+for (const id of packIds) {
+  const pack = PACK_REGISTRY[id];
+  const atlas = buildAtlas(id, 0);
+
+  const sec = document.createElement('section');
+  sec.className = 'pack';
+  sec.innerHTML = `
+    <div class="packhead"><h2></h2><span class="pid">id: ${id}</span></div>
+    <div class="packdesc"></div>`;
+  sec.querySelector('h2').textContent = pack.name;
+  sec.querySelector('.packdesc').textContent = pack.description;
+
+  const grid = document.createElement('div');
+  grid.className = 'grid';
+  for (const name of TILE_NAMES) grid.appendChild(cell(blitTile(atlas, name, 2), name));
+  sec.appendChild(grid);
+
+  const sh = document.createElement('h3');
+  sh.className = 'striphead';
+  sh.textContent = '2x2 tiling strip (seamless check by eye)';
+  sec.appendChild(sh);
+  const strip = document.createElement('div');
+  strip.className = 'strip';
+  for (const name of STRIP_TILES) strip.appendChild(cell(blitTile(atlas, name, 2, 2), `${name} × 2×2`));
+  sec.appendChild(strip);
+
+  root.appendChild(sec);
+}
+
+window.__galleryReady = true;
+</script>
+</body>
+</html>

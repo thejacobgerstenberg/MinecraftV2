@@ -347,6 +347,21 @@ export function createGUI(demo, state = {}) {
   bSection.appendChild(bSel);
   bodyEl.appendChild(bSection);
 
+  // --- Texture pack ------------------------------------------------------------------
+  // Opens the pack browser drawer (textures/browser/packBrowser.js via
+  // demo.openPackBrowser). The value readout mirrors state.texturePack.
+  const tpSection = el('div', 'glab-section');
+  const tpHead = el('div', 'glab-row');
+  tpHead.appendChild(el('span', 'glab-label', 'Texture pack'));
+  const tpVal = el('span', 'glab-time-val', liveState.texturePack || 'lab-classic');
+  tpHead.appendChild(tpVal);
+  tpSection.appendChild(tpHead);
+  const tpBtn = el('button', 'glab-btn', 'browse packs…');
+  tpBtn.type = 'button';
+  tpBtn.addEventListener('click', () => call('openPackBrowser'));
+  tpSection.appendChild(tpBtn);
+  bodyEl.appendChild(tpSection);
+
   // --- Break block button ------------------------------------------------------------
   const brSection = el('div', 'glab-section');
   const brBtn = el('button', 'glab-btn', 'break a block');
@@ -423,6 +438,11 @@ export function createGUI(demo, state = {}) {
     // Biome dropdown.
     if (s.biome != null && BIOME_NAMES.indexOf(s.biome) !== -1 && bSel.value !== s.biome) {
       bSel.value = s.biome;
+    }
+
+    // Texture-pack readout.
+    if (s.texturePack != null && tpVal.textContent !== s.texturePack) {
+      tpVal.textContent = s.texturePack;
     }
 
     // Underwater checkbox.
