@@ -7,11 +7,15 @@
 // creature instances (grazer/Skeinling, groaner/Understruck, exploder/Waxling,
 // screecher/Slagmoth, trader/Wickerkin, bobbindeer/Bobbin-deer,
 // frayedhound/Frayed Hound, emberspinner/Emberspinner, unpicked/The Unpicked,
-// needlejack/Needlejack, scaldwarden/Scaldwarden, raveler/Raveler, and the
-// lastneedle/The Last Needle boss). Creature *visuals* come from
-// ./creatures/<archetype>.js (owned by other agents) via their `build()` /
-// `meta` exports — this file only ever calls that contract, never reaches
-// into their internals beyond root.userData.headAnchor / root.userData.animate.
+// needlejack/Needlejack, scaldwarden/Scaldwarden, raveler/Raveler,
+// spoolmare/Spoolmares, silencemoth/Silence-Moths,
+// selvagewarden/Selvage Wardens (Nevermend mini-boss), and the two
+// dimension bosses lastneedle/The Last Needle and molthkin/Molthkin, the
+// First Bobbin). Creature *visuals* come from ./creatures/<archetype>.js
+// (owned by other agents) via their `build()` / `meta` exports — this file
+// only ever calls that contract, never reaches into their internals beyond
+// root.userData.headAnchor / root.userData.animate / root.userData.rideAnchor
+// (spoolmare only, see the mount API below).
 //
 // Public API (see bottom of file / README-style summary in the return value
 // of the agent that wrote this):
@@ -27,6 +31,21 @@
 //                                (thin wrapper over spawn('lastneedle', pos)).
 //   .mobs                    -- addition, getter -> array snapshot
 //   .setDay(bool)             -- addition, override day/night without opts.isDay
+//   .mountPlayer(mob)         -- addition, mount system (item 7). Mounts a
+//                                rideable mob (currently 'spoolmare', or any
+//                                archetype with config.rideable:true);
+//                                returns { mob, setInput, dismount } or null.
+//   .dismountPlayer(mob)      -- addition, ends a ride.
+//   .setRideInput(mob, input) -- addition, feeds { moveX, moveZ, jump } ride
+//                                control each frame; also available as
+//                                mob.setRideInput(input) on any spawned mob.
+//   .spawnEgg(archetype, pos) -- addition (item 8), async. Creative-mode
+//                                spawn-egg hook, thin wrapper over spawn()
+//                                gated by mobs/breeding.js's SPAWN_EGGS.
+//   .breed(mobA, mobB, pos?)  -- addition (item 8), async. Stub-simple
+//                                breeding via mobs/breeding.js -- spawns a
+//                                scaled-down baby at the midpoint (or `pos`)
+//                                if both mobs share a breedable archetype.
 //
 // Events (CustomEvent via EventTarget, AND opts.onEvent(name, detail)). Every
 // event detail below includes both `archetype` (spawn-table slot key) AND
@@ -35,26 +54,32 @@
 // can match against canonical entity ids (e.g. the boss victory trigger is
 // 'kill_entity:last_needle'):
 //   'mobSpawn', 'mobHurt', 'mobDeath', 'mobAttack', 'mobDrop', 'mobDespawn',
-//   'bossDefeated'
+//   'bossDefeated', 'mobMount', 'mobDismount', 'mobBreed'
 //
 //   'mobDrop'      { mobId, archetype, canonicalId, itemId, pos:{x,y,z},
 //                  count } -- emitted once per dropped stack, right after
-//                  'mobDeath'. Computed via lootTables.rollLoot(archetype,
-//                  rng). Never emitted for a boss mob (see 'bossDefeated');
-//                  archetypes with an empty loot table (unpicked, and the
-//                  boss's own table) naturally produce zero 'mobDrop'
+//                  'mobDeath' OR right after 'bossDefeated' for a KILLABLE
+//                  boss (see below). Computed via lootTables.rollLoot
+//                  (archetype, rng). Archetypes with an empty loot table
+//                  (unpicked, lastneedle) naturally produce zero 'mobDrop'
 //                  events since rollLoot() returns [].
 //   'mobDespawn'   { archetype, canonicalId, species, mob, position } --
 //                  ambient distance/age despawn (spawnRules.shouldDespawn);
-//                  quiet, no loot.
-//   'bossDefeated' { archetype, canonicalId, species, mob, position,
-//                  bound:true, victoryTrigger, achievement } -- emitted
-//                  INSTEAD OF 'mobDeath' when a boss mob's hp reaches 0.
-//                  The boss is bound, not killed, and has no loot table, so
-//                  NO 'mobDrop' is ever emitted for it. victoryTrigger
-//                  (e.g. 'kill_entity:last_needle') and achievement (e.g.
-//                  'taught_to_mend') let the builder wire the win
+//                  quiet, no loot. Never fires for a currently-mounted mob
+//                  (see mountPlayer).
+//   'bossDefeated' { archetype, canonicalId, species, mob, position, bound,
+//                  victoryTrigger?, achievement? } -- emitted INSTEAD OF
+//                  'mobDeath' when a boss mob's (mob.isBoss) hp reaches 0.
+//                  `bound` is per-archetype (ARCHETYPE_CONFIG.bound, default
+//                  true): lastneedle is bound:true (bound, not killed --
+//                  its loot table is empty, so no 'mobDrop' follows) with
+//                  victoryTrigger ('kill_entity:last_needle') + achievement
+//                  ('taught_to_mend') so the builder can wire the win
 //                  condition/ending without hardcoding archetype strings.
+//                  molthkin is bound:false (genuinely KILLABLE) with NO
+//                  victoryTrigger/achievement fields, and IS followed by
+//                  'mobDrop' events (its table has everthread) -- see
+//                  _killBoss/_dropLoot.
 // ============================================================================
 
 import * as THREE from 'three';
@@ -76,6 +101,10 @@ import { build as buildLastneedle, meta as metaLastneedle } from './creatures/la
 import { build as buildNeedlejack, meta as metaNeedlejack } from './creatures/needlejack.js';
 import { build as buildScaldwarden, meta as metaScaldwarden } from './creatures/scaldwarden.js';
 import { build as buildRaveler, meta as metaRaveler } from './creatures/raveler.js';
+import { build as buildSpoolmare, meta as metaSpoolmare } from './creatures/spoolmare.js';
+import { build as buildSilencemoth, meta as metaSilencemoth } from './creatures/silencemoth.js';
+import { build as buildSelvagewarden, meta as metaSelvagewarden } from './creatures/selvagewarden.js';
+import { build as buildMolthkin, meta as metaMolthkin } from './creatures/molthkin.js';
 
 // ----------------------------------------------------------------------
 // Registry: archetype -> { build, meta }
@@ -102,6 +131,10 @@ const REGISTRY = {
   needlejack: { build: buildNeedlejack, meta: metaNeedlejack },
   scaldwarden: { build: buildScaldwarden, meta: metaScaldwarden },
   raveler: { build: buildRaveler, meta: metaRaveler },
+  spoolmare: { build: buildSpoolmare, meta: metaSpoolmare },
+  silencemoth: { build: buildSilencemoth, meta: metaSilencemoth },
+  selvagewarden: { build: buildSelvagewarden, meta: metaSelvagewarden },
+  molthkin: { build: buildMolthkin, meta: metaMolthkin },
 };
 
 // ----------------------------------------------------------------------
@@ -240,30 +273,45 @@ const ARCHETYPE_CONFIG = {
     contactDamage: 4, attackCooldown: 0.9,
   },
 
-  // Scaldwarden: neutral Cinderloom guardian, reuses 'trader' AI (idles /
-  // tethers near its post, never initiates an attack -- the "passive
-  // unless provoked" retaliation behaviour is out of scope for this sim's
-  // AI set, so it's simplified down to a stationary neutral like trader;
-  // see DESPAWN_CONFIG.exemptArchetypes, it's also despawn-exempt).
-  // canon: hp40 dmg6 spd3 (contactDamage stored for future provoke logic).
+  // Scaldwarden: neutral Cinderloom guardian, PROVOKE fix (item 5): now
+  // uses its own 'guardian' aiBase (was previously simplified down to
+  // 'trader', a known deviation from the canonical "passive unless
+  // provoked" retaliation behaviour). _aiGuardian idles/tethers near its
+  // post exactly like trader until hurt; _hurtMob then sets
+  // mob.provoked=true + mob.provokeTimer=provokeDuration, and for as long
+  // as that timer is running (decremented every tick in _updateMobAI) it
+  // seeks + attacks like a groaner using contactDamage. Once the timer
+  // expires it reverts to neutral idling. Still despawn-exempt (see
+  // DESPAWN_CONFIG.exemptArchetypes in spawnRules.js).
+  // canon: hp40 dmg6 spd3.
   scaldwarden: {
-    aiBase: 'trader',
+    aiBase: 'guardian',
     maxHp: 40,
     halfWidth: 0.4, height: 1.5,
     speed: 3,
     hostile: false, flies: false,
     tetherRadius: 5,
-    contactDamage: 6,
+    aggroRange: 9, attackRange: 1.0,
+    contactDamage: 6, attackCooldown: 1.2,
+    provokeDuration: 8,
   },
 
   // Raveler: fast Nevermend hostile, reuses 'groaner' AI. canon: hp18 dmg5
   // spd8 (FAST -- summoned by the Last Needle as "a Shed of Ravelers").
+  // HOVER fix (item 6, known deviation): now flies:true with a low
+  // hoverHeight so it actually hovers via the flyer physics path in
+  // _updateMobPhysics, rather than merely being animated as if hovering
+  // while actually walking. _aiGroaner is now flight-aware (see below): it
+  // composes the SAME flyer physics + flyerAvoid terrain-avoidance used by
+  // the boss with groaner's own horizontal seek/attack logic, so raveler
+  // gets real target-seeking hover flight without a bespoke AI function.
   raveler: {
     aiBase: 'groaner',
     maxHp: 18,
     halfWidth: 0.35, height: 1.1,
     speed: 4.0, seekSpeed: 8,
-    hostile: true, flies: false,
+    hostile: true, flies: true,
+    hoverHeight: 0.6,
     aggroRange: 10, attackRange: 0.9,
     contactDamage: 5, attackCooldown: 0.7,
   },
@@ -286,6 +334,7 @@ const ARCHETYPE_CONFIG = {
   lastneedle: {
     aiBase: 'boss',
     isBoss: true,
+    bound: true, // bound, not killed -- see _killBoss (default when unset)
     maxHp: 600,
     halfWidth: 0.5, height: 3.8,
     speed: 0.6, seekSpeed: 1.0,
@@ -316,6 +365,110 @@ const ARCHETYPE_CONFIG = {
     // canonical victory trigger id; achievement is granted alongside it.
     victoryTrigger: 'kill_entity:last_needle',
     achievement: 'taught_to_mend',
+  },
+
+  // ---- Phase 4 additions (mounts, ambience, mini-boss, second boss) -----
+
+  // Spoolmares: passive, RIDEABLE Warpwold mount, reuses 'grazer' AI when
+  // unmounted (wanders; flees briefly if hurt -- see item 7 for the mount
+  // system itself). canon: hp26 dmg0 spd9. config.rideable opts this (and
+  // any future archetype) into mountPlayer(); config.rideSpeed is the top
+  // ground speed a *rider* can drive it at via setRideInput (see
+  // _driveRideInput), kept separate from its own ambient wander/flee
+  // speeds so being ridden doesn't change its unridden behaviour tuning.
+  spoolmare: {
+    aiBase: 'grazer',
+    maxHp: 26,
+    halfWidth: 0.3, height: 1.5,
+    speed: 4.5, fleeSpeed: 9,
+    hostile: false, flies: false,
+    rideable: true,
+    rideSpeed: 9,
+  },
+
+  // Silence-Moths: harmless ambient Warpwold flyer, reuses 'screecher' AI
+  // but with hostile:false. Item 2 fix: _aiScreecher now branches on
+  // config.hostile -- a non-hostile flyer just wanders/hovers and NEVER
+  // seeks or attacks the player, regardless of aggroRange/attackRange.
+  // canon: hp4 dmg1 spd3 (contactDamage/attackCooldown kept for data
+  // completeness only -- silencemoth is effectively inert, its attack path
+  // is never reached).
+  silencemoth: {
+    aiBase: 'screecher',
+    maxHp: 4,
+    halfWidth: 0.12, height: 0.3,
+    speed: 3,
+    hostile: false, flies: true,
+    hoverHeight: 1.0,
+    aggroRange: 10, attackRange: 1.0,
+    contactDamage: 1, attackCooldown: 1.5,
+  },
+
+  // Selvage Wardens: Nevermend MINI-boss -- deliberately NOT isBoss/bound;
+  // it dies through the normal _killMob path (plain 'mobDeath' + 'mobDrop'
+  // hemstone), never 'bossDefeated' (see item 3/4). Reuses 'groaner' AI
+  // for hostile melee. canon: hp90 dmg9 spd4. regenPerSec/regenDelay drive
+  // its self-mending (see _updateRegen, called every AI tick for every
+  // mob): once regenDelay seconds have passed since it was last hurt
+  // (mob.sinceHurt, reset in _hurtMob), it heals regenPerSec hp/sec, capped
+  // at maxHp -- selling the "re-stitches, doesn't bleed" lore from its own
+  // creature module's re-stitch shimmer animation.
+  selvagewarden: {
+    aiBase: 'groaner',
+    maxHp: 90,
+    halfWidth: 0.4, height: 1.7,
+    speed: 2.0, seekSpeed: 4,
+    hostile: true, flies: false,
+    aggroRange: 12, attackRange: 1.1,
+    contactDamage: 9, attackCooldown: 1.3,
+    regenPerSec: 2, regenDelay: 5,
+  },
+
+  // Molthkin, the First Bobbin: Cinderloom boss, the canonical Everthread
+  // source. Unlike lastneedle it is bound:false -- genuinely KILLABLE, and
+  // DROPS loot (its table has everthread; see _killBoss/_dropLoot). Grounded
+  // (not flying) -- reuses the same grounded-hostile nav path
+  // (_steerGroundedHostile) as groaner-family mobs. Simplified 2-PHASE
+  // hp-fraction model (canonical threshold: 50%), see _aiMolthkin:
+  //   phase 0 (frac > phase1HpFrac):  slow deliberate approach + heavy
+  //                                   thread-arm melee/short-range attack.
+  //   phase 1 (frac <= phase1HpFrac): enraged -- faster (phaseSpeedMul),
+  //                                   and periodically summons adds
+  //                                   ('exploder'/Waxling, occasional
+  //                                   'emberspinner'/Emberspinner) near
+  //                                   itself, capped at maxAdds alive (via
+  //                                   spawnedBy) -- same pattern as
+  //                                   lastneedle's own add-summoning.
+  // mob.bossPhase (0/1) feeds animate() as state.phase (molthkin's own
+  // animate treats it as a 0..1 float, so 0/1 map directly to its
+  // phase0/phase1 poses); mob.attackFlash feeds state.attack -- both via
+  // the existing shared _animateMob path, no changes needed there.
+  // canon: hp280 dmg11 spd2. No victoryTrigger/achievement -- those are
+  // lastneedle-only; molthkin's 'bossDefeated' detail omits both fields.
+  molthkin: {
+    aiBase: 'boss',
+    isBoss: true,
+    bound: false,
+    maxHp: 280,
+    halfWidth: 1.4, height: 3.4,
+    speed: 1.0, seekSpeed: 2.0,
+    hostile: true, flies: false,
+    aggroRange: 14, attackRange: 2.2,
+    contactDamage: 11, attackCooldown: 2.0,
+    phaseSpeedMul: [1.0, 1.6],
+    phaseAttackRanges: [2.2, 2.6],
+    phaseAttackCooldowns: [2.0, 1.1],
+    phaseAttackDamage: [11, 14],
+    phase1HpFrac: 0.5,
+    // Add-summoning (phase 1 / enraged only). Archetype keys here are
+    // REGISTRY/spawn-table slot keys, not display species names --
+    // 'exploder' is the Waxling archetype slot, 'emberspinner' matches its
+    // own species name directly (see spawnRules.SPECIES_BY_ARCHETYPE).
+    summonArchetypePrimary: 'exploder', // Waxling
+    summonArchetypeAlt: 'emberspinner', // Emberspinner
+    summonArchetypeAltChance: 0.4,
+    summonCooldown: 7,
+    maxAdds: 3,
   },
 };
 
@@ -479,6 +632,13 @@ export class MobManager extends EventTarget {
       canonicalId: canonicalIdFor(archetype),
       group,
       headAnchor: (group.userData && group.userData.headAnchor) || null,
+      // rideAnchor: the saddle-point Object3D exposed by spoolmare's own
+      // build() (root.userData.rideAnchor); null for every other archetype.
+      // The builder reads its world position each frame to seat the
+      // player/camera while mounted (see item 7 / mountPlayer below).
+      rideAnchor: (group.userData && group.userData.rideAnchor) || null,
+      rider: null,                 // truthy while mounted; see mountPlayer/dismountPlayer
+      rideInput: null,             // { moveX, moveZ, jump }; set via setRideInput while mounted
       hp: config.maxHp ?? 6,
       maxHp: config.maxHp ?? 6,
       position: { x: group.position.x, y: group.position.y, z: group.position.z },
@@ -500,13 +660,19 @@ export class MobManager extends EventTarget {
       isBoss: !!config.isBoss,
       bossPhase: 0,          // meaningful only for boss mobs; exposed via animate() state.phase
       summonCooldownTimer: config.summonCooldown ?? 0,
-      spawnedBy: null,       // set by _aiLastNeedle when this mob is a boss-summoned add
+      spawnedBy: null,       // set by _aiLastNeedle/_aiMolthkin when this mob is a boss-summoned add
+      sinceHurt: Infinity,   // seconds since last hurt; drives regenPerSec/regenDelay self-mend
+      provoked: false,       // 'guardian' aiBase only (scaldwarden) -- see _hurtMob/_aiGuardian
+      provokeTimer: 0,
+      isBaby: false,         // set by breed() on a bred baby
       dead: false,
       _moving: false,
       _navVy: 0,             // scratch: flyerAvoid's suggested vy for this tick
       hurt: null, // assigned below
+      setRideInput: null, // assigned below
     };
     mob.hurt = (dmg) => this._hurtMob(mob, dmg);
+    mob.setRideInput = (input) => this.setRideInput(mob, input);
 
     this._mobs.push(mob);
     this._emit('mobSpawn', {
@@ -531,6 +697,203 @@ export class MobManager extends EventTarget {
   }
 
   // ----------------------------------------------------------------
+  // Public: mount / ride system (item 7)
+  // ----------------------------------------------------------------
+
+  /**
+   * mountPlayer(mob) -> { mob, setInput, dismount } | null
+   * Mounts `mob` if it's eligible: alive, not already mounted, its
+   * archetype config has rideable:true (currently just 'spoolmare'), and
+   * its creature module exposed a root.userData.rideAnchor (see spawn()).
+   * Sets mob.rider=true and mob.rideInput to a zeroed input, which makes
+   * update() route this mob through _driveRideInput() instead of its
+   * normal AI every tick from here on (AI resumes automatically once
+   * dismounted). Emits 'mobMount'. Returns null (no-op, nothing mutated)
+   * on any validation failure.
+   */
+  mountPlayer(mob) {
+    if (!mob || mob.dead || mob.rider) return null;
+    const config = ARCHETYPE_CONFIG[mob.archetype] || {};
+    const rideable = config.rideable === true || mob.archetype === 'spoolmare';
+    if (!rideable || !mob.rideAnchor) return null;
+
+    mob.rider = true;
+    mob.rideInput = { moveX: 0, moveZ: 0, jump: false };
+    mob.velocity.x = 0;
+    mob.velocity.z = 0;
+    mob._moving = false;
+    // Being ridden implicitly counts as calm -- clear any in-flight flee
+    // (e.g. from a recent hurt) so the mount doesn't fight the rider.
+    mob.fleeTimer = 0;
+
+    this._emit('mobMount', {
+      archetype: mob.archetype,
+      canonicalId: mob.canonicalId,
+      mob,
+    });
+
+    return {
+      mob,
+      setInput: (input) => this.setRideInput(mob, input),
+      dismount: () => this.dismountPlayer(mob),
+    };
+  }
+
+  /**
+   * dismountPlayer(mob): ends a ride started by mountPlayer(). Clears
+   * mob.rider/rideInput (AI resumes next tick) and emits 'mobDismount'.
+   * No-op if `mob` isn't currently mounted.
+   */
+  dismountPlayer(mob) {
+    if (!mob || !mob.rider) return;
+    mob.rider = null;
+    mob.rideInput = null;
+    mob.velocity.x = 0;
+    mob.velocity.z = 0;
+    this._emit('mobDismount', {
+      archetype: mob.archetype,
+      canonicalId: mob.canonicalId,
+      mob,
+    });
+  }
+
+  /**
+   * setRideInput(mob, input) -> boolean
+   * Feeds ride control for a currently-mounted mob each frame:
+   * input = { moveX, moveZ, jump } -- a world-space desired horizontal
+   * move direction (need not be pre-normalized; magnitude is clamped to 1
+   * before being scaled by the mob's config.rideSpeed, see
+   * _driveRideInput) plus an optional jump flag (applied only if grounded).
+   * Also reachable as mob.setRideInput(input) (a closure bound at spawn
+   * time) for callers that only hold the mob reference. Returns false
+   * (no-op) if `mob` isn't currently mounted.
+   */
+  setRideInput(mob, input) {
+    if (!mob || !mob.rider) return false;
+    const moveX = input && Number.isFinite(input.moveX) ? input.moveX : 0;
+    const moveZ = input && Number.isFinite(input.moveZ) ? input.moveZ : 0;
+    const jump = !!(input && input.jump);
+    mob.rideInput = { moveX, moveZ, jump };
+    return true;
+  }
+
+  /**
+   * spawnEgg(archetype, pos) -> Promise<mob | null>
+   * Addition (item 8). Thin creative-mode spawn-egg hook: confirms this
+   * archetype is registered here AND has a spawn-egg id in
+   * mobs/breeding.js's SPAWN_EGGS (via breeding.spawnEggId), then spawns
+   * it normally via spawn(). Async because mobs/breeding.js is loaded
+   * through a guarded dynamic import (see _loadBreeding) -- resolves to
+   * null on any validation failure or if breeding.js can't be loaded.
+   */
+  async spawnEgg(archetype, pos) {
+    if (!REGISTRY[archetype]) return null;
+    const breeding = await this._loadBreeding();
+    if (!breeding || typeof breeding.spawnEggId !== 'function') return null;
+    let eggId = null;
+    try {
+      eggId = breeding.spawnEggId(archetype);
+    } catch (e) {
+      eggId = null;
+    }
+    if (!eggId) return null;
+    return this.spawn(archetype, pos);
+  }
+
+  /**
+   * breed(mobA, mobB, pos?) -> Promise<mob | null>
+   * Addition (item 8). Stub-simple breeding: if mobA/mobB are both alive,
+   * share the same archetype, and mobs/breeding.js's canBreed(archetype)
+   * is true, spawns a baby at their midpoint (or `pos`, if given),
+   * described by breeding.describeBaby(archetype) -- the baby's group is
+   * scaled by descriptor.scale and mob.isBaby is set. Emits 'mobBreed' on
+   * success. Defensive/stub: no love-mode/feeding/cooldown state is
+   * tracked here (see mobs/breeding.js's own header); this just validates
+   * + spawns. Returns null on any validation failure.
+   */
+  async breed(mobA, mobB, pos) {
+    if (!mobA || !mobB || mobA.dead || mobB.dead) return null;
+    if (mobA.archetype !== mobB.archetype) return null;
+    const archetype = mobA.archetype;
+
+    const breeding = await this._loadBreeding();
+    if (!breeding || typeof breeding.canBreed !== 'function') return null;
+    let can = false;
+    try {
+      can = breeding.canBreed(archetype);
+    } catch (e) {
+      can = false;
+    }
+    if (!can) return null;
+
+    let descriptor = null;
+    try {
+      descriptor = breeding.describeBaby(archetype);
+    } catch (e) {
+      descriptor = null;
+    }
+    if (!descriptor) return null;
+
+    const midpoint = pos || {
+      x: (mobA.position.x + mobB.position.x) / 2,
+      y: (mobA.position.y + mobB.position.y) / 2,
+      z: (mobA.position.z + mobB.position.z) / 2,
+    };
+
+    const baby = this.spawn(archetype, midpoint);
+    if (!baby) return null;
+
+    const scale = Number.isFinite(descriptor.scale) ? descriptor.scale : 1;
+    if (baby.group && baby.group.scale && typeof baby.group.scale.setScalar === 'function') {
+      try {
+        baby.group.scale.setScalar(scale);
+      } catch (e) {
+        /* ignore */
+      }
+    }
+    baby.isBaby = true;
+
+    this._emit('mobBreed', {
+      archetype,
+      canonicalId: baby.canonicalId,
+      baby,
+    });
+
+    return baby;
+  }
+
+  /**
+   * _loadBreeding() -> Promise<module-like object | null>
+   * Lazily, defensively loads mobs/breeding.js via a DYNAMIC import
+   * (cached after the first call, on this._breedingPromise) rather than a
+   * static top-level `import`. This is deliberate: breeding.js currently
+   * exports via CommonJS `module.exports = {...}` (see its own file
+   * header) instead of this codebase's ES `export` convention used
+   * everywhere else, including this file. A static
+   * `import * as breeding from './breeding.js'` at the top of this file
+   * would throw "ReferenceError: module is not defined" the instant a real
+   * browser ES-module loader evaluates breeding.js (browsers have no
+   * `module` global in module scope) -- and because that would be a
+   * top-level import, the error is uncatchable and would take this ENTIRE
+   * file down with it (see the NOTES returned by this integration pass).
+   * Routing spawnEgg()/breed() through this guarded dynamic import instead
+   * means that failure is caught right here, and both methods just
+   * degrade to a no-op (resolve to null) until breeding.js is updated to
+   * real ESM exports -- MobManager itself keeps working either way. Under
+   * Node (e.g. this file's own smoke test) this resolves fine regardless,
+   * since Node's ESM loader auto-detects/wraps a CommonJS module on
+   * dynamic import.
+   */
+  _loadBreeding() {
+    if (!this._breedingPromise) {
+      this._breedingPromise = import('./breeding.js')
+        .then((mod) => (mod && (mod.default || mod)) || null)
+        .catch(() => null);
+    }
+    return this._breedingPromise;
+  }
+
+  // ----------------------------------------------------------------
   // Public: required contract methods
   // ----------------------------------------------------------------
 
@@ -547,7 +910,14 @@ export class MobManager extends EventTarget {
     for (const mob of this._mobs) {
       if (mob.dead) continue;
       mob.ageSeconds = (mob.ageSeconds || 0) + clampedDt;
-      this._updateMobAI(mob, clampedDt, playerPos);
+      if (mob.rider) {
+        // Mounted (item 7): AI is fully skipped -- velocity is driven from
+        // the rider's setRideInput() instead, through the SAME physics
+        // path (gravity/collision/step-up) as any grounded hostile.
+        this._driveRideInput(mob, clampedDt);
+      } else {
+        this._updateMobAI(mob, clampedDt, playerPos);
+      }
       if (mob.dead) continue; // e.g. exploder detonated mid-AI-step
       this._updateMobPhysics(mob, clampedDt);
       this._animateMob(mob, clampedDt);
@@ -648,6 +1018,7 @@ export class MobManager extends EventTarget {
 
     for (const mob of this._mobs) {
       if (mob.dead) continue;
+      if (mob.rider) continue; // never despawn a mob the player is currently riding
       let despawn;
       try {
         despawn = shouldDespawn(mob, playerPos, DESPAWN_CONFIG);
@@ -658,9 +1029,13 @@ export class MobManager extends EventTarget {
     }
   }
 
-  /** Quiet removal: no mobDeath, no loot -- just an optional 'mobDespawn'. */
+  /** Quiet removal: no mobDeath, no loot -- just an optional 'mobDespawn'.
+   * (The despawn sweep itself already skips currently-mounted mobs -- see
+   * _updateDespawn -- this dismount is a defensive belt-and-suspenders
+   * guard for any other/future caller of _despawnMob.) */
   _despawnMob(mob) {
     if (!mob || mob.dead) return;
+    if (mob.rider) this.dismountPlayer(mob);
     mob.dead = true;
     this._emit('mobDespawn', {
       archetype: mob.archetype,
@@ -678,15 +1053,46 @@ export class MobManager extends EventTarget {
 
   _updateMobAI(mob, dt, playerPos) {
     const config = ARCHETYPE_CONFIG[mob.archetype] || {};
+
+    // Self-mend (item 3) + provoke-timer decrement (item 5) apply
+    // regardless of aiBase, ahead of dispatch -- cheap no-ops for any mob
+    // whose config doesn't opt in (no regenPerSec) / that never got
+    // provoked (provokeTimer stays 0).
+    this._updateRegen(mob, dt, config);
+    if (mob.provokeTimer > 0) {
+      mob.provokeTimer = Math.max(0, mob.provokeTimer - dt);
+      if (mob.provokeTimer <= 0) mob.provoked = false;
+    }
+
     const aiBase = config.aiBase || mob.archetype;
     switch (aiBase) {
       case 'grazer': return this._aiGrazer(mob, dt, playerPos);
       case 'trader': return this._aiTrader(mob, dt, playerPos);
+      case 'guardian': return this._aiGuardian(mob, dt, playerPos);
       case 'groaner': return this._aiGroaner(mob, dt, playerPos);
       case 'exploder': return this._aiExploder(mob, dt, playerPos);
       case 'screecher': return this._aiScreecher(mob, dt, playerPos);
-      case 'boss': return this._aiLastNeedle(mob, dt, playerPos);
+      case 'boss':
+        return mob.archetype === 'molthkin'
+          ? this._aiMolthkin(mob, dt, playerPos)
+          : this._aiLastNeedle(mob, dt, playerPos);
       default: return this._aiWanderOnly(mob, dt);
+    }
+  }
+
+  /**
+   * _updateRegen(mob, dt, config): item 3's self-mending. No-op unless
+   * config.regenPerSec is set (currently just selvagewarden). Tracks
+   * mob.sinceHurt (seconds since last _hurtMob call, reset there) and,
+   * once it's been at least config.regenDelay seconds since the mob was
+   * last hurt, heals config.regenPerSec hp/sec, capped at maxHp.
+   */
+  _updateRegen(mob, dt, config) {
+    if (!config.regenPerSec) return;
+    mob.sinceHurt = (Number.isFinite(mob.sinceHurt) ? mob.sinceHurt : Infinity) + dt;
+    const delay = config.regenDelay ?? 5;
+    if (mob.sinceHurt >= delay && mob.hp > 0 && mob.hp < mob.maxHp) {
+      mob.hp = Math.min(mob.maxHp, mob.hp + config.regenPerSec * dt);
     }
   }
 
@@ -728,6 +1134,45 @@ export class MobManager extends EventTarget {
     mob.velocity.z = avoid.vz;
     mob._navVy = avoid.vy || 0;
     mob._moving = !!desired.moving;
+  }
+
+  /**
+   * _driveRideInput(mob, dt): item 7. Runs INSTEAD OF _updateMobAI for a
+   * currently-mounted mob (see update()). Reads mob.rideInput
+   * ({ moveX, moveZ, jump }), builds a desired horizontal velocity by
+   * normalizing that direction and scaling by config.rideSpeed (clamped so
+   * an oversized input vector can never exceed the mount's top ride
+   * speed), then runs it through the exact SAME grounded-hostile steering
+   * path (_steerGroundedHostile -> AI.navSteer) used by every hostile AI
+   * here, so a rider gets the same gravity/collision/1-block-step-up
+   * behaviour for free. Applies a jump impulse only if input.jump is set
+   * AND the mount is currently grounded.
+   */
+  _driveRideInput(mob, dt) {
+    const config = ARCHETYPE_CONFIG[mob.archetype] || {};
+    const input = mob.rideInput || { moveX: 0, moveZ: 0, jump: false };
+    const maxSpeed = config.rideSpeed ?? config.fleeSpeed ?? config.speed ?? 3;
+    const moveX = Number.isFinite(input.moveX) ? input.moveX : 0;
+    const moveZ = Number.isFinite(input.moveZ) ? input.moveZ : 0;
+    const mag = Math.hypot(moveX, moveZ);
+
+    let desired;
+    if (mag > 1e-6) {
+      const clampedMag = Math.min(mag, 1); // moveX/moveZ needn't be pre-normalized
+      desired = {
+        vx: (moveX / mag) * clampedMag * maxSpeed,
+        vz: (moveZ / mag) * clampedMag * maxSpeed,
+        moving: true,
+      };
+    } else {
+      desired = { vx: 0, vz: 0, moving: false };
+    }
+
+    this._steerGroundedHostile(mob, config, desired);
+
+    if (input.jump && mob.grounded) {
+      mob.velocity.y = AI.JUMP_SPEED;
+    }
   }
 
   _aiWanderOnly(mob, dt) {
@@ -773,9 +1218,52 @@ export class MobManager extends EventTarget {
     mob._moving = steer.moving;
   }
 
+  // Neutral-until-provoked (item 5): idles/tethers near its spawn point
+  // exactly like _aiTrader by default. Once _hurtMob has set
+  // mob.provoked=true (with mob.provokeTimer freshly reset -- decremented
+  // every tick in _updateMobAI, which also clears mob.provoked once it
+  // hits 0), this behaves hostile for the remainder of that timer: seeks
+  // and attacks the player using contactDamage, groaner-style. Currently
+  // used by scaldwarden (canon: a neutral guardian that retaliates when
+  // attacked, then settles back down).
+  _aiGuardian(mob, dt, playerPos) {
+    const config = ARCHETYPE_CONFIG[mob.archetype] || {};
+    if (mob.provoked && mob.provokeTimer > 0) {
+      mob.attackCooldownTimer = Math.max(0, mob.attackCooldownTimer - dt);
+      const dist = AI.horizontalDistance(mob.position, playerPos);
+      if (dist <= (config.aggroRange ?? 8)) {
+        if (dist <= (config.attackRange ?? 1.0)) {
+          mob.velocity.x = 0;
+          mob.velocity.z = 0;
+          mob._moving = false;
+          if (mob.attackCooldownTimer <= 0) {
+            mob.attackCooldownTimer = config.attackCooldown ?? 1.2;
+            this._doAttack(mob, config.contactDamage ?? 6);
+          }
+        } else {
+          const steer = AI.seekSteer(mob.position, playerPos, config.seekSpeed ?? config.speed);
+          this._steerGroundedHostile(mob, config, steer);
+        }
+      } else {
+        this._aiWanderOnly(mob, dt);
+      }
+      return;
+    }
+    // Neutral: idle/tether near spawn, same as a trader.
+    this._aiTrader(mob, dt);
+  }
+
   // Hostile: wanders until player in aggro range, seeks, attacks on contact.
-  // Reused (via aiBase:'groaner') by frayedhound/emberspinner/unpicked --
-  // ARCHETYPE_CONFIG[mob.archetype] pulls each archetype's own tuning.
+  // Reused (via aiBase:'groaner') by frayedhound/emberspinner/unpicked/
+  // selvagewarden -- ARCHETYPE_CONFIG[mob.archetype] pulls each archetype's
+  // own tuning. Flight-aware (item 6): if config.flies is set (currently
+  // just raveler), the seek/attack-hold steering is routed through
+  // _steerFlyer (which itself composes AI.flyerAvoid terrain-avoidance)
+  // instead of _steerGroundedHostile, exactly like the boss composes
+  // flyer physics with its own seek logic -- so a flying groaner-family
+  // mob gets real hover flight + terrain avoidance while keeping the same
+  // aggro/attack decision tree as every grounded groaner. The out-of-range
+  // wander case is already flight-aware via _aiWanderOnly.
   _aiGroaner(mob, dt, playerPos) {
     const config = ARCHETYPE_CONFIG[mob.archetype] || {};
     mob.attackCooldownTimer = Math.max(0, mob.attackCooldownTimer - dt);
@@ -783,16 +1271,24 @@ export class MobManager extends EventTarget {
     const dist = AI.horizontalDistance(mob.position, playerPos);
     if (dist <= (config.aggroRange ?? 8)) {
       if (dist <= (config.attackRange ?? 0.9)) {
-        mob.velocity.x = 0;
-        mob.velocity.z = 0;
-        mob._moving = false;
+        if (config.flies) {
+          this._steerFlyer(mob, { vx: 0, vz: 0, moving: true }); // hovers in place
+        } else {
+          mob.velocity.x = 0;
+          mob.velocity.z = 0;
+          mob._moving = false;
+        }
         if (mob.attackCooldownTimer <= 0) {
           mob.attackCooldownTimer = config.attackCooldown ?? 1.0;
           this._doAttack(mob, config.contactDamage ?? 1);
         }
       } else {
         const steer = AI.seekSteer(mob.position, playerPos, config.seekSpeed ?? config.speed);
-        this._steerGroundedHostile(mob, config, steer);
+        if (config.flies) {
+          this._steerFlyer(mob, steer);
+        } else {
+          this._steerGroundedHostile(mob, config, steer);
+        }
       }
     } else {
       this._aiWanderOnly(mob, dt);
@@ -826,8 +1322,15 @@ export class MobManager extends EventTarget {
   }
 
   // Hostile-ish flyer: hovers, drifts toward the player, attacks on contact.
+  // Item 2 fix: non-hostile flyers (config.hostile:false, e.g. silencemoth)
+  // never seek/attack -- they just wander/hover in place, ambient-only.
   _aiScreecher(mob, dt, playerPos) {
     const config = ARCHETYPE_CONFIG[mob.archetype] || {};
+    if (!config.hostile) {
+      const steer = AI.wanderSteer(mob.wander, dt, this._rng, (config.speed ?? 1.3) * 0.5);
+      this._steerFlyer(mob, steer);
+      return;
+    }
     mob.attackCooldownTimer = Math.max(0, mob.attackCooldownTimer - dt);
 
     const dist = AI.horizontalDistance(mob.position, playerPos);
@@ -945,6 +1448,94 @@ export class MobManager extends EventTarget {
     }
   }
 
+  // Boss: Molthkin, the First Bobbin. Simplified 2-PHASE hp-fraction model
+  // (canonical threshold: 50%), GROUNDED (not flying, unlike lastneedle) --
+  // reuses the same grounded-hostile nav path (_steerGroundedHostile) as
+  // any groaner-family mob:
+  //   phase 0 (frac > phase1HpFrac, i.e. > 50%):  slow deliberate approach
+  //                                   + heavy thread-arm melee/short-range
+  //                                   attack.
+  //   phase 1 (frac <= phase1HpFrac, i.e. <= 50%): enraged -- faster
+  //                                   (phaseSpeedMul), and periodically
+  //                                   summons adds ('exploder'/Waxling,
+  //                                   occasional 'emberspinner') near
+  //                                   itself, capped at maxAdds alive (via
+  //                                   spawnedBy) -- same pattern as
+  //                                   _aiLastNeedle's own add-summoning.
+  // mob.bossPhase (0/1) is updated every tick and fed into animate() as
+  // state.phase (molthkin's own animate treats it as a 0..1 float, so
+  // this maps directly onto its phase0/phase1 poses); mob.attackFlash
+  // (generic, see _doAttack) is fed in as state.attack.
+  _aiMolthkin(mob, dt, playerPos) {
+    const config = ARCHETYPE_CONFIG[mob.archetype] || {};
+    mob.attackCooldownTimer = Math.max(0, mob.attackCooldownTimer - dt);
+    mob.summonCooldownTimer = Math.max(0, (mob.summonCooldownTimer || 0) - dt);
+
+    const frac = mob.maxHp > 0 ? Math.max(0, mob.hp) / mob.maxHp : 0;
+    const phase = frac <= (config.phase1HpFrac ?? 0.5) ? 1 : 0;
+    mob.bossPhase = phase;
+
+    const speedMul = (config.phaseSpeedMul && config.phaseSpeedMul[phase]) ?? 1.0;
+    const seekSpeed = (config.seekSpeed ?? config.speed ?? 1.0) * speedMul;
+    const attackRange = (config.phaseAttackRanges && config.phaseAttackRanges[phase])
+      ?? config.attackRange ?? 2.2;
+
+    const dist = AI.horizontalDistance(mob.position, playerPos);
+    const aggroRange = config.aggroRange ?? 14;
+
+    let steer;
+    if (!Number.isFinite(dist) || dist > aggroRange) {
+      // Player out of range (or unknown): slow idle drift near current spot.
+      steer = AI.wanderSteer(mob.wander, dt, this._rng, seekSpeed * 0.2);
+    } else if (dist > attackRange * 0.7) {
+      steer = AI.seekSteer(mob.position, playerPos, seekSpeed);
+    } else {
+      // Close enough to fight: hold ground, no drift.
+      steer = { vx: 0, vz: 0, moving: false };
+    }
+    this._steerGroundedHostile(mob, config, steer);
+
+    // Heavy melee/short-range attack, cooldown + damage escalate by phase.
+    if (Number.isFinite(dist) && dist <= attackRange) {
+      const cooldown = (config.phaseAttackCooldowns && config.phaseAttackCooldowns[phase])
+        ?? config.attackCooldown ?? 2.0;
+      if (mob.attackCooldownTimer <= 0) {
+        mob.attackCooldownTimer = cooldown;
+        const dmg = (config.phaseAttackDamage && config.phaseAttackDamage[phase])
+          ?? config.contactDamage ?? 11;
+        this._doAttack(mob, dmg);
+      }
+    }
+
+    // Phase 1 (enraged) only: periodically summon adds near the boss,
+    // capped so the arena doesn't flood -- mostly 'exploder' (Waxling)
+    // with an occasional 'emberspinner' (summonArchetypeAltChance).
+    if (phase === 1 && mob.summonCooldownTimer <= 0) {
+      const maxAdds = config.maxAdds ?? 3;
+      const aliveAdds = this._mobs.reduce(
+        (n, m) => n + ((!m.dead && m.spawnedBy === mob.id) ? 1 : 0), 0
+      );
+      if (aliveAdds < maxAdds) {
+        mob.summonCooldownTimer = config.summonCooldown ?? 7;
+        const altChance = config.summonArchetypeAltChance ?? 0.4;
+        const summonArchetype = (this._rng() < altChance)
+          ? (config.summonArchetypeAlt || 'emberspinner')
+          : (config.summonArchetypePrimary || 'exploder');
+        const angle = this._rng() * Math.PI * 2;
+        const ringDist = 2.5 + this._rng() * 2.5;
+        const spawnX = mob.position.x + Math.cos(angle) * ringDist;
+        const spawnZ = mob.position.z + Math.sin(angle) * ringDist;
+        const groundY = this._findGroundY(spawnX, mob.position.y + 3, spawnZ);
+        const spawnY = groundY !== null ? groundY : mob.position.y;
+        const add = this.spawn(summonArchetype, { x: spawnX, y: spawnY, z: spawnZ });
+        if (add) add.spawnedBy = mob.id;
+      } else {
+        // Already capped -- recheck soon rather than waiting a full cycle.
+        mob.summonCooldownTimer = 1.0;
+      }
+    }
+  }
+
   // ----------------------------------------------------------------
   // Internal: physics + animation
   // ----------------------------------------------------------------
@@ -1047,6 +1638,7 @@ export class MobManager extends EventTarget {
     const amount = Math.max(0, Number.isFinite(dmg) ? dmg : 0);
     mob.hp -= amount;
     mob.hurtTimer = 1.0;
+    mob.sinceHurt = 0; // restarts the regenDelay countdown for self-mending archetypes
 
     this._emit('mobHurt', {
       archetype: mob.archetype,
@@ -1057,8 +1649,16 @@ export class MobManager extends EventTarget {
       dmg: amount,
     });
 
-    if ((config.aiBase || mob.archetype) === 'grazer') {
+    const aiBase = config.aiBase || mob.archetype;
+    if (aiBase === 'grazer') {
       mob.fleeTimer = config.fleeDuration ?? FLEE_DURATION;
+    }
+    // Item 5: getting hurt is what PROVOKES a 'guardian' (scaldwarden) --
+    // it goes hostile for provokeDuration seconds (decremented every tick
+    // in _updateMobAI), then reverts to neutral idling.
+    if (aiBase === 'guardian') {
+      mob.provoked = true;
+      mob.provokeTimer = config.provokeDuration ?? 8;
     }
 
     if (mob.hp <= 0) {
@@ -1072,6 +1672,7 @@ export class MobManager extends EventTarget {
 
   _killMob(mob) {
     if (!mob || mob.dead) return;
+    if (mob.rider) this.dismountPlayer(mob); // never leave a rider on a dead mount
     mob.dead = true;
     this._emit('mobDeath', {
       archetype: mob.archetype,
@@ -1084,37 +1685,44 @@ export class MobManager extends EventTarget {
     this._pendingRemoval.push(mob);
   }
 
-  /** Boss defeat: 'bossDefeated' instead of 'mobDeath'. The boss's loot
-   * table is intentionally empty (bound, not killed -- see lootTables.js),
-   * and this never calls _dropLoot for a boss mob, so no 'mobDrop' is ever
-   * emitted here even if a future edit accidentally populated one.
-   * victoryTrigger/achievement come from ARCHETYPE_CONFIG (falling back to
-   * sensible defaults derived from the mob's canonicalId) so the builder
-   * can wire the win condition / ending without hardcoding archetype
-   * strings. */
+  /** Boss defeat: 'bossDefeated' instead of 'mobDeath'. `bound` comes from
+   * ARCHETYPE_CONFIG.bound (default true when unset): lastneedle is
+   * bound:true (bound, not killed -- its loot table happens to be empty
+   * too, so _dropLoot below is a no-op for it either way) with
+   * victoryTrigger/achievement so the builder can wire the win
+   * condition/ending without hardcoding archetype strings; molthkin is
+   * bound:false (genuinely KILLABLE) with NO victoryTrigger/achievement
+   * fields at all (those are lastneedle-only -- only included in the
+   * emitted detail when ARCHETYPE_CONFIG actually sets them). Bosses now
+   * DROP loot too (item 4): _dropLoot is called for every boss, same as a
+   * normal death -- molthkin's table has everthread, lastneedle's is
+   * empty so this remains a silent no-op for it. */
   _killBoss(mob) {
     if (!mob || mob.dead) return;
+    if (mob.rider) this.dismountPlayer(mob); // never leave a rider on a dead mount
     mob.dead = true;
     const config = ARCHETYPE_CONFIG[mob.archetype] || {};
-    this._emit('bossDefeated', {
+    const detail = {
       archetype: mob.archetype,
       canonicalId: mob.canonicalId,
       species: mob.species,
       mob,
       position: { ...mob.position },
-      bound: true,
-      victoryTrigger: config.victoryTrigger || `kill_entity:${mob.canonicalId}`,
-      achievement: config.achievement || null,
-    });
+      bound: config.bound !== false,
+    };
+    if (config.victoryTrigger) detail.victoryTrigger = config.victoryTrigger;
+    if (config.achievement) detail.achievement = config.achievement;
+    this._emit('bossDefeated', detail);
+    this._dropLoot(mob);
     this._pendingRemoval.push(mob);
   }
 
   /** Rolls lootTables.rollLoot(mob.archetype, rng) and emits one 'mobDrop'
-   * per resulting stack. Called after mobDeath, never on despawn and never
-   * for a boss (see _killBoss). Empty tables (unpicked/lastneedle) simply
-   * produce an empty `drops` array, so the loop below emits nothing --
-   * no special-casing needed. Defensive against a throwing/misbehaving
-   * loot table. */
+   * per resulting stack. Called after mobDeath AND after bossDefeated (see
+   * _killMob/_killBoss), never on despawn. Empty tables (unpicked,
+   * lastneedle) simply produce an empty `drops` array, so the loop below
+   * emits nothing -- no special-casing needed. Defensive against a
+   * throwing/misbehaving loot table. */
   _dropLoot(mob) {
     let drops;
     try {

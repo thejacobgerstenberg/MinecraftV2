@@ -99,6 +99,14 @@
   #log .mobDrop { color: #b7e08a; }
   #log .mobDespawn { color: #7a7a8c; }
   #log .bossDefeated { color: #ff5a5a; font-weight: 700; }
+  #log .mobMount { color: #7fd0ff; }
+  #log .mobDismount { color: #7fa8ff; }
+  #log .mobBreed { color: #ffcf7f; }
+  #hud button.mount {
+    background: #1f3a4a;
+    border-color: #4f9db0;
+  }
+  #hud button.mount:hover { background: #274a5f; }
   #labels {
     position: fixed;
     inset: 0;
@@ -140,9 +148,16 @@
   <div class="row"><span class="k">mob count</span><span id="hudCount">0</span></div>
   <div class="row"><span class="k">boss phase</span><span id="hudBossPhase">&ndash;</span></div>
   <div class="row"><span class="k">boss hp</span><span id="hudBossHp">&ndash;</span></div>
+  <div class="row"><span class="k">molthkin phase</span><span id="hudMolthkinPhase">&ndash;</span></div>
+  <div class="row"><span class="k">molthkin hp</span><span id="hudMolthkinHp">&ndash;</span></div>
+  <div class="row"><span class="k">mounted</span><span id="hudMounted">no</span></div>
+  <div class="row"><span class="k">scaldwarden</span><span id="hudScaldProvoked">&ndash;</span></div>
   <button id="toggleDay">Toggle day/night</button>
-  <button id="forceSpawn">Force-spawn all 12</button>
+  <button id="forceSpawn">Force-spawn all</button>
   <button id="runBossSim" class="boss">Run Boss Sim (The Last Needle)</button>
+  <button id="runMolthkinSim" class="boss">Run Molthkin Sim (Cinderloom)</button>
+  <button id="mountSpoolmare" class="mount">Mount Spoolmare</button>
+  <button id="provokeTest" class="mount">Provoke Test (Scaldwarden)</button>
 </div>
 
 <div id="log"></div>
@@ -167,13 +182,23 @@
   import { build as buildNeedlejack, meta as metaNeedlejack } from './creatures/needlejack.js';
   import { build as buildScaldwarden, meta as metaScaldwarden } from './creatures/scaldwarden.js';
   import { build as buildRaveler, meta as metaRaveler } from './creatures/raveler.js';
+  import { build as buildSpoolmare, meta as metaSpoolmare } from './creatures/spoolmare.js';
+  import { build as buildSilencemoth, meta as metaSilencemoth } from './creatures/silencemoth.js';
+  import { build as buildSelvagewarden, meta as metaSelvagewarden } from './creatures/selvagewarden.js';
+  import { build as buildMolthkin, meta as metaMolthkin } from './creatures/molthkin.js';
 
   // NOTE: order here is display order for the showcase row / isolate mode
-  // dropdown-equivalent (?mob=<archetype>). 'lastneedle' (the boss) is
-  // last -- it appears in the showcase row and isolate mode like any other
-  // creature, but is deliberately EXCLUDED from SPAWN_ARCHETYPES below (the
-  // boss is hand-triggered via __runBossSim()/spawnBoss(), never ambient-
-  // or force-spawned alongside the regular roster).
+  // dropdown-equivalent (?mob=<archetype>). 'selvagewarden' (Nevermend
+  // mini-boss), 'molthkin' (Cinderloom boss), and 'lastneedle' (Nevermend
+  // boss, last) all appear in the showcase row and isolate mode like any
+  // other creature, but are deliberately EXCLUDED from SPAWN_ARCHETYPES
+  // below -- all three are hand-placed/structure-bound per
+  // spawnRules.SPAWN_TABLES's own header comment ("Boss/structure-bound
+  // archetypes (lastneedle, selvagewarden, molthkin) are intentionally
+  // NEVER listed here"), so force-spawning mirrors that: they're triggered
+  // via their own dedicated sim hooks (__runBossSim/__runMolthkinSim) or a
+  // direct manager.spawn(archetype, pos) call, never ambient- or
+  // force-spawned alongside the regular roster.
   const CREATURES = {
     grazer: { build: buildGrazer, meta: metaGrazer },
     groaner: { build: buildGroaner, meta: metaGroaner },
@@ -187,10 +212,16 @@
     needlejack: { build: buildNeedlejack, meta: metaNeedlejack },
     scaldwarden: { build: buildScaldwarden, meta: metaScaldwarden },
     raveler: { build: buildRaveler, meta: metaRaveler },
+    spoolmare: { build: buildSpoolmare, meta: metaSpoolmare },
+    silencemoth: { build: buildSilencemoth, meta: metaSilencemoth },
+    selvagewarden: { build: buildSelvagewarden, meta: metaSelvagewarden },
+    molthkin: { build: buildMolthkin, meta: metaMolthkin },
     lastneedle: { build: buildLastneedle, meta: metaLastneedle },
   };
   const ARCHETYPES = Object.keys(CREATURES);
-  const SPAWN_ARCHETYPES = ARCHETYPES.filter((a) => a !== 'lastneedle');
+  const SPAWN_ARCHETYPES = ARCHETYPES.filter(
+    (a) => a !== 'lastneedle' && a !== 'molthkin' && a !== 'selvagewarden'
+  );
 
   // ------------------------------------------------------------------
   // Test hooks (set up early so window.__error works even if init blows
@@ -201,7 +232,15 @@
   window.__error = null;
   window.__bossState = { phase: 0, hp: 0, maxHp: 0 };
   window.__bossDefeated = false;
+  window.__molthkinState = { phase: 0, hp: 0, maxHp: 0 };
+  window.__molthkinDefeated = false;
+  window.__molthkinDrops = [];
+  window.__mountState = { mounted: false, riderAnchorPos: null };
+  window.__scaldProvoked = false;
   window.__runBossSim = function () { return false; }; // overwritten in showcase mode
+  window.__runMolthkinSim = function () { return false; }; // overwritten in showcase mode
+  window.__mountSpoolmare = function () { return false; }; // overwritten in showcase mode
+  window.__provokeTest = function () { return false; }; // overwritten in showcase mode
   window.__testLoot = function () { return []; }; // overwritten in showcase mode
   Object.defineProperty(window, '__mobCount', {
     get() { return window.__manager ? window.__manager.mobs.length : 0; },
@@ -246,12 +285,15 @@
 
   // ------------------------------------------------------------------
   // On-page event log (also mirrors to console + window.__events).
-  // Handles all seven MobManager event shapes, every one of which now
+  // Handles all ten MobManager event shapes, every one of which now
   // carries both `archetype` (spawn-table slot key) AND `canonicalId`
   // (snake_case entity id, e.g. 'last_needle'):
   //   mobSpawn/mobHurt/mobDeath/mobAttack/mobDespawn -- { archetype, canonicalId, species, mob, position, ... }
-  //   bossDefeated                                   -- as above, plus { bound:true, victoryTrigger, achievement }
+  //   bossDefeated                                   -- as above, plus { bound, victoryTrigger?, achievement? }
+  //                                                       (lastneedle: bound:true+both fields; molthkin: bound:false, neither field)
   //   mobDrop                                        -- { mobId, archetype, canonicalId, itemId, pos:{x,y,z}, count } (real content/items.json / naming.json ids, e.g. 'raw_skein'; NO species/position/mob field)
+  //   mobMount / mobDismount                         -- { archetype, canonicalId, mob } -- NO species/position/dmg
+  //   mobBreed                                       -- { archetype, canonicalId, baby } -- NO species/position/dmg; mob field is called `baby`
   // ------------------------------------------------------------------
   const logEl = document.getElementById('log');
   function fmtPos(p) {
@@ -264,6 +306,12 @@
     let line;
     if (name === 'mobDrop') {
       line = `[event] mobDrop mob#${detail.mobId} (${detail.canonicalId}) item=${detail.itemId} x${detail.count} @ ${fmtPos(detail.pos)}`;
+    } else if (name === 'mobMount' || name === 'mobDismount') {
+      const mobId = detail.mob ? detail.mob.id : '?';
+      line = `[event] ${name} mob#${mobId} ${detail.archetype}/${detail.canonicalId}`;
+    } else if (name === 'mobBreed') {
+      const babyId = detail.baby ? detail.baby.id : '?';
+      line = `[event] mobBreed baby#${babyId} ${detail.archetype}/${detail.canonicalId}`;
     } else {
       line = `[event] ${name} ${detail.archetype}/${detail.canonicalId} ${detail.species} @ ${fmtPos(detail.position)}` +
         (detail.dmg !== undefined ? ` dmg=${detail.dmg}` : '') +
@@ -284,7 +332,7 @@
       explosion: !!detail.explosion,
       itemId: detail.itemId,
       count: detail.count,
-      mobId: detail.mobId,
+      mobId: detail.mobId ?? (detail.mob ? detail.mob.id : undefined) ?? (detail.baby ? detail.baby.id : undefined),
       bound: !!detail.bound,
       victoryTrigger: detail.victoryTrigger,
       achievement: detail.achievement,
@@ -299,7 +347,14 @@
       logEl.removeChild(logEl.firstChild);
     }
     if (name === 'bossDefeated') {
-      window.__bossDefeated = true;
+      if (detail.archetype === 'molthkin') {
+        window.__molthkinDefeated = true;
+      } else {
+        window.__bossDefeated = true;
+      }
+    }
+    if (name === 'mobDrop' && detail.archetype === 'molthkin') {
+      window.__molthkinDrops.push({ itemId: detail.itemId, count: detail.count, pos: detail.pos });
     }
   }
 
@@ -423,6 +478,20 @@
         camTarget = new THREE.Vector3(0, 2.2, 0);
         camRadius = 7.5;
         camHeight = 3.2;
+      } else if (archetype === 'molthkin') {
+        // Cinderloom boss is huge and grounded (halfWidth 1.4 / height 3.4)
+        // -- pull back and raise the target similarly to lastneedle, but
+        // keep the camera lower since it doesn't hover.
+        camTarget = new THREE.Vector3(0, 1.6, 0);
+        camRadius = 6.5;
+        camHeight = 2.4;
+      } else if (archetype === 'selvagewarden' || archetype === 'spoolmare') {
+        // Taller-than-average archetypes (selvagewarden height 1.7,
+        // spoolmare height 1.5) -- a slightly wider/higher frame than the
+        // default small-creature view below.
+        camTarget = new THREE.Vector3(0, 0.9, 0);
+        camRadius = 3.0;
+        camHeight = 1.1;
       } else {
         camTarget = new THREE.Vector3(0, 0.8, 0);
         camRadius = 3.2;
@@ -456,15 +525,28 @@
           const phase = cyclePos < 0.34 ? 0 : (cyclePos < 0.67 ? 1 : 2);
           const attack = Math.max(0, 1 - ((t % 2) / 0.35));
           state = { moving: true, grounded: false, fuse: 0, hurt: 0, attack, phase, dimension: entry.meta.dimensionDefault };
-        } else if (archetype === 'screecher') {
-          const attack = Math.max(0, 1 - ((t % 2.2) / 0.35));
+        } else if (archetype === 'screecher' || archetype === 'silencemoth') {
+          // silencemoth is a harmless ambient flyer (hostile:false) -- no
+          // attack flash, just gentle hover/flap like screecher's motion.
+          const attack = archetype === 'screecher' ? Math.max(0, 1 - ((t % 2.2) / 0.35)) : 0;
           state = { moving: true, grounded: false, fuse: 0, hurt: 0, attack, phase: 0, dimension: entry.meta.dimensionDefault };
+        } else if (archetype === 'molthkin') {
+          // Grounded 2-phase boss (canonical 50% threshold): cycle 0->1
+          // every 6s, plus a periodic attack flash, so the isolate view
+          // shows both phase poses.
+          const cyclePos = (t % 6) / 6;
+          const phase = cyclePos < 0.5 ? 0 : 1;
+          const attack = Math.max(0, 1 - ((t % 2) / 0.35));
+          state = { moving: true, grounded: true, fuse: 0, hurt: 0, attack, phase, dimension: entry.meta.dimensionDefault };
+        } else if (archetype === 'spoolmare') {
+          // Passive rideable mount -- just walks/gallops, never attacks.
+          state = { moving: true, grounded: true, fuse: 0, hurt: 0, attack: 0, phase: 0, dimension: entry.meta.dimensionDefault };
         } else {
           // Hostile grounded archetypes (groaner/frayedhound/emberspinner/
-          // unpicked/needlejack/raveler) also get a periodic attack-flash
-          // pulse; passive/neutral ones (grazer/trader/bobbindeer/
-          // scaldwarden) just sit at attack:0.
-          const isHostileGrounded = ['groaner', 'frayedhound', 'emberspinner', 'unpicked', 'needlejack', 'raveler'].includes(archetype);
+          // unpicked/needlejack/raveler/selvagewarden) also get a periodic
+          // attack-flash pulse; passive/neutral ones (grazer/trader/
+          // bobbindeer/scaldwarden) just sit at attack:0.
+          const isHostileGrounded = ['groaner', 'frayedhound', 'emberspinner', 'unpicked', 'needlejack', 'raveler', 'selvagewarden'].includes(archetype);
           const attack = isHostileGrounded ? Math.max(0, 1 - ((t % 2.2) / 0.35)) : 0;
           state = { moving: true, grounded: true, fuse: 0, hurt: 0, attack, phase: 0, dimension: entry.meta.dimensionDefault };
         }
@@ -491,7 +573,7 @@
     // SHOWCASE + LIVE SIM MODE
     // ==================================================================
     function runShowcaseMode() {
-      // ---- Static showcase row: all thirteen creatures side by side ---
+      // ---- Static showcase row: all seventeen creatures side by side ---
       const spacing = 2.2;
       const startX = -((ARCHETYPES.length - 1) * spacing) / 2;
       ARCHETYPES.forEach((archetype, i) => {
@@ -580,10 +662,12 @@
         labelEls.push({ el: label, anchor: mob.headAnchor || mob.group });
       }
 
-      // Force an initial spawn of all twelve non-boss archetypes so the
-      // scene is populated immediately rather than waiting on the random
-      // spawn timer. The boss is never part of ambient/force spawning --
-      // see __runBossSim() below.
+      // Force an initial spawn of all non-boss, non-structure-bound
+      // archetypes (SPAWN_ARCHETYPES) so the scene is populated immediately
+      // rather than waiting on the random spawn timer. lastneedle/molthkin
+      // (bosses) and selvagewarden (Nevermend mini-boss, hand-placed per
+      // spawnRules.SPAWN_TABLES) are never part of ambient/force spawning --
+      // see __runBossSim()/__runMolthkinSim() below.
       window.__forceSpawnAll();
 
       document.getElementById('hudDimension').textContent = dimension;
@@ -698,6 +782,186 @@
         window.__runBossSim();
       });
 
+      // ================================================================
+      // MOLTHKIN SIM: window.__runMolthkinSim()
+      //
+      // Mirrors __runBossSim() above but for the Cinderloom boss, Molthkin
+      // the First Bobbin: dimension Cinderloom via the ENGINE id 'nether'
+      // (normalizeDimension() resolves it to 'cinderloom'), a dedicated
+      // arena MobManager, and a scripted ~7s damage ramp that sweeps
+      // molthkin's simpler 2-phase hp-fraction model (canonical 50%
+      // threshold, ARCHETYPE_CONFIG.molthkin.phase1HpFrac:0.5) from phase 0
+      // to phase 1 and down to 0 hp. Unlike The Last Needle, Molthkin is
+      // genuinely KILLABLE (ARCHETYPE_CONFIG.molthkin.bound:false) -- its
+      // 'bossDefeated' has no victoryTrigger/achievement fields and IS
+      // followed by a 'mobDrop' (its loot table has 'everthread', the
+      // canonical Everthread source) -- see MobManager._killBoss/_dropLoot.
+      // Recorded into window.__molthkinDrops by logEvent() above.
+      //
+      // NOTE: manager.spawnBoss(pos) is a thin wrapper hardcoded to
+      // spawn('lastneedle', pos) -- it can NOT be reused for molthkin, so
+      // this calls manager.spawn('molthkin', pos) directly.
+      //
+      // A SEPARATE MobManager + arena is used, same reasoning as the Last
+      // Needle sim above, offset well away from that arena (x=26 vs x=0)
+      // so both boss sims can run side by side without overlapping.
+      // ================================================================
+      let molthkinManager = null;
+      let molthkinSimActive = false;
+      let molthkinHitTimer = null;
+
+      function clearMolthkinTimer() {
+        if (molthkinHitTimer !== null) {
+          clearInterval(molthkinHitTimer);
+          molthkinHitTimer = null;
+        }
+      }
+
+      window.__runMolthkinSim = function () {
+        if (molthkinSimActive) return false;
+        molthkinSimActive = true;
+        window.__molthkinDefeated = false;
+        window.__molthkinDrops = [];
+        clearMolthkinTimer();
+        if (molthkinManager) {
+          try { molthkinManager.dispose(); } catch (e) { /* ignore */ }
+          molthkinManager = null;
+        }
+
+        const arenaWorld = new StubWorld({ arena: true });
+        const molthkinPlayerPos = { x: 26, y: 1, z: 0 };
+        molthkinManager = new MobManager(scene, arenaWorld, {
+          getPlayerPos: () => molthkinPlayerPos,
+          onPlayerHurt: () => {},
+          isDay: () => isDay,
+          dimension: 'nether', // engine id -> reconciles to 'cinderloom'
+          maxMobs: 1,
+          onEvent: (name, detail) => logEvent(name, detail),
+        });
+        molthkinManager.addEventListener('mobSpawn', (e) => attachLabelForMob(e.detail.mob));
+
+        const boss = molthkinManager.spawn('molthkin', { x: 26, y: 1, z: -6 });
+        if (!boss) {
+          molthkinSimActive = false;
+          return false;
+        }
+        window.__molthkinState = { phase: boss.bossPhase, hp: boss.hp, maxHp: boss.maxHp };
+
+        // Script ~7s of player damage so hp sweeps through both canonical
+        // phases (frac>0.5 / frac<=0.5) and reaches 0.
+        const totalDurationMs = 7000;
+        const tickMs = 200;
+        const ticks = Math.ceil(totalDurationMs / tickMs);
+        const dmgPerTick = Math.ceil(boss.maxHp / ticks) + 1; // ensure hp reaches <=0 within the window
+        let tickCount = 0;
+        molthkinHitTimer = setInterval(() => {
+          tickCount++;
+          if (!boss.dead) {
+            boss.hurt(dmgPerTick);
+          }
+          if (boss.dead || tickCount >= ticks) {
+            clearMolthkinTimer();
+            molthkinSimActive = false;
+          }
+        }, tickMs);
+
+        return true;
+      };
+
+      document.getElementById('runMolthkinSim').addEventListener('click', () => {
+        window.__runMolthkinSim();
+      });
+
+      // ================================================================
+      // MOUNT SYSTEM: window.__mountSpoolmare()
+      //
+      // Spawns a spoolmare, mounts it via manager.mountPlayer(), and feeds
+      // scripted forward ride input (via the returned controller's
+      // setInput(), equivalent to manager.setRideInput(mob, input)) for
+      // ~2.5s so it visibly trots forward under _driveRideInput's shared
+      // grounded-body physics path (gravity/collision/step-up, same as any
+      // other grounded mob). A small visible marker sphere is repositioned
+      // every frame (see frame() below) to mob.rideAnchor's live THREE
+      // world position via getWorldPosition -- exactly how a real builder
+      // would seat a player/camera -- so a screenshot shows the saddle
+      // point. window.__mountState:{mounted,riderAnchorPos} is updated
+      // every frame in frame() below, not just here.
+      // ================================================================
+      const mountMarkerGeo = new THREE.SphereGeometry(0.08, 12, 8);
+      const mountMarkerMat = new THREE.MeshStandardMaterial({
+        color: 0x7fe0ff,
+        emissive: new THREE.Color(0x2fb0d0),
+        emissiveIntensity: 0.8,
+      });
+      const mountMarker = new THREE.Mesh(mountMarkerGeo, mountMarkerMat);
+      mountMarker.visible = false;
+      scene.add(mountMarker);
+
+      let mountedSpoolmare = null;
+      let spoolmareController = null;
+      let spoolmareRideEndTime = 0;
+
+      window.__mountSpoolmare = function () {
+        try {
+          if (mountedSpoolmare) {
+            manager.dismountPlayer(mountedSpoolmare);
+            mountedSpoolmare = null;
+            spoolmareController = null;
+          }
+          // Fixed spot off to the side, clear of the showcase row/arenas.
+          const pos = { x: -22, y: 1, z: 12 };
+          const mob = manager.spawn('spoolmare', pos);
+          if (!mob) return false;
+          const controller = manager.mountPlayer(mob);
+          if (!controller) return false;
+          mountedSpoolmare = mob;
+          spoolmareController = controller;
+          spoolmareRideEndTime = simTime + 2.5;
+          mountMarker.visible = true;
+          return true;
+        } catch (err) {
+          showFatalError(err);
+          return false;
+        }
+      };
+
+      document.getElementById('mountSpoolmare').addEventListener('click', () => {
+        window.__mountSpoolmare();
+      });
+
+      // ================================================================
+      // PROVOKE TEST: window.__provokeTest()
+      //
+      // Spawns a scaldwarden (aiBase:'guardian') at a fixed offset spot,
+      // confirms it spawns neutral (mob.provoked === false -- it never
+      // attacks while neutral, per _aiGuardian falling through to
+      // _aiTrader's idle/tether loop regardless of player distance), then
+      // hurts it once and confirms MobManager._hurtMob's guardian-specific
+      // branch flipped mob.provoked = true (hostile/seeking+attacking for
+      // provokeDuration seconds). Result exposed on window.__scaldProvoked.
+      // ================================================================
+      window.__provokeTest = function () {
+        try {
+          const pos = { x: -30, y: 1, z: -22 }; // fixed, off to the side
+          const mob = manager.spawn('scaldwarden', pos);
+          if (!mob) return false;
+          const neutralBefore = mob.provoked === false;
+          mob.hurt(5);
+          const provokedAfter = mob.provoked === true && mob.provokeTimer > 0;
+          window.__scaldProvoked = !!provokedAfter;
+          document.getElementById('hudScaldProvoked').textContent =
+            window.__scaldProvoked ? 'provoked' : 'neutral';
+          return neutralBefore && provokedAfter;
+        } catch (err) {
+          showFatalError(err);
+          return false;
+        }
+      };
+
+      document.getElementById('provokeTest').addEventListener('click', () => {
+        window.__provokeTest();
+      });
+
       camTarget = new THREE.Vector3(0, 1, 0);
       camRadius = 14;
       camHeight = 7;
@@ -709,9 +973,12 @@
 
         manager.update(dt);
         if (bossManager) bossManager.update(dt);
+        if (molthkinManager) molthkinManager.update(dt);
 
         document.getElementById('hudCount').textContent = String(
-          manager.mobs.length + (bossManager ? bossManager.mobs.length : 0)
+          manager.mobs.length +
+          (bossManager ? bossManager.mobs.length : 0) +
+          (molthkinManager ? molthkinManager.mobs.length : 0)
         );
 
         // Reflect live boss state on the HUD + window.__bossState every
@@ -730,6 +997,48 @@
           document.getElementById('hudBossHp').textContent = '–';
         }
 
+        // Same pattern for the Molthkin sim.
+        const molthkinMob = molthkinManager && molthkinManager.mobs.find((m) => m.archetype === 'molthkin');
+        if (molthkinMob) {
+          window.__molthkinState = { phase: molthkinMob.bossPhase, hp: Math.max(0, molthkinMob.hp), maxHp: molthkinMob.maxHp };
+          document.getElementById('hudMolthkinPhase').textContent = String(molthkinMob.bossPhase);
+          document.getElementById('hudMolthkinHp').textContent = `${Math.max(0, Math.round(molthkinMob.hp))}/${molthkinMob.maxHp}`;
+        } else if (window.__molthkinDefeated) {
+          document.getElementById('hudMolthkinPhase').textContent = 'defeated';
+          document.getElementById('hudMolthkinHp').textContent = '0/' + (window.__molthkinState.maxHp || 280);
+        } else {
+          document.getElementById('hudMolthkinPhase').textContent = '–';
+          document.getElementById('hudMolthkinHp').textContent = '–';
+        }
+
+        // Mount system: drive the scripted ride input for the first
+        // ~2.5s, then hold station (still mounted) while continuing to
+        // update the marker/state every frame off the mob's live
+        // rideAnchor world position.
+        if (mountedSpoolmare && !mountedSpoolmare.dead && mountedSpoolmare.rider) {
+          if (spoolmareController) {
+            if (simTime < spoolmareRideEndTime) {
+              spoolmareController.setInput({ moveX: 0, moveZ: 1, jump: false });
+            } else {
+              spoolmareController.setInput({ moveX: 0, moveZ: 0, jump: false });
+            }
+          }
+          if (mountedSpoolmare.rideAnchor && typeof mountedSpoolmare.rideAnchor.getWorldPosition === 'function') {
+            const v = new THREE.Vector3();
+            mountedSpoolmare.rideAnchor.getWorldPosition(v);
+            mountMarker.position.copy(v);
+            mountMarker.visible = true;
+            window.__mountState = { mounted: true, riderAnchorPos: { x: v.x, y: v.y, z: v.z } };
+          } else {
+            window.__mountState = { mounted: true, riderAnchorPos: null };
+          }
+          document.getElementById('hudMounted').textContent = 'yes';
+        } else {
+          mountMarker.visible = false;
+          window.__mountState = { mounted: false, riderAnchorPos: null };
+          document.getElementById('hudMounted').textContent = 'no';
+        }
+
         // Animate the static showcase row too (idle/moving state), driven
         // by the same simTime so nothing on screen ever looks frozen.
         for (const child of scene.children) {
@@ -740,11 +1049,14 @@
               : 0;
             const phase = showArchetype === 'lastneedle'
               ? Math.floor((simTime % 9) / 3) // gentle 0->1->2 cycle for the showcase copy
-              : 0;
+              : showArchetype === 'molthkin'
+                ? Math.floor((simTime % 6) / 3) // gentle 0->1 cycle (canonical 50% threshold)
+                : 0;
+            const flies = showArchetype === 'screecher' || showArchetype === 'lastneedle' || showArchetype === 'silencemoth';
             try {
               child.userData.__showcaseAnimate(simTime, {
                 moving: true,
-                grounded: showArchetype !== 'screecher' && showArchetype !== 'lastneedle',
+                grounded: !flies,
                 fuse,
                 hurt: 0,
                 attack: 0,

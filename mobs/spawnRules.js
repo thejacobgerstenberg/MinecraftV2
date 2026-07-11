@@ -43,6 +43,10 @@ export const SPECIES_BY_ARCHETYPE = {
   needlejack: 'Needlejack',
   scaldwarden: 'Scaldwarden',
   raveler: 'Raveler',
+  spoolmare: 'Spoolmares',
+  silencemoth: 'Silence-Moths',
+  selvagewarden: 'Selvage Wardens',
+  molthkin: 'Molthkin, the First Bobbin',
 };
 
 // Archetype -> canonical snake_case entity id. This is the stable id used
@@ -64,6 +68,10 @@ export const CANONICAL_ID = {
   needlejack: 'needlejack',
   scaldwarden: 'scaldwarden',
   raveler: 'raveler',
+  spoolmare: 'spoolmare',
+  silencemoth: 'silence_moth',
+  selvagewarden: 'selvage_warden',
+  molthkin: 'molthkin',
 };
 
 /**
@@ -79,20 +87,24 @@ export function canonicalIdFor(archetype) {
 // { archetype, weight } — weight is relative (not required to sum to any
 // particular total); higher weight = more likely to be picked.
 //
-// Boss archetypes (lastneedle) are intentionally NEVER listed here — bosses
-// are hand-placed/triggered, not picked by the random spawn cadence.
+// Boss/structure-bound archetypes (lastneedle, selvagewarden, molthkin) are
+// intentionally NEVER listed here — bosses and the structure-bound
+// mini-boss are hand-placed/explicitly triggered, not picked by the random
+// spawn cadence.
 export const SPAWN_TABLES = {
   warpwold: {
     day: [
       { archetype: 'grazer', weight: 6 },
       { archetype: 'bobbindeer', weight: 4 },
       { archetype: 'trader', weight: 2 },
+      { archetype: 'spoolmare', weight: 2 }, // uncommon
     ],
     night: [
       { archetype: 'groaner', weight: 4 },
       { archetype: 'frayedhound', weight: 4 },
       { archetype: 'needlejack', weight: 3 },
       { archetype: 'screecher', weight: 1 }, // occasional stray from Cinderloom
+      { archetype: 'silencemoth', weight: 3 }, // ambient
     ],
   },
   cinderloom: {
@@ -318,6 +330,13 @@ export function maxAliveFor(dimension) {
 // archetype key isn't literally 'lastneedle' (e.g. a future second boss, or
 // a mob object that flags itself with `isBoss`/`archetype === 'boss'`),
 // shouldDespawn() still exempts it.
+// Phase 3 note: 'silencemoth' uses normal (non-exempt) despawn behavior,
+// same as any other ambient wild spawn. 'spoolmare' is also left as a
+// normal wild despawn here -- a tamed spoolmare should be exempted, but
+// that's a per-instance ("is this specific mob tamed?") condition, not an
+// archetype-wide exemption, so it isn't added to exemptArchetypes; callers
+// managing tamed mobs should pass an `opts` override (or otherwise skip the
+// despawn check) for tamed instances.
 export const DESPAWN_CONFIG = {
   radius: 48,
   minAgeSeconds: 12,

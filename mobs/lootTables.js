@@ -7,15 +7,17 @@
 // content/naming.json (not placeholders). Full set of ids referenced here:
 //   raw_skein, thread_sinew, hide_cloth, knot_charm, lore_scroll,
 //   loose_thread, scorched_silk, tallowstone, cinderthread, emberskein_ore,
-//   needle_iron, voidknot
-// (mothdust is a valid item id but is not used by any table below.)
+//   needle_iron, voidknot, mothdust, hemstone, everthread
+//
+// molthkin is the canonical everthread source (Cinderloom boss); no other
+// archetype drops everthread. selvagewarden is the canonical hemstone
+// source; no other archetype drops hemstone.
 //
 // 'unpicked' (The Unpicked) intentionally drops nothing — canonically it
 // leaves no corpse. 'lastneedle' (The Last Needle) intentionally drops
 // nothing — it is the final boss and is bound, not killed, so it has no
 // loot table. Do not add 'the_last_stitch' (does not exist in items.json)
-// or 'everthread' (drops from molthkin, an unimplemented Cinderloom boss,
-// not from the Last Needle) to either table.
+// to either table.
 //
 // MobManager emits a 'mobDrop' event { mobId, itemId, pos, count } per
 // dropped stack when a mob dies — this module only computes *what* drops
@@ -71,6 +73,20 @@ export const LOOT_TABLES = {
   raveler: [
     { itemId: 'loose_thread', chance: 0.7, min: 1, max: 2 },
     { itemId: 'voidknot', chance: 0.2, min: 1, max: 1 },
+  ],
+
+  // Phase 3
+  spoolmare: [
+    { itemId: 'thread_sinew', chance: 0.5, min: 1, max: 1 },
+  ],
+  silencemoth: [
+    { itemId: 'mothdust', chance: 1.0, min: 1, max: 1 },
+  ],
+  selvagewarden: [
+    { itemId: 'hemstone', chance: 1.0, min: 1, max: 1 },
+  ],
+  molthkin: [
+    { itemId: 'everthread', chance: 1.0, min: 2, max: 3 },
   ],
 
   // No corpse / no loot (canonical)
