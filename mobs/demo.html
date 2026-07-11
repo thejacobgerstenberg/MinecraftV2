@@ -135,6 +135,20 @@
     white-space: pre-wrap;
     overflow: auto;
   }
+  /* ISOLATE MODE (?mob=<archetype>): the debug HUD + event log exist purely
+     for the showcase/sim harness and have nothing meaningful to show for a
+     single static creature -- worse, their fixed on-screen position
+     overlapped/occluded the rendered model in isolate screenshots. Hide
+     them entirely (display:none, not just visually collapsed) so nothing
+     can paint over the model; runIsolateMode() also reframes the camera
+     around the creature's actual bounding box so it's centered with clear
+     headroom now that the HUD isn't stealing screen space. A small
+     unobtrusive species-name label (#labels .mobLabel) is kept.
+     Showcase mode is untouched -- body never gets this class there. */
+  body.isolate-mode #hud,
+  body.isolate-mode #log {
+    display: none;
+  }
 </style>
 
 <div id="canvasHost"></div>
@@ -369,6 +383,14 @@
     const isolateMob = params.get('mob');
     const mode = isolateMob && CREATURES[isolateMob] ? 'isolate' : 'showcase';
 
+    // Hides #hud/#log via the body.isolate-mode CSS rule above so the debug
+    // panels can never overlap/occlude the rendered creature in isolate
+    // screenshots (showcase mode never gets this class -- panels + sim
+    // stay exactly as before there).
+    if (mode === 'isolate') {
+      document.body.classList.add('isolate-mode');
+    }
+
     document.getElementById('hudMode').textContent =
       mode === 'isolate' ? `isolate: ${isolateMob}` : 'showcase+sim';
 
@@ -471,32 +493,40 @@
       const label = makeLabel(entry.meta.species + ' (' + archetype + ')');
       labelEls.push({ el: label, anchor: group.userData.headAnchor || group });
 
-      if (archetype === 'lastneedle') {
-        // Boss is much taller (halfWidth 0.5 / height 3.8 in MobManager's
-        // ARCHETYPE_CONFIG) -- pull the camera back and raise the target so
-        // the whole spire is framed.
-        camTarget = new THREE.Vector3(0, 2.2, 0);
-        camRadius = 7.5;
-        camHeight = 3.2;
-      } else if (archetype === 'molthkin') {
-        // Cinderloom boss is huge and grounded (halfWidth 1.4 / height 3.4)
-        // -- pull back and raise the target similarly to lastneedle, but
-        // keep the camera lower since it doesn't hover.
-        camTarget = new THREE.Vector3(0, 1.6, 0);
-        camRadius = 6.5;
-        camHeight = 2.4;
-      } else if (archetype === 'selvagewarden' || archetype === 'spoolmare') {
-        // Taller-than-average archetypes (selvagewarden height 1.7,
-        // spoolmare height 1.5) -- a slightly wider/higher frame than the
-        // default small-creature view below.
-        camTarget = new THREE.Vector3(0, 0.9, 0);
-        camRadius = 3.0;
-        camHeight = 1.1;
-      } else {
-        camTarget = new THREE.Vector3(0, 0.8, 0);
-        camRadius = 3.2;
-        camHeight = 1.4;
-      }
+      // ---- Frame the camera from the model's ACTUAL bounding box -------
+      // Previously this used hand-tuned per-archetype magic numbers, which
+      // repeatedly under-framed tall/wide creatures (spoolmare, molthkin,
+      // lastneedle, selvagewarden all got reported cropped/clipped by
+      // visual judges). Instead, measure the built group directly and back
+      // out a camera distance that guarantees the whole model fits both
+      // the vertical AND horizontal FOV with headroom -- this scales
+      // correctly for every current and future archetype without needing
+      // a bespoke branch per creature.
+      const bbox = new THREE.Box3().setFromObject(group);
+      const size = new THREE.Vector3();
+      const center = new THREE.Vector3();
+      bbox.getSize(size);
+      bbox.getCenter(center);
+      // Conservative horizontal footprint: the model spins slowly around Y
+      // for the screenshot, so use the XZ bounding diagonal (not just the
+      // wider single axis) as the worst-case width at any rotation angle.
+      const horizExtent = Math.hypot(size.x, size.z) || 1;
+      const vertExtent = size.y || 1;
+
+      const MARGIN = 1.5; // 50% headroom so nothing touches the frame edge
+      const vFov = (camera.fov * Math.PI) / 180;
+      const aspect = window.innerWidth / window.innerHeight;
+      const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect);
+      const distForHeight = (vertExtent * MARGIN) / (2 * Math.tan(vFov / 2));
+      const distForWidth = (horizExtent * MARGIN) / (2 * Math.tan(hFov / 2));
+      const dist = Math.max(distForHeight, distForWidth, 1.5);
+
+      // Fixed gentle elevation angle (matches the look of the old hand-
+      // tuned values) applied to whatever distance the bounding box needs.
+      const elevAngle = (22 * Math.PI) / 180;
+      camTarget = new THREE.Vector3(0, center.y, 0);
+      camRadius = dist * Math.cos(elevAngle);
+      camHeight = dist * Math.sin(elevAngle);
 
       document.getElementById('hudDimension').textContent = entry.meta.dimensionDefault || '?';
       document.getElementById('hudCount').textContent = '1';

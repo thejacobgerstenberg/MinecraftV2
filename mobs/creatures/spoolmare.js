@@ -9,12 +9,14 @@ import * as THREE from 'three';
 // and sway as it moves, and a banded, spool-like motif marks each flank
 // where the last of its birth-thread was never fully unwound.
 //
-// Silhouette goals: a slender, ELEGANT EQUINE — long neck, refined head,
-// four long legs, ~1.5 units tall. NOT a Minecraft horse: no boxy head, a
-// tapered muzzle and fine neck instead. Mane + tail are several thin
-// dangling thread-strand boxes that stream in the wind. A small banded box
-// on each flank suggests a wound spool. Passive, rideable — exposes a
-// rideAnchor object at the saddle point on its back.
+// Silhouette goals: a slender, ELEGANT EQUINE — a long, S-curved three-bone
+// neck, tapered head, tapered five-segment torso (chest -> rump), and four
+// long legs, ~1.5 units tall. NOT a Minecraft horse: no boxy uniform torso,
+// no boxy head. Mane + tail are dense chains of thin dangling thread-strand
+// boxes that stream in the wind. A wound-thread medallion (concentric
+// cylinder/torus rings around a dark hub) on each flank suggests a wound
+// spool. Passive, rideable — exposes a rideAnchor object at the saddle
+// point on its back.
 // ---------------------------------------------------------------------------
 
 // Canonical Spoolmare bestiary palette.
@@ -99,56 +101,106 @@ export function build() {
   const HIP_Y = LEG_REACH;
 
   // -------------------------------------------------------------------
-  // BARREL / TORSO — a slender, elongated body sitting atop the legs.
+  // BARREL / TORSO — a slender, elongated, TAPERED body sitting atop the
+  // legs. Built from five graduated segments (chest -> forebarrel ->
+  // midbarrel -> rearbarrel -> rump) instead of one uniform crate, so the
+  // silhouette narrows toward both the chest and the rump like a real
+  // equine ribcage rather than reading as a rectangular box on legs.
   // -------------------------------------------------------------------
   const torsoPivot = new THREE.Group();
   torsoPivot.position.set(0, HIP_Y, 0);
   root.add(torsoPivot);
 
-  const barrel = box(0.34, 0.32, 0.62, mat.coat);
-  barrel.position.set(0, 0.16, -0.02);
-  torsoPivot.add(barrel);
+  const chest = box(0.19, 0.21, 0.13, mat.coat);
+  chest.position.set(0, 0.19, 0.27);
+  torsoPivot.add(chest);
 
-  // Shading strip along the belly.
-  const belly = box(0.29, 0.08, 0.58, mat.shadow);
-  belly.position.set(0, 0.0, -0.02);
+  const foreBarrel = box(0.28, 0.27, 0.17, mat.coat);
+  foreBarrel.position.set(0, 0.175, 0.15);
+  torsoPivot.add(foreBarrel);
+
+  const midBarrel = box(0.31, 0.29, 0.19, mat.coat);
+  midBarrel.position.set(0, 0.17, -0.02);
+  torsoPivot.add(midBarrel);
+
+  const rearBarrel = box(0.26, 0.25, 0.17, mat.coat);
+  rearBarrel.position.set(0, 0.165, -0.19);
+  torsoPivot.add(rearBarrel);
+
+  const rump = box(0.19, 0.20, 0.13, mat.coat);
+  rump.position.set(0, 0.16, -0.32);
+  torsoPivot.add(rump);
+
+  // Shading strip along the belly, following the tapered underline.
+  const belly = box(0.27, 0.07, 0.56, mat.shadow);
+  belly.position.set(0, 0.015, -0.03);
   torsoPivot.add(belly);
 
   // Withers ridge, slight rise toward the neck.
-  const withers = box(0.24, 0.10, 0.18, mat.coat);
-  withers.position.set(0, 0.34, 0.22);
+  const withers = box(0.19, 0.09, 0.15, mat.coat);
+  withers.position.set(0, 0.33, 0.21);
   torsoPivot.add(withers);
 
   // Croup / rump, slight rise toward the tail base.
-  const croup = box(0.26, 0.10, 0.16, mat.coat);
-  croup.position.set(0, 0.30, -0.30);
+  const croup = box(0.21, 0.08, 0.13, mat.coat);
+  croup.position.set(0, 0.31, -0.33);
   torsoPivot.add(croup);
 
   parts.torsoPivot = torsoPivot;
 
   // -------------------------------------------------------------------
-  // WOVEN-SPOOL FLANK MOTIF — a small banded box on each flank
-  // suggesting a wound bobbin of thread, marking its birth-thread.
+  // WOVEN-SPOOL FLANK MOTIF — a small wound-thread MEDALLION on each
+  // flank: a flat mane-colored backing disc with concentric alternating
+  // rings (like thread wound round and round a bobbin) and a small dark
+  // axle-hub at the center, marking where the birth-thread was never
+  // fully unwound. Built from cylinders/tori (not flat bars) so it
+  // actually reads as a coiled spool rather than plain stripes.
   // -------------------------------------------------------------------
+  function ringMesh(geo, material) {
+    const mesh = new THREE.Mesh(geo, material);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    return mesh;
+  }
+
   function buildSpoolMark(xSide) {
     const group = new THREE.Group();
-    group.position.set(xSide * 0.175, 0.16, -0.06);
+    group.position.set(xSide * 0.185, 0.18, -0.03);
     torsoPivot.add(group);
 
-    const core = box(0.03, 0.14, 0.14, mat.mane);
-    group.add(core);
+    // CylinderGeometry's native axis is Y; TorusGeometry's native hole-axis
+    // is Z -- they need DIFFERENT single-axis rotations to both end up
+    // pointing along local X (out of the flank), so each primitive below
+    // sets its own rotation rather than sharing one parent rotation.
+    const AXIS_OUT_CYL = Math.PI / 2; // Y -> X
+    const AXIS_OUT_TORUS = Math.PI / 2; // Z -> X
 
-    const bandTop = box(0.035, 0.02, 0.15, mat.blaze);
-    bandTop.position.set(0, 0.05, 0);
-    group.add(bandTop);
+    // Backing disc, flush against the coat, flat face visible from the side.
+    const disc = ringMesh(new THREE.CylinderGeometry(0.085, 0.085, 0.018, 16), mat.mane);
+    disc.rotation.z = AXIS_OUT_CYL;
+    disc.position.x = xSide * 0.006;
+    group.add(disc);
 
-    const bandMid = box(0.035, 0.02, 0.15, mat.blaze);
-    bandMid.position.set(0, 0, 0);
-    group.add(bandMid);
+    // Concentric wound-thread rings, alternating light/dark, nested from
+    // the outer rim in toward the hub, each sitting slightly proud of the
+    // disc so the coiled-thread layering actually reads in relief.
+    const ringDefs = [
+      { r: 0.07, tube: 0.011, mat: mat.blaze },
+      { r: 0.05, tube: 0.011, mat: mat.shadow },
+      { r: 0.03, tube: 0.011, mat: mat.blaze },
+    ];
+    ringDefs.forEach(({ r, tube, mat: ringMat }) => {
+      const ring = ringMesh(new THREE.TorusGeometry(r, tube, 6, 18), ringMat);
+      ring.rotation.y = AXIS_OUT_TORUS;
+      ring.position.x = xSide * 0.013;
+      group.add(ring);
+    });
 
-    const bandBottom = box(0.035, 0.02, 0.15, mat.blaze);
-    bandBottom.position.set(0, -0.05, 0);
-    group.add(bandBottom);
+    // Small protruding axle hub at the very center.
+    const hub = ringMesh(new THREE.CylinderGeometry(0.014, 0.014, 0.05, 8), mat.dark);
+    hub.rotation.z = AXIS_OUT_CYL;
+    hub.position.x = xSide * 0.02;
+    group.add(hub);
 
     return group;
   }
@@ -158,79 +210,107 @@ export function build() {
   parts.spoolMarkR = spoolMarkR;
 
   // -------------------------------------------------------------------
-  // NECK + HEAD — long, refined neck rising and curving forward into a
-  // tapered, elegant equine head (NOT a boxy Mojang-horse head).
+  // NECK + HEAD — a long, S-curved, THREE-segment neck (base -> mid ->
+  // upper) that arches up and forward from the withers into a refined,
+  // elongated, tapered equine head (NOT a boxy Mojang-horse head). Three
+  // bones (instead of two short ones) give the neck an actual visible
+  // curve/length rather than reading as one stiff diagonal strut.
   // -------------------------------------------------------------------
+  const NECK_BASE_LEN = 0.16;
+  const NECK_MID_LEN = 0.145;
+  const NECK_UPPER_LEN = 0.12;
+
   const neckPivot = new THREE.Group();
-  neckPivot.position.set(0, 0.38, 0.26);
-  neckPivot.rotation.x = -0.55; // neck angles up and forward
+  neckPivot.position.set(0, 0.35, 0.30);
+  neckPivot.rotation.x = -0.72; // neck springs up and forward from the withers
   torsoPivot.add(neckPivot);
 
-  const neckLower = box(0.15, 0.18, 0.16, mat.coat);
-  neckLower.position.set(0, 0.09, 0);
-  neckPivot.add(neckLower);
+  const neckBase = box(0.145, NECK_BASE_LEN, 0.13, mat.coat);
+  neckBase.position.set(0, NECK_BASE_LEN / 2, 0);
+  neckPivot.add(neckBase);
+
+  const neckMidPivot = new THREE.Group();
+  neckMidPivot.position.set(0, NECK_BASE_LEN, 0);
+  neckMidPivot.rotation.x = 0.26; // arch begins curving back toward vertical
+  neckPivot.add(neckMidPivot);
+
+  const neckMid = box(0.12, NECK_MID_LEN, 0.115, mat.coat);
+  neckMid.position.set(0, NECK_MID_LEN / 2, 0);
+  neckMidPivot.add(neckMid);
 
   const neckUpperPivot = new THREE.Group();
-  neckUpperPivot.position.set(0, 0.18, 0);
-  neckUpperPivot.rotation.x = 0.35; // neck curves back the other way near the poll
-  neckPivot.add(neckUpperPivot);
+  neckUpperPivot.position.set(0, NECK_MID_LEN, 0);
+  neckUpperPivot.rotation.x = 0.20; // crest continues arching toward the poll
+  neckMidPivot.add(neckUpperPivot);
 
-  const neckUpper = box(0.12, 0.13, 0.13, mat.coat);
-  neckUpper.position.set(0, 0.065, 0);
+  const neckUpper = box(0.095, NECK_UPPER_LEN, 0.095, mat.coat);
+  neckUpper.position.set(0, NECK_UPPER_LEN / 2, 0);
   neckUpperPivot.add(neckUpper);
 
   const headPivot = new THREE.Group();
-  headPivot.position.set(0, 0.13, 0.02);
-  headPivot.rotation.x = 0.05;
+  headPivot.position.set(0, NECK_UPPER_LEN, 0.015);
+  headPivot.rotation.x = 0.10;
   neckUpperPivot.add(headPivot);
 
-  const skull = box(0.11, 0.14, 0.15, mat.coat);
-  skull.position.set(0, 0.06, 0.02);
+  // Elongated, narrow skull (longer front-to-back than it is wide) —
+  // the "refined, not boxy" cue continues all the way up from the neck.
+  const skull = box(0.095, 0.115, 0.19, mat.coat);
+  skull.position.set(0, 0.055, 0.05);
   headPivot.add(skull);
 
-  // Tapered muzzle, narrowing toward the nose — the "elegant, not boxy" cue.
-  const muzzleUpper = box(0.085, 0.09, 0.14, mat.coat);
-  muzzleUpper.position.set(0, 0.02, 0.19);
-  headPivot.add(muzzleUpper);
+  // Tapered muzzle bridge + tip, narrowing toward the nose in two steps.
+  const muzzleBridge = box(0.075, 0.08, 0.13, mat.coat);
+  muzzleBridge.position.set(0, 0.015, 0.185);
+  headPivot.add(muzzleBridge);
 
-  const muzzleTip = box(0.06, 0.06, 0.07, mat.shadow);
-  muzzleTip.position.set(0, -0.01, 0.28);
+  const muzzleTip = box(0.055, 0.055, 0.07, mat.shadow);
+  muzzleTip.position.set(0, -0.015, 0.275);
   headPivot.add(muzzleTip);
 
-  // Near-white blaze stripe down the forehead/nose.
-  const blazeStripe = box(0.025, 0.16, 0.03, mat.blaze);
-  blazeStripe.position.set(0, 0.06, 0.19);
+  // Near-white blaze stripe down the forehead/nose. Kept shorter than the
+  // skull is tall so it stays flush against the face instead of poking
+  // up above the head/ear line like a horn.
+  const blazeStripe = box(0.02, 0.11, 0.026, mat.blaze);
+  blazeStripe.position.set(0, 0.025, 0.185);
   headPivot.add(blazeStripe);
 
   // Lower jaw, a slim wedge under the muzzle.
-  const jaw = box(0.075, 0.045, 0.13, mat.shadow);
-  jaw.position.set(0, -0.03, 0.14);
+  const jaw = box(0.065, 0.04, 0.15, mat.shadow);
+  jaw.position.set(0, -0.04, 0.13);
   headPivot.add(jaw);
 
   // Eyes.
-  const eyeL = box(0.02, 0.02, 0.02, mat.dark);
-  eyeL.position.set(-0.055, 0.08, 0.10);
+  const eyeL = box(0.018, 0.018, 0.018, mat.dark);
+  eyeL.position.set(-0.05, 0.075, 0.13);
   headPivot.add(eyeL);
-  const eyeR = box(0.02, 0.02, 0.02, mat.dark);
-  eyeR.position.set(0.055, 0.08, 0.10);
+  const eyeR = box(0.018, 0.018, 0.018, mat.dark);
+  eyeR.position.set(0.05, 0.075, 0.13);
   headPivot.add(eyeR);
 
-  // Two fine, alert ears.
+  // Two small, fine, forward-swept ears — deliberately kept close together
+  // and angled inward/forward (not straight upright rods) so they read as
+  // alert equine ears rather than horns; the poll forelock tuft (mane
+  // array, below) sits right behind them to break up the silhouette.
   const earPivotL = new THREE.Group();
-  earPivotL.position.set(-0.045, 0.13, -0.03);
+  earPivotL.position.set(-0.032, 0.105, 0.02);
+  earPivotL.rotation.z = 0.12;
+  earPivotL.rotation.x = -0.18;
   headPivot.add(earPivotL);
-  const earL = box(0.025, 0.09, 0.02, mat.mane);
-  earL.position.set(0, 0.045, 0);
+  const earL = box(0.02, 0.065, 0.018, mat.mane);
+  earL.position.set(0, 0.032, 0);
   earPivotL.add(earL);
 
   const earPivotR = new THREE.Group();
-  earPivotR.position.set(0.045, 0.13, -0.03);
+  earPivotR.position.set(0.032, 0.105, 0.02);
+  earPivotR.rotation.z = -0.12;
+  earPivotR.rotation.x = -0.18;
   headPivot.add(earPivotR);
-  const earR = box(0.025, 0.09, 0.02, mat.mane);
-  earR.position.set(0, 0.045, 0);
+  const earR = box(0.02, 0.065, 0.018, mat.mane);
+  earR.position.set(0, 0.032, 0);
   earPivotR.add(earR);
 
   parts.neckPivot = neckPivot;
+  parts.neckMidPivot = neckMidPivot;
   parts.neckUpperPivot = neckUpperPivot;
   parts.headPivot = headPivot;
   parts.earPivotL = earPivotL;
@@ -238,33 +318,42 @@ export function build() {
 
   // Head anchor for name tags, above the head.
   const headAnchor = new THREE.Object3D();
-  headAnchor.position.copy(new THREE.Vector3(0, 0.22, 0.02));
+  headAnchor.position.copy(new THREE.Vector3(0, 0.2, 0.05));
   headPivot.add(headAnchor);
   root.userData.headAnchor = headAnchor;
 
   // -------------------------------------------------------------------
-  // MANE — a chain of thin, loose violet thread-strands running along
-  // the crest of the neck, each independently pivoted so they can stream
-  // and sway.
+  // MANE — a full chain of loose violet thread-strands flowing along the
+  // crest of the now much longer neck, plus a poll forelock tuft between
+  // the ears, each independently pivoted so they can stream and sway.
+  // Deliberately more numerous and considerably longer than a single
+  // "spike" so it reads as a flowing mane rather than a couple of horns.
   // -------------------------------------------------------------------
-  // y offsets are re-tuned to the shorter neck bones above (neckPivot's
-  // local chain now spans 0 -> 0.18, neckUpperPivot's 0 -> 0.13) so each
-  // strand still roots along the crest instead of floating above the head;
-  // strand length h is kept fuller than a strict neck-length rescale would
-  // give, so the mane still reads as loose streaming thread.
   const maneDefs = [
-    { parent: neckUpperPivot, x: 0, y: 0.135, z: -0.02, h: 0.11 },
-    { parent: neckUpperPivot, x: 0, y: 0.095, z: -0.04, h: 0.10 },
-    { parent: neckUpperPivot, x: 0, y: 0.04, z: -0.05, h: 0.09 },
-    { parent: neckPivot, x: 0, y: 0.15, z: -0.06, h: 0.10 },
-    { parent: neckPivot, x: 0, y: 0.09, z: -0.06, h: 0.10 },
-    { parent: neckPivot, x: 0, y: 0.03, z: -0.06, h: 0.08 },
+    // Poll forelock, right behind the ears.
+    { parent: headPivot, x: 0, y: 0.11, z: -0.03, h: 0.10 },
+    { parent: headPivot, x: -0.025, y: 0.10, z: -0.02, h: 0.08 },
+    { parent: headPivot, x: 0.025, y: 0.10, z: -0.02, h: 0.08 },
+    // Upper neck (nearest the poll) — shorter strands. y offsets are
+    // fractions of NECK_UPPER_LEN (0.12) so they root along the crest.
+    { parent: neckUpperPivot, x: 0, y: 0.105, z: -0.05, h: 0.13 },
+    { parent: neckUpperPivot, x: 0.012, y: 0.065, z: -0.06, h: 0.14 },
+    { parent: neckUpperPivot, x: -0.012, y: 0.025, z: -0.065, h: 0.14 },
+    // Mid neck — fuller, longer strands. Fractions of NECK_MID_LEN (0.145).
+    { parent: neckMidPivot, x: 0, y: 0.128, z: -0.07, h: 0.17 },
+    { parent: neckMidPivot, x: 0.012, y: 0.077, z: -0.075, h: 0.18 },
+    { parent: neckMidPivot, x: -0.012, y: 0.026, z: -0.075, h: 0.17 },
+    // Base of the neck, at the withers — the longest, fullest strands.
+    // Fractions of NECK_BASE_LEN (0.16).
+    { parent: neckPivot, x: 0, y: 0.135, z: -0.075, h: 0.20 },
+    { parent: neckPivot, x: 0.013, y: 0.075, z: -0.08, h: 0.21 },
+    { parent: neckPivot, x: -0.013, y: 0.025, z: -0.08, h: 0.19 },
   ];
   const mane = maneDefs.map(({ parent, x, y, z, h }) => {
     const pivot = new THREE.Group();
     pivot.position.set(x, y, z);
     parent.add(pivot);
-    const strand = hangingBox(0.02, h, 0.02, mat.mane);
+    const strand = hangingBox(0.028, h, 0.024, mat.mane);
     pivot.add(strand);
     return pivot;
   });
@@ -274,42 +363,62 @@ export function build() {
   // TAIL — a chain of loose violet thread-strands off the rear, longer
   // and fuller than the mane, streaming behind and below the croup.
   // -------------------------------------------------------------------
+  // Rooted well clear of the rump's back face (rump spans to z ~ -0.385)
+  // and tipped back at a steeper angle so the tail visibly trails behind
+  // the body's silhouette instead of hugging it, and is thickened
+  // considerably at every segment so it reads clearly even from a
+  // rear 3/4 angle instead of vanishing into a hair-thin sliver.
   const tailPivot = new THREE.Group();
-  tailPivot.position.set(0, 0.30, -0.38);
-  tailPivot.rotation.x = 0.35;
+  tailPivot.position.set(0, 0.29, -0.44);
+  tailPivot.rotation.x = 0.48;
   torsoPivot.add(tailPivot);
 
-  const tailBase = hangingBox(0.05, 0.22, 0.05, mat.mane);
+  const tailBase = hangingBox(0.10, 0.27, 0.10, mat.mane);
   tailPivot.add(tailBase);
 
   const tailMid = new THREE.Group();
-  tailMid.position.set(0, -0.21, -0.02);
+  tailMid.position.set(0, -0.26, -0.03);
   tailPivot.add(tailMid);
-  const tailMidSeg = hangingBox(0.04, 0.20, 0.04, mat.mane);
+  const tailMidSeg = hangingBox(0.075, 0.24, 0.075, mat.mane);
   tailMid.add(tailMidSeg);
 
   const tailTip = new THREE.Group();
-  tailTip.position.set(0, -0.19, -0.02);
+  tailTip.position.set(0, -0.23, -0.03);
   tailMid.add(tailTip);
-  const tailTipSeg = hangingBox(0.03, 0.16, 0.03, mat.mane);
+  const tailTipSeg = hangingBox(0.055, 0.21, 0.055, mat.mane);
   tailTip.add(tailTipSeg);
 
-  // A couple of extra loose stray strands for a fuller streaming read.
+  const tailWisp = new THREE.Group();
+  tailWisp.position.set(0, -0.20, -0.02);
+  tailTip.add(tailWisp);
+  const tailWispSeg = hangingBox(0.03, 0.15, 0.03, mat.mane);
+  tailWisp.add(tailWispSeg);
+
+  // A fuller fan of extra loose stray strands for a windswept streaming
+  // read, varied in length/width so the whole tail reads as a bundle of
+  // flowing thread rather than a single rigid rod.
   const tailStrayL = new THREE.Group();
-  tailStrayL.position.set(-0.03, -0.02, -0.01);
+  tailStrayL.position.set(-0.055, -0.03, -0.015);
   tailPivot.add(tailStrayL);
-  tailStrayL.add(hangingBox(0.015, 0.30, 0.015, mat.mane));
+  tailStrayL.add(hangingBox(0.028, 0.42, 0.028, mat.mane));
 
   const tailStrayR = new THREE.Group();
-  tailStrayR.position.set(0.03, -0.02, -0.01);
+  tailStrayR.position.set(0.055, -0.03, -0.015);
   tailPivot.add(tailStrayR);
-  tailStrayR.add(hangingBox(0.015, 0.28, 0.015, mat.mane));
+  tailStrayR.add(hangingBox(0.028, 0.39, 0.028, mat.mane));
+
+  const tailStrayC = new THREE.Group();
+  tailStrayC.position.set(0, -0.05, -0.03);
+  tailPivot.add(tailStrayC);
+  tailStrayC.add(hangingBox(0.024, 0.46, 0.024, mat.mane));
 
   parts.tailPivot = tailPivot;
   parts.tailMid = tailMid;
   parts.tailTip = tailTip;
+  parts.tailWisp = tailWisp;
   parts.tailStrayL = tailStrayL;
   parts.tailStrayR = tailStrayR;
+  parts.tailStrayC = tailStrayC;
 
   // -------------------------------------------------------------------
   // LEGS — four long, slender legs built from hip/shoulder + knee
@@ -338,16 +447,16 @@ export function build() {
     return { upperPivot, kneePivot, upperLeg, lowerLeg, hoof };
   }
 
-  // Front legs pivot from a group under the withers.
+  // Front legs pivot from a group under the withers/chest.
   const frontLegsGroup = new THREE.Group();
-  frontLegsGroup.position.set(0, HIP_Y, 0.20);
+  frontLegsGroup.position.set(0, HIP_Y, 0.21);
   root.add(frontLegsGroup);
   const legFR = buildLeg(-0.11, 0, frontLegsGroup);
   const legFL = buildLeg(0.11, 0, frontLegsGroup);
 
-  // Rear legs pivot from a group under the croup.
+  // Rear legs pivot from a group under the croup/rump.
   const rearLegsGroup = new THREE.Group();
-  rearLegsGroup.position.set(0, HIP_Y, -0.30);
+  rearLegsGroup.position.set(0, HIP_Y, -0.32);
   root.add(rearLegsGroup);
   const legBR = buildLeg(-0.12, 0, rearLegsGroup);
   const legBL = buildLeg(0.12, 0, rearLegsGroup);
@@ -397,7 +506,7 @@ export function build() {
       const rearAngle = Math.sin(rear * Math.PI * 0.5) * 0.6;
       torsoPivot.rotation.x = -rearAngle * 0.5;
       root.position.y = rearAngle * 0.18;
-      neckPivot.rotation.x = -0.55 - rearAngle * 0.3;
+      neckPivot.rotation.x = -0.72 - rearAngle * 0.3;
 
       legFR.upperPivot.rotation.x = -rearAngle * 1.1;
       legFL.upperPivot.rotation.x = -rearAngle * 1.1;
@@ -428,18 +537,20 @@ export function build() {
       // Springy vertical surge and slight pitch with each stride.
       root.position.y = Math.abs(Math.sin(stride)) * 0.06;
       torsoPivot.rotation.x = Math.sin(stride) * 0.05;
-      neckPivot.rotation.x = -0.55 + Math.sin(stride) * 0.05;
+      neckPivot.rotation.x = -0.72 + Math.sin(stride) * 0.05;
 
       // Mane and tail stream out with the gallop.
       mane.forEach((strand, i) => {
-        strand.rotation.x = -0.3 + Math.sin(stride * 0.9 + i * 0.5) * 0.25;
+        strand.rotation.x = -0.35 + Math.sin(stride * 0.9 + i * 0.5) * 0.25;
         strand.rotation.z = Math.sin(stride * 0.7 + i * 0.8) * 0.15;
       });
-      tailPivot.rotation.x = 0.15 + Math.sin(stride * 0.6) * 0.1;
+      tailPivot.rotation.x = 0.2 + Math.sin(stride * 0.6) * 0.1;
       tailMid.rotation.z = Math.sin(stride * 0.8 + 0.6) * 0.3;
       tailTip.rotation.z = Math.sin(stride * 0.8 + 1.2) * 0.4;
+      tailWisp.rotation.z = Math.sin(stride * 0.8 + 1.7) * 0.45;
       tailStrayL.rotation.z = Math.sin(stride * 0.9 + 0.3) * 0.3;
       tailStrayR.rotation.z = Math.sin(stride * 0.9 - 0.3) * 0.3;
+      tailStrayC.rotation.z = Math.sin(stride * 0.85) * 0.25;
 
       earPivotL.rotation.x = -0.2;
       earPivotR.rotation.x = -0.2;
@@ -472,11 +583,13 @@ export function build() {
       if (flickCycle < 0.5) {
         flick = Math.sin((flickCycle / 0.5) * Math.PI) * 0.5;
       }
-      tailPivot.rotation.x = 0.35 + Math.sin(idle * 0.5) * 0.04;
+      tailPivot.rotation.x = 0.48 + Math.sin(idle * 0.5) * 0.04;
       tailMid.rotation.z = Math.sin(idle * 0.5 + 0.5) * 0.1 + flick * 0.3;
       tailTip.rotation.z = Math.sin(idle * 0.5 + 1.0) * 0.15 + flick * 0.5;
+      tailWisp.rotation.z = Math.sin(idle * 0.5 + 1.4) * 0.18 + flick * 0.6;
       tailStrayL.rotation.z = Math.sin(idle * 0.5 + 0.3) * 0.12;
       tailStrayR.rotation.z = Math.sin(idle * 0.5 - 0.3) * 0.12;
+      tailStrayC.rotation.z = Math.sin(idle * 0.5) * 0.1;
 
       // Ears swivel gently, tracking idle attentiveness.
       earPivotL.rotation.x = Math.sin(idle * 0.9) * 0.1;

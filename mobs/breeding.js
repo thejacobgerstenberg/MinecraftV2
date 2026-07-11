@@ -26,21 +26,19 @@
 // creature that fails to breed/thrive is "unpicked", not "killed".
 // ============================================================================
 
-'use strict';
-
 // ----------------------------------------------------------------------------
 // BREEDABLE — the passive archetypes that support breeding at all.
 // Only true passives get bred; the trader (Wickerkin) is an NPC-ish vendor,
 // not livestock, so it is deliberately excluded here.
 // ----------------------------------------------------------------------------
-const BREEDABLE = new Set(['grazer', 'bobbindeer', 'spoolmare']);
+export const BREEDABLE = new Set(['grazer', 'bobbindeer', 'spoolmare']);
 
 // ----------------------------------------------------------------------------
 // BREED_ITEM — archetype -> item id that triggers breeding ("love mode")
 // when fed to two adults of the same archetype. Tunable; these are
 // canon-ish picks based on content/items.json (raw_skein, hedgerow_berries).
 // ----------------------------------------------------------------------------
-const BREED_ITEM = {
+export const BREED_ITEM = {
   grazer: 'raw_skein',
   bobbindeer: 'hedgerow_berries',
   spoolmare: 'hedgerow_berries',
@@ -50,7 +48,7 @@ const BREED_ITEM = {
  * canBreed(archetype) -> boolean
  * True if this archetype is a passive that supports breeding.
  */
-function canBreed(archetype) {
+export function canBreed(archetype) {
   return BREEDABLE.has(archetype);
 }
 
@@ -59,7 +57,7 @@ function canBreed(archetype) {
  * The item id that triggers breeding for this archetype, or null if the
  * archetype isn't breedable (or has no configured item).
  */
-function breedItemFor(archetype) {
+export function breedItemFor(archetype) {
   if (!canBreed(archetype)) return null;
   return BREED_ITEM[archetype] || null;
 }
@@ -88,9 +86,10 @@ const ARCHETYPES = [
   'silencemoth',    // Silencemoth
   'selvagewarden',  // Selvage Warden
   'lastneedle',     // The Last Needle (boss)
+  'molthkin',       // Cinderloom boss, canonical everthread source
 ];
 
-const SPAWN_EGGS = ARCHETYPES.reduce((map, archetype) => {
+export const SPAWN_EGGS = ARCHETYPES.reduce((map, archetype) => {
   map[archetype] = `spawn_egg_${archetype}`;
   return map;
 }, {});
@@ -99,7 +98,7 @@ const SPAWN_EGGS = ARCHETYPES.reduce((map, archetype) => {
  * spawnEggId(archetype) -> string | null
  * Looks up the spawn-egg item id for an archetype, or null if unknown.
  */
-function spawnEggId(archetype) {
+export function spawnEggId(archetype) {
   return SPAWN_EGGS[archetype] || null;
 }
 
@@ -109,7 +108,7 @@ function spawnEggId(archetype) {
  * of a bred creature. MobManager may or may not consume growSeconds yet —
  * actual aging-into-adult ticking is left for the builder.
  */
-function describeBaby(archetype) {
+export function describeBaby(archetype) {
   return {
     archetype,
     scale: 0.6,
@@ -118,7 +117,7 @@ function describeBaby(archetype) {
   };
 }
 
-module.exports = {
+export default {
   BREEDABLE,
   BREED_ITEM,
   SPAWN_EGGS,

@@ -85,7 +85,7 @@ behaviour each archetype runs under in `MobManager`:
 | `raveler` | Raveler | `raveler` | Nevermend | 18 | 5 | 8 | `groaner` (real hover flight) |
 | `selvagewarden` (MINI-BOSS) | Selvage Wardens | `selvage_warden` | Nevermend | 90 | 9 | 4 | `groaner` (+self-mend) |
 | `molthkin` (BOSS) | Molthkin, the First Bobbin | `molthkin` | Cinderloom | 280 | 11 | 2 | `boss` |
-| `lastneedle` (BOSS) | The Last Needle | `last_needle` | Nevermend | 600(sim) | 14 | — | `boss` |
+| `lastneedle` (BOSS) | The Last Needle | `last_needle` | Nevermend | 800 | 14 | — | `boss` |
 
 Notes on this table:
 
@@ -576,19 +576,18 @@ the mob object and as `state.phase` passed into `animate()`:
 
 ### Sim vs. full design (discrepancy notes)
 
-- **hp: 600 (this sim) vs. 800 (`content/boss.json`).**
-  `content/bestiary.json` lists `hp: 600` (200 per phase, matching this
-  sim's simplified 3-phase raw-hp model), while `content/boss.json`
-  specifies `hp: 800` with a much richer damage-immunity/exposure-window/
-  stitching system (damage lands only through a 3x3x3 "Eye" hitbox during
-  specific windows; the final 120 hp — 15% — can *only* be removed by
-  completing 8 stitches at the binding-anvil, not by weapon damage at all).
-  This sim adopts `maxHp: 600` per the canon table supplied for this
-  reconciliation pass, and is explicitly a simplified visualization, not a
-  1:1 implementation of the full `boss.json` encounter. A future pass
-  implementing the real stitch-phase/binding-anvil/loom-gate-anchor
-  mechanics from `boss.json` would need to reconcile this 600/800 hp
-  mismatch first.
+- **hp: 800 everywhere (RESOLVED).** `content/boss.json` is the source of
+  truth: `maxHp: 800` (was 600 in an earlier, since-corrected revision of
+  this sim). The sim's `phase1HpFrac = 0.60` / `phase2HpFrac = 0.15`
+  thresholds correspond directly to the canonical 480 hp / 120 hp clamps
+  from `boss.json` (480 = 60% of 800, 120 = 15% of 800). The full
+  `boss.json` design — damage landing only through the 3x3x3 "Eye" hitbox
+  during specific exposure windows, and the final 120 hp/15% being
+  removable *only* by completing 8 stitches at the binding-anvil, not by
+  weapon damage — is implemented game-side (Eye-hitbox targeting and the
+  eight-stitch finish), so this sim's raw-hp 3-phase model and the full
+  encounter now agree on both the hp total and the phase-threshold
+  semantics.
 - **No literal `spd` applied.** `content/bestiary.json`'s `spd: 12` for
   `last_needle` describes the scale of the full encounter (horizon-long
   dive passes, ring-wide sweeps), not a directly-comparable per-second

@@ -323,19 +323,19 @@ const ARCHETYPE_CONFIG = {
   // see _aiLastNeedle) lives in the phase* arrays below, indexed by
   // mob.bossPhase (0/1/2).
   //
-  // canon: hp600(sim) dmg14, phase thresholds 60%/15%. NOTE: canonical
-  // content is internally inconsistent between sources here -- the
-  // bestiary lists 600 hp while boss.json lists 800 hp with a separate
-  // "stitching" mechanic; this sim uses a simplified raw-hp 3-phase model
-  // (maxHp:600) purely as a visualization, per the canon table supplied
-  // for this reconciliation. No canon `spd` figure was supplied for the
-  // boss, so its speed/seekSpeed/phaseSpeedMul are left as previously
-  // tuned. dmg14 already matched the existing phaseAttackDamage[2] value.
+  // canon: hp800 dmg14, phase thresholds 60%/15%. maxHp:800 (canon,
+  // boss.json) with phase clamps at 480 and 120 hp (eight-stitch finish);
+  // the existing fractional thresholds (phase1HpFrac 0.60 / phase2HpFrac
+  // 0.15) land exactly on those clamps at 800 hp (800*0.60=480,
+  // 800*0.15=120), so they are left as-is. No canon `spd` figure was
+  // supplied for the boss, so its speed/seekSpeed/phaseSpeedMul are left
+  // as previously tuned. dmg14 already matched the existing
+  // phaseAttackDamage[2] value.
   lastneedle: {
     aiBase: 'boss',
     isBoss: true,
     bound: true, // bound, not killed -- see _killBoss (default when unset)
-    maxHp: 600,
+    maxHp: 800,
     halfWidth: 0.5, height: 3.8,
     speed: 0.6, seekSpeed: 1.0,
     hostile: true, flies: true,
