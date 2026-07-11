@@ -30,6 +30,9 @@ import { isInLiquid } from './gameplay/physics.js';
 import { PostFX } from '../graphics/src/postprocessing.js';
 import { DistanceFog } from '../graphics/src/fog.js';
 import { Particles } from '../graphics/src/particles.js';
+import { BlockCracks } from '../graphics/src/blockcrack.js';
+import { FirstPersonViewModel } from '../graphics/src/viewmodel.js';
+import { BiomeGrading } from '../graphics/src/biomelut.js';
 import WeatherSystem from '../weather/weather.js';
 import { GameAudio } from './audio/GameAudio.js';
 import { tileForFace, CREATIVE_BLOCKS } from './blocks/blocks.js';
@@ -476,6 +479,13 @@ function applySettings(next) {
   // renderDistance is read live by the loop's chunkRenderer.update call.
 }
 
+/** Dimension -> brand biome grade (graphics/src/biomelut.js BIOMES keys). */
+const DIM_GRADE = {
+  overworld: 'sennmeadows',
+  nether: 'emberwarp',
+  end: 'the_fraying',
+};
+
 /** Post-processing tier: 'off' bypasses the chain, others map to PostFX. */
 function applyGraphicsQuality(q) {
   if (!G || !G.fx) return;
@@ -484,6 +494,12 @@ function applyGraphicsQuality(q) {
   } else {
     G.fx.post.setEnabled(true);
     G.fx.post.setQuality(q || 'medium');
+    // SSAO + god rays are preset toggles (on in the high/ultra presets);
+    // the default 'medium' tier keeps them off.
+    if ((q || 'medium') === 'medium') {
+      G.fx.post.toggle('ssao', false);
+      G.fx.post.toggle('godrays', false);
+    }
   }
 }
 
@@ -573,10 +589,43 @@ async function bootSession(worldMeta) {
   // Linear mode pairs with the chunk fog-culling wall (see updateFog); the
   // color is synced to the live sky every frame so pop-in dissolves into the
   // horizon at any time of day / weather / dimension.
+  // SSAO + god rays live in the PostFX presets (high/ultra); keep the
+  // default 'medium' tier lean — they stay opt-in via Graphics Quality.
+  if ((gq === 'off' ? 'medium' : gq) === 'medium') {
+    post.toggle('ssao', false);
+    post.toggle('godrays', false);
+  }
   const fog = new DistanceFog(scene, { mode: 'linear', near: 60, far: 120 });
   const particles = new Particles(scene, { camera });
   particles.setWaterLevel(null); // splash rings are driven by its own rain (unused)
-  const fx = { post, fog, particles };
+
+  // Progressive crack decals driven by the hold-to-break accumulator
+  // (updateMining: stage = floor(progress * 5)). blend 'normal': three.js
+  // warns every frame on MultiplyBlending without premultiplied alpha.
+  const cracks = new BlockCracks(scene, { blend: 'normal' });
+
+  // First-person view model (held block + swing on break/place). Parented to
+  // the camera — the camera must itself be in the scene graph to render its
+  // children.
+  scene.add(camera);
+  const viewmodel = new FirstPersonViewModel(camera, {
+    atlasTexture: atlas.texture,
+    // tileUV rects already carry the half-texel inset, so texelSize is left
+    // unset (0) — the viewmodel would add its own inset on top otherwise.
+    atlas: {
+      tileUV: atlas.tileUV,
+      faceTile: (id, face) => {
+        const def = getBlockDef(id);
+        return def ? tileForFace(def, face) : null;
+      },
+    },
+  });
+  // Per-dimension atmosphere: a one-call post-tonemap color grade (it lives
+  // entirely inside the PostFX composite — our Sky/fog stay untouched).
+  const grading = new BiomeGrading(post);
+  grading.setBiome(DIM_GRADE[dim] || 'sennmeadows');
+
+  const fx = { post, fog, particles, cracks, viewmodel, grading };
 
   // --- Weather (weather package; visuals overworld-only) ---------------------
   // Our Sky owns background/lights and DistanceFog owns scene.fog, so the
@@ -739,6 +788,7 @@ async function bootSession(worldMeta) {
     // Hold-to-break state: held while the left button is down; key/progress
     // track the block being mined (see updateMining / breakTimeFor).
     mining: { held: false, key: null, progress: 0 },
+    vmHeld: undefined, // last hotbar block mirrored into the viewmodel
     dead: false, // death screen up; player sim + damage suspended
     isDay: true, // fed to the mob manager (spawn tables) each frame
     wasDay: true, // dawn edge detector for night:survived
@@ -1119,6 +1169,7 @@ async function bootSession(worldMeta) {
    */
   function onBreak() {
     if (!gameplayActive()) return;
+    S.fx.viewmodel.swing(); // arm swing on every break click
     // Mob hitboxes take priority over blocks (reach 4 vs block reach 5).
     if (tryAttackMob()) return;
     const t = computeTarget();
@@ -1147,6 +1198,7 @@ async function bootSession(worldMeta) {
       S.mining.key = null;
       S.mining.progress = 0;
       ui.hud.setBreakProgress(null);
+      S.fx.cracks.clearAll();
     }
   }
 
@@ -1175,19 +1227,26 @@ async function bootSession(worldMeta) {
     if (S.mining.key !== key) { // fresh target (or first frame of the hold)
       S.mining.key = key;
       S.mining.progress = 0;
+      S.fx.cracks.clearAll(); // drop the decal left on a previous target
     }
     S.mining.progress += dt / need;
     if (S.mining.progress >= 1) {
       performBlockBreak(t.x, t.y, t.z, id, def);
       S.mining.key = null; // keep holding to start on the next block behind
       S.mining.progress = 0;
+      S.fx.cracks.clearAll();
     } else {
       ui.hud.setBreakProgress(S.mining.progress);
+      // Progressive crack decal + continuous arm swing while mining.
+      S.fx.cracks.showCrack(t.x, t.y, t.z,
+        Math.min(4, Math.floor(S.mining.progress * 5)));
+      S.fx.viewmodel.swing();
     }
   }
 
   function onPlace() {
     if (!gameplayActive()) return;
+    S.fx.viewmodel.swing(); // arm swing on every place click
     const t = computeTarget();
     if (!t.hit || t.nx == null) return;
     const { nx, ny, nz } = t;
@@ -1363,6 +1422,16 @@ async function bootSession(worldMeta) {
       ? 'rain' : S.wx.presented === 'snow' ? 'snow' : 'clear';
     S.fx.fog.update(dt, S.fxCtx);
     if (simActive) S.fx.particles.update(dt, S.particlesCtx);
+    S.fx.cracks.update(dt, S.fxCtx);
+    // View model: keep the held item in sync with the hotbar selection.
+    {
+      const held = S.inventory.selectedBlock || null;
+      if (held !== S.vmHeld) {
+        S.vmHeld = held;
+        S.fx.viewmodel.setItem(held ? `block:${held}` : null);
+      }
+      S.fx.viewmodel.update(dt, S.fxCtx);
+    }
 
     // Crosshair target outline.
     const target = computeTarget();
@@ -1504,6 +1573,9 @@ function teardownSession() {
   S.fx.post.dispose();
   S.fx.fog.dispose();
   S.fx.particles.dispose();
+  S.fx.cracks.dispose();
+  S.fx.viewmodel.dispose();
+  S.fx.grading.dispose();
 
   S.outline.geometry.dispose();
   S.outline.material.dispose();
@@ -1701,6 +1773,7 @@ async function switchDimension(dimId, opts = {}) {
   // Teardown current chunk meshes, then rebuild the world for the target dim.
   S.chunkRenderer.dispose();
   S.dim = dimId;
+  S.fx.grading.setBiome(DIM_GRADE[dimId] || 'sennmeadows');
   S.generator = new TerrainGenerator(S.worldMeta.seed, dimId);
   S.world = new World(S.generator);
   applyEdits(S.world, S.editsByDim[dimId]);

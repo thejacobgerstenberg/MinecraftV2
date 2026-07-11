@@ -14,13 +14,19 @@
 //         distortion animated over uTime, an additive-ish glow core, and soft
 //         rectangular alpha edges so the swirl melts into the frame.
 //         Transparent, depthWrite:false, DoubleSide (walk around it / through it).
-//       * LIGHT — a soft PointLight at the portal centre, tinted to the live
-//         palette, intensity gently flickering (and surging on bursts).
+//       * LIGHT — a PointLight at the portal centre, tinted to the live
+//         palette, intensity gently flickering (and surging on bursts), plus a
+//         second ground-biased fill light low in front of the gate and an
+//         additive radial FLOOR GLOW quad at the base, so the palette-coloured
+//         spill pools visibly on the ground 3-5 units in front even on
+//         software-rasterised (SwiftShader) night shots.
 //
-//     Three dimension palettes (exported as PALETTES so the GUI can list them):
-//       'warpwold'   — deep violet/magenta swirl with teal filaments
-//       'cinderloom' — ember orange/crimson with dark smoke veins
-//       'nevermend'  — pale bone-white/ice cyan with faint green wisps
+//     Three dimension palettes (exported as PALETTES so the GUI can list them),
+//     sampled from the LOOMFALL brand 8-stop dimension ramps (brand/palette.json
+//     @ feature/brand d8f96a2 — see PALETTES below for the stop mapping):
+//       'warpwold'   — violet-blue understitch base, woven green arms, dawn-gold filaments
+//       'cinderloom' — ember orange over charred umber with brick smoke veins
+//       'nevermend'  — violet-black breaking to hemstone pale, cold cyan gleam
 //     Palettes are pure uniform data: setDimension(name) crossfades every
 //     palette uniform (and the light colour) over ~0.6 s and fires activate().
 //
@@ -42,31 +48,38 @@ import * as THREE from 'three';
 //   filament — thin vein/wisp colour (mixed in, so dark veins work too)
 //   glow     — additive core-glow / burst tint
 //   light    — PointLight tint
+//
+// Every colour is a verbatim stop from the LOOMFALL brand dimension ramps
+// (brand/palette.json `dimensions.<name>.ramp`, stops indexed 0=darkest ..
+// 7=brightest). Mapping per dimension: deep <- a darkest stop, bright <- a
+// brightest stop, filament/glow/light <- mid/high stops chosen so the in-scene
+// swirl stays vivid and the three realms stay hue-distinct (green-gold vs
+// ember orange vs violet-cyan — matching the brand's realm-hue oaths).
 // ---------------------------------------------------------------------------
 export const PALETTES = {
   warpwold: {
     label: 'Warpwold',
-    deep: 0x1c0733,       // deep violet
-    bright: 0xc72bd6,     // magenta
-    filament: 0x2fd6c4,   // teal filaments
-    glow: 0xa14dee,
-    light: 0xb45cf2,
+    deep: 0x2c3247,       // W0 — night understitch violet-blue
+    bright: 0x87ab4c,     // W4 — saturated woven-canopy green
+    filament: 0xe4d68a,   // W6 — dawn-gold filaments
+    glow: 0x5f8a46,       // W3 — identity green (brand LUT anchor / sat peak)
+    light: 0xb8bc5e,      // W5 — green-gold light spill
   },
   cinderloom: {
     label: 'Cinderloom',
-    deep: 0x2f0a05,       // charred umber
-    bright: 0xff7a1f,     // ember orange
-    filament: 0x17100e,   // dark smoke veins
-    glow: 0xe0342b,       // crimson glow
-    light: 0xff8c3a,
+    deep: 0x33221b,       // C1 — spent-skein charred umber
+    bright: 0xe8722a,     // C5 — ember orange
+    filament: 0x8a3220,   // C3 — brick smoke veins (darker than the arms)
+    glow: 0xc24a20,       // C4 — live-ember glow (brand saturation peak)
+    light: 0xf7a93e,      // C6 — firelight amber
   },
   nevermend: {
     label: 'Nevermend',
-    deep: 0x8d989e,       // cold pale grey-bone
-    bright: 0xe9ece2,     // bone white
-    filament: 0x9dffb4,   // faint green wisps
-    glow: 0xa8e9f7,       // ice cyan
-    light: 0xbfeef5,
+    deep: 0x181330,       // N1 — violet-black past the hem
+    bright: 0x9cc8d6,     // N6 — cold cyan threshold gleam (realm-exclusive)
+    filament: 0x7f7bc2,   // N5 — violet wisps threading the cyan arms
+    glow: 0x9cc8d6,       // N6 — the same cyan gleam feeds core/burst/pool
+    light: 0xddf3f0,      // N7 — hemstone pale, the finished rim (light spill)
   },
 };
 
@@ -136,6 +149,26 @@ function makeObsidianTexture(seed = 0xb51d) {
   tex.magFilter = THREE.NearestFilter;
   tex.minFilter = THREE.NearestFilter;
   tex.generateMipmaps = false;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// Soft radial gradient for the ground-pool quad at the portal base. Additive
+// blending: black rim = zero contribution, so the disc melts into the ground.
+function makeGroundGlowTexture() {
+  if (typeof document === 'undefined') return null;
+  const S = 128;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const g = cv.getContext('2d');
+  const grad = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+  grad.addColorStop(0, 'rgba(255,255,255,0.85)');
+  grad.addColorStop(0.3, 'rgba(255,255,255,0.42)');
+  grad.addColorStop(0.65, 'rgba(255,255,255,0.13)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, S, S);
+  const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
@@ -403,15 +436,50 @@ export class PortalGate {
     this.object3d.add(surface);
 
     // ---- LIGHT: palette-tinted point light at the portal centre. Strong
-    // enough (5.0, decay 1.8) to actually paint the frame, ground and nearby
-    // blocks with the portal colour — the old 1.6/decay-2 light died within
-    // a block and the surroundings stayed pitch black at night.
-    this._lightBase = 5.0;
+    // enough (8.5, decay 1.6) to paint a clearly visible colour pool on the
+    // ground 3-5 units in front at night — the previous 5.0/decay-1.8 spill
+    // read faint on SwiftShader shots.
+    this._lightBase = 8.5;
     this._light = new THREE.PointLight(
-      0xffffff, this._lightBase, Math.max(width, height) * 6, 1.8);
+      0xffffff, this._lightBase, Math.max(width, height) * 7, 1.6);
     this._light.position.set(0, height / 2, 1.1); // nudged out the front face
     this._light.castShadow = false;       // deliberate — perf
     this.object3d.add(this._light);
+
+    // Second, ground-biased soft fill: sits low in front of the gate so the
+    // ground plane gets a favourable N.L and the colour pool reads even when
+    // the centre light grazes it. Same palette tint, gentler falloff.
+    this._groundLightBase = 4.0;
+    this._groundLight = new THREE.PointLight(
+      0xffffff, this._groundLightBase, Math.max(width, height) * 4, 1.6);
+    this._groundLight.position.set(0, 0.9, 2.2); // low + in front of the face
+    this._groundLight.castShadow = false; // deliberate — perf
+    this.object3d.add(this._groundLight);
+
+    // ---- FLOOR GLOW: subtle additive gradient disc lying on the ground at
+    // the portal base, biased toward the front. Guarantees the palette pool
+    // is visible in headless/software shots where point-light shading alone
+    // can render too dim. Tinted to the live glow colour every frame.
+    this._glowTex = makeGroundGlowTexture();
+    this._glowGeo = new THREE.PlaneGeometry(width * 3.0, width * 2.2);
+    this._glowBaseOpacity = 0.38;
+    this._glowMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,                    // tinted to the live glow palette
+      map: this._glowTex,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      opacity: this._glowBaseOpacity,
+      fog: false,                         // additive: fog would tint the black rim
+    });
+    const floorGlow = new THREE.Mesh(this._glowGeo, this._glowMat);
+    floorGlow.name = 'portalFloorGlow';
+    floorGlow.rotation.x = -Math.PI / 2;  // flat on the ground
+    floorGlow.position.set(0, 0.045, 1.3); // just above grade, pooled in front
+    floorGlow.renderOrder = 1;            // after opaques/water, under the swirl
+    floorGlow.userData.noShadow = true;
+    this._floorGlow = floorGlow;
+    this.object3d.add(floorGlow);
 
     // ---- MOTES: additive glow particles drifting out of the surface.
     this._moteTex = makeMoteTexture();
@@ -464,6 +532,7 @@ export class PortalGate {
     u.uColFilament.value.copy(this._toFilament);
     u.uColGlow.value.copy(this._toGlow);
     this._light.color.copy(this._toLight);
+    this._groundLight.color.copy(this._toLight);
     this._dimension = start;
   }
 
@@ -530,6 +599,7 @@ export class PortalGate {
       u.uColFilament.value.lerpColors(this._fromFilament, this._toFilament, k);
       u.uColGlow.value.lerpColors(this._fromGlow, this._toGlow, k);
       this._light.color.lerpColors(this._fromLight, this._toLight, k);
+      this._groundLight.color.copy(this._light.color);
     }
 
     // Burst envelope.
@@ -550,11 +620,18 @@ export class PortalGate {
       }
     }
 
-    // Light: slight pulse/flicker + burst surge.
+    // Lights: slight pulse/flicker + burst surge. The ground fill and the
+    // floor-glow quad share the same pulse so the whole spill breathes as one.
     const t = this._time;
-    this._light.intensity = this._lightBase
-      * (0.86 + 0.09 * Math.sin(t * 5.3) + 0.05 * Math.sin(t * 13.7 + 1.7))
-      + burstRing * 4.0;
+    const pulse = 0.86 + 0.09 * Math.sin(t * 5.3) + 0.05 * Math.sin(t * 13.7 + 1.7);
+    this._light.intensity = this._lightBase * pulse + burstRing * 4.0;
+    this._groundLight.intensity = this._groundLightBase * pulse + burstRing * 2.5;
+
+    // Floor glow: live palette tint, pulsing opacity, flare on bursts.
+    this._glowMat.color.copy(u.uColGlow.value);
+    const glowOp = this._glowBaseOpacity * pulse
+      + burstRing * 0.25 + u.uBurstFlash.value * 0.2;
+    this._glowMat.opacity = glowOp > 1 ? 1 : glowOp;
 
     // Motes: deterministic per-index orbits. Each mote loops a life cycle
     // that carries it through the plane (z -0.9 -> +0.9) while slowly
@@ -596,7 +673,11 @@ export class PortalGate {
     this._moteGeo.dispose();
     this._moteMat.dispose();
     if (this._moteTex) this._moteTex.dispose();
+    this._glowGeo.dispose();
+    this._glowMat.dispose();
+    if (this._glowTex) this._glowTex.dispose();
     this._light.dispose();
+    this._groundLight.dispose();
     this.object3d.clear();
   }
 }

@@ -52,9 +52,11 @@ const ANCHOR_SCALE = 0.3;
 // Blocky first-person arm (Steve-style): skin tone + darker sleeve band.
 // Deliberately dark-ish albedo: the rig is unshadowed, so mid tones here
 // render about right under full sun + hemi (a "true" light skin tone washed
-// out to cream-white in day shots).
+// out to cream-white in day shots). Sleeve is a muted denim blue-grey: the
+// old saturated teal band next to the held block read as a "flat teal cube"
+// instead of clothing in closeup shots.
 const ARM_SKIN = [0.34, 0.22, 0.13];
-const ARM_SLEEVE = [0.07, 0.22, 0.2];
+const ARM_SLEEVE = [0.11, 0.14, 0.2];
 
 // Render after all normal scene content so depthTest:false overlays cleanly.
 const BASE_RENDER_ORDER = 950;
@@ -75,6 +77,12 @@ const SWING_DROP_Y = -0.18;     // downward drop (rig-local, peak)
 
 // BoxGeometry emits faces in the order +x,-x,+y,-y,+z,-z (4 verts each).
 const BOX_FACE_KIND = ['side', 'side', 'top', 'bottom', 'side', 'side'];
+
+// Slight per-face brightness for the held mini-cube so it reads as a 3D block
+// even under the flat overlay lighting (depthTest:false rig, no shadows):
+// lit top, two side pairs a notch apart, dark underside. Applied as material
+// tints in BOTH the atlas-textured and flat-colour paths.
+const FACE_SHADE = { top: 0.9, sideX: 0.78, sideZ: 0.68, bottom: 0.55 };
 
 // Pickaxe palette (wood handle ~ plank tones, stone head ~ stone tones).
 const PICK_WOOD = [0.62, 0.45, 0.26];
@@ -244,7 +252,10 @@ export class FirstPersonViewModel {
     const group = new THREE.Group();
     group.name = 'fp-item-block-' + id;
 
-    const geo = new THREE.BoxGeometry(0.72, 0.72, 0.72);
+    // ~15% smaller than the old 0.72 cube and pulled toward the arm below —
+    // sized/placed so the near corner sits inside the cubic hand and the
+    // whole thing reads as one held unit, not a block floating by the arm.
+    const geo = new THREE.BoxGeometry(0.61, 0.61, 0.61);
     const block = getBlock(id);
     let mesh;
 
@@ -252,29 +263,43 @@ export class FirstPersonViewModel {
         typeof this._atlas.tileUV === 'function' &&
         typeof this._atlas.faceTile === 'function' &&
         this._remapBoxUVs(geo, id)) {
-      // Textured path: one material, per-face atlas UVs. Tint slightly below
-      // white: world voxels carry baked AO the unshadowed rig lacks, so a
-      // full-white tint rendered noticeably paler than the same block in the
-      // terrain.
-      mesh = new THREE.Mesh(geo, makeLambert([0.82, 0.82, 0.82], {
+      // Textured path: shared atlas map, one material per box-face slot so
+      // each face carries its FACE_SHADE tint (grass shows the grass-top tile
+      // up top, grass-side tiles around, dirt below — with a directional
+      // shade so the cube reads 3D). All tints sit below white: world voxels
+      // carry baked AO the unshadowed rig lacks, so a full-white tint
+      // rendered noticeably paler than the same block in the terrain.
+      const mk = (shade) => makeLambert([shade, shade, shade], {
         map: this._atlasTexture,
         emissive: block.emissive || null,
         emissiveScale: 0.06,
-      }));
+      });
+      const sideX = mk(FACE_SHADE.sideX);
+      const sideZ = mk(FACE_SHADE.sideZ);
+      mesh = new THREE.Mesh(geo,
+        [sideX, sideX, mk(FACE_SHADE.top), mk(FACE_SHADE.bottom), sideZ, sideZ]);
     } else {
-      // Flat-colour path: 3 shared materials in box face order +x,-x,+y,-y,+z,-z.
-      const top = makeLambert(faceColor(id, 'top'), { emissive: block.emissive || null });
-      const side = makeLambert(faceColor(id, 'side'), { emissive: block.emissive || null });
-      const bottom = makeLambert(faceColor(id, 'bottom'), { emissive: block.emissive || null });
-      mesh = new THREE.Mesh(geo, [side, side, top, bottom, side, side]);
+      // Flat-colour fallback (no atlas): per-face blocks.js colours — grass =
+      // green top / dirt-toned sides, never a uniform cube. faceColor()
+      // already bakes top/side/bottom shading; the second side pair gets an
+      // extra dim step so adjacent faces never merge into one silhouette.
+      const opts = { emissive: block.emissive || null };
+      const dim = (rgb, k) => [rgb[0] * k, rgb[1] * k, rgb[2] * k];
+      const top = makeLambert(faceColor(id, 'top'), opts);
+      const bottom = makeLambert(faceColor(id, 'bottom'), opts);
+      const sideX = makeLambert(faceColor(id, 'side'), opts);
+      const sideZ = makeLambert(dim(faceColor(id, 'side'), 0.85), opts);
+      mesh = new THREE.Mesh(geo, [sideX, sideX, top, bottom, sideZ, sideZ]);
     }
 
     markOverlay(mesh, 0);
     group.add(mesh);
 
     // Held pose: top tipped toward the viewer, two side faces visible.
+    // Position pulled down-right toward the hand/forearm so the block's near
+    // corner overlaps the hand cube (was centred at (0, 0.05, 0), detached).
     group.rotation.set(0.3, 0.62, 0);
-    group.position.set(0, 0.05, 0);
+    group.position.set(0.08, -0.07, 0.05);
     group.visible = false;
     return group;
   }
@@ -303,9 +328,10 @@ export class FirstPersonViewModel {
   }
 
   // Blocky forearm: a long box aimed from the lower-right screen corner up to
-  // the held item, with a darker sleeve band at the shoulder end. Rig-local;
-  // rendered as part of the overlay (same depthTest:false + renderOrder rules,
-  // drawn just UNDER the item so the block sits in the palm).
+  // the held item, with a darker sleeve band at the shoulder end and a cubic
+  // hand wrapping the held block's near corner. Rig-local; rendered as part
+  // of the overlay (same depthTest:false + renderOrder rules, arm -> band ->
+  // hand -> item so the block sits in the palm).
   _buildArm() {
     const group = new THREE.Group();
     group.name = 'fp-viewmodel-arm';
@@ -322,19 +348,32 @@ export class FirstPersonViewModel {
     const skin = makeLambert(ARM_SKIN, { emissiveScale: 0.04 });
     const sleeve = makeLambert(ARM_SLEEVE, { emissiveScale: 0.04 });
 
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 2.0), skin);
-    arm.position.copy(dir).multiplyScalar(0.95).add(hand);
+    // Extended past the hand anchor toward the held block (2.3 long, centred
+    // at 0.8 along dir => near end 0.35 BEYOND the hand point) so the forearm
+    // visually plugs into the hand/block instead of stopping short of it.
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 2.3), skin);
+    arm.position.copy(dir).multiplyScalar(0.8).add(hand);
     arm.quaternion.copy(q);
-    markOverlay(arm, -2);
+    markOverlay(arm, -3);
     group.add(arm);
 
     // Sleeve band across the mid-forearm (on-screen, so the strip clearly
-    // reads as an arm rather than a wedge of terrain).
+    // reads as an arm rather than a wedge of terrain). Pushed down-arm from
+    // the hand so it never visually merges with the held block.
     const band = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.56, 0.42), sleeve);
-    band.position.copy(dir).multiplyScalar(0.55).add(hand);
+    band.position.copy(dir).multiplyScalar(0.72).add(hand);
     band.quaternion.copy(q);
-    markOverlay(band, -1);
+    markOverlay(band, -2);
     group.add(band);
+
+    // Simple cubic hand wrapping the held block's near-lower corner: drawn
+    // after the arm/band and just under the item, it bridges forearm -> item
+    // so the silhouette connects with no gap (the "detached block" fix).
+    const handCube = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.34, 0.34), skin);
+    handCube.position.set(0.27, -0.24, 0.16);
+    handCube.quaternion.copy(q);
+    markOverlay(handCube, -1);
+    group.add(handCube);
 
     return group;
   }

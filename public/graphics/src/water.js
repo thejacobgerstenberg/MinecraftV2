@@ -19,10 +19,29 @@
 //         setSunLight): by day the water is lit normally, at night the body drops
 //         to a dark navy and the only highlight is a modest cool moon-specular
 //         streak (the glint direction flips to the moon when the sun sets).
+//       * ANIMATED FLOW: the whole wave/ripple phase field is translated along a
+//         flow vector accumulated on the CPU (uFlowOffset), so the surface reads
+//         as a gently drifting body of water. setFlow({dirX, dirZ, speed})
+//         steers it at runtime (partial updates OK); the default is a gentle
+//         drift roughly matching the old static scroll rate.
+//       * REFLECTION-LITE: an optional planar reflection rendered into a small
+//         render target (scene re-rendered through a camera mirrored about the
+//         water plane, with an oblique near-plane clip at y = level). The RT is
+//         sampled projectively in the fragment stage, distorted by the ripple
+//         normal, and blended INTO the existing sky-colour fresnel term — so
+//         when it is off (or the camera is underwater) the shader degrades to
+//         exactly the previous look. Quality gate via setReflectionQuality(q):
+//         'off'/'low' = disabled, 'medium' = quarter-res RT, 'high'/'ultra' =
+//         half-res RT. The RT pass renders inside update(dt, ctx) via
+//         ctx.renderer/scene/camera, hides particles/transparent objects (cost)
+//         + the water itself, freezes shadow-map updates for the pass, and
+//         restores every bit of renderer/visibility state afterwards. A
+//         re-entrancy guard makes recursion impossible.
 //     Transparent, depthWrite:false, DoubleSide (visible from below when the
 //     camera dips underwater). Exposes .object3d, update(dt, ctx), setEnabled,
-//     get enabled, dispose, setSkyReflectionColor(THREE.Color) and
-//     setSunLight(intensity, color).
+//     get enabled, dispose, setSkyReflectionColor(THREE.Color),
+//     setSunLight(intensity, color), setFlow({dirX, dirZ, speed}) and
+//     setReflectionQuality('off'|'low'|'medium'|'high'|'ultra').
 //
 //     Sky-colour priority (checked every update, allocation-free):
 //       1. ctx.skyColor (live THREE.Color supplied by the demo) — always wins;
@@ -50,6 +69,15 @@ function smoothstep01(x) {
   x = x < 0 ? 0 : x > 1 ? 1 : x;
   return x * x * (3 - 2 * x);
 }
+
+// Reflection quality -> drawing-buffer divisor (0 = reflection disabled).
+const REFL_DIVISOR = {
+  off: 0,
+  low: 0,        // low quality tier: fall back to the analytic sky fresnel
+  medium: 4,     // quarter-res RT
+  high: 2,       // half-res RT
+  ultra: 2,      // half-res RT
+};
 
 // ---------------------------------------------------------------------------
 // Shared GLSL: a tiny value-noise for the surface ripples (kept to a single
@@ -91,6 +119,9 @@ export class Water {
     moonColor = 0xbfd3ee,     // specular glint tint (night — cool moon streak)
     opacity = 0.75,
     fadeStart = 0.85,         // radial alpha falloff begins at 85% of half-size
+    flow = null,              // { dirX, dirZ, speed } initial flow (see setFlow)
+    reflectionQuality = 'medium',  // 'off'|'low'(=off)|'medium'(1/4)|'high'|'ultra'(1/2)
+    reflectionStrength = 0.85,     // RT vs analytic sky-fresnel blend when active
   } = {}) {
     this._scene = scene || null;
     this._enabled = true;
@@ -98,6 +129,45 @@ export class Water {
     this._elapsed = 0;
     this._manualReflect = false;   // true once setSkyReflectionColor() is called
     this._lastTod = -1;
+
+    // --- Animated flow state (uFlowOffset accumulated per update, CPU-side so
+    //     speed changes never jump the phase). Default: a gentle drift. -------
+    this._flowDir = new THREE.Vector2(1, 0.35).normalize();  // (x, z)
+    this._flowSpeed = 0.25;                                  // world units / s
+
+    // --- Reflection-lite state. The RT + mirror camera are created lazily on
+    //     the first update that actually wants a reflection. ------------------
+    this._reflQuality = 'off';
+    this._reflDiv = 0;             // drawing-buffer divisor (0 = disabled)
+    this._reflStrength = Math.max(0, Math.min(1, reflectionStrength));
+    this._reflRT = null;
+    this._mirrorCam = new THREE.PerspectiveCamera();
+    this._inRefl = false;          // re-entrancy guard for the RT pass
+    this._hidden = [];             // objects hidden for the current RT pass
+    this._dbSize = new THREE.Vector2();
+    this._camPos = new THREE.Vector3();
+    this._v1 = new THREE.Vector3();
+    this._v2 = new THREE.Vector3();
+    this._v3 = new THREE.Vector3();
+    this._q1 = new THREE.Quaternion();
+    this._plane = new THREE.Plane();
+    this._clip4 = new THREE.Vector4();
+    this._qc = new THREE.Vector4();
+    // Prebound traversal callback (no per-frame closure allocation). Hides
+    // particles (Points/Sprites) and transparent meshes — EXCEPT sky visuals,
+    // which all draw at negative renderOrder and must stay in the reflection.
+    this._hideCb = (obj) => {
+      if (!obj.visible || obj === this.object3d) return;
+      let hide = obj.userData && obj.userData.noReflection === true;
+      if (!hide && obj.renderOrder >= 0 && (obj.isPoints || obj.isSprite)) hide = true;
+      if (!hide && obj.renderOrder >= 0 && obj.isMesh) {
+        const m = obj.material;
+        if (Array.isArray(m)) {
+          for (let i = 0; i < m.length; i++) if (m[i] && m[i].transparent) { hide = true; break; }
+        } else if (m && m.transparent === true) hide = true;
+      }
+      if (hide) { obj.visible = false; this._hidden.push(obj); }
+    };
 
     // Manual sun override (setSunLight). When inactive, uSunIntensity is derived
     // from the live sun direction every update.
@@ -141,12 +211,18 @@ export class Water {
         uF0: { value: 0.02 },                     // water base reflectance (Schlick F0)
         uFadeStart: { value: fadeStart },         // normalised radius where fade begins
         uInvHalf: { value: 2 / size },            // 1 / (size/2)
+        uFlowOffset: { value: new THREE.Vector2(0, 0) },  // accumulated flow (x, z)
+        uReflMap: { value: null },                // planar reflection RT (may be null)
+        uReflMatrix: { value: new THREE.Matrix4() },
+        uReflMix: { value: 0 },                   // 0 = pure analytic sky fresnel
+        uReflDistort: { value: 0.6 },             // ripple-normal distortion (world u)
       },
       vertexShader: /* glsl */ `
         uniform float uTime;
         uniform float uWaveHeight;
         uniform float uFadeStart;
         uniform float uInvHalf;
+        uniform vec2 uFlowOffset;
         varying vec3 vWorldPos;
         varying vec3 vNormal;
         varying float vFade;
@@ -165,7 +241,10 @@ export class Water {
 
         void main() {
           vec3 p = position;              // y ~ 0 on the authored plane
-          vec2 xz = p.xz;
+          // Flow: translate the wave phase field along the accumulated flow
+          // offset so the whole surface drifts (vFade below still uses the
+          // untranslated p.xz — the edge dissolve must NOT drift).
+          vec2 xz = p.xz - uFlowOffset;
           float t = uTime;
 
           float h = 0.0, dhdx = 0.0, dhdz = 0.0;
@@ -182,7 +261,7 @@ export class Water {
           // Radial edge dissolve: 0 at/beyond the border, 1 inside uFadeStart.
           // Euclidean radius (normalised by half-size) also rounds the corners
           // away, so no square silhouette survives.
-          vFade = 1.0 - smoothstep(uFadeStart, 1.0, length(xz) * uInvHalf);
+          vFade = 1.0 - smoothstep(uFadeStart, 1.0, length(p.xz) * uInvHalf);
 
           vec4 wp = modelMatrix * vec4(p, 1.0);
           vWorldPos = wp.xyz;
@@ -200,6 +279,11 @@ export class Water {
         uniform vec3  uSkyColor;
         uniform float uOpacity;
         uniform float uF0;
+        uniform vec2  uFlowOffset;
+        uniform sampler2D uReflMap;
+        uniform mat4  uReflMatrix;
+        uniform float uReflMix;
+        uniform float uReflDistort;
         varying vec3 vWorldPos;
         varying vec3 vNormal;
         varying float vFade;
@@ -211,8 +295,12 @@ export class Water {
           if (!gl_FrontFacing) N = -N;   // seen from below when underwater
           vec3 V = normalize(cameraPosition - vWorldPos);
 
-          // --- Normal-map style ripples from a scrolling value-noise gradient. --
-          vec2 rp = vWorldPos.xz * 1.35 + vec2(uTime * 0.35, uTime * -0.27);
+          // --- Normal-map style ripples from a scrolling value-noise gradient.
+          //     The primary scroll follows the flow vector (uFlowOffset); a
+          //     small residual counter-scroll keeps the surface shimmering even
+          //     when the flow speed is 0. -------------------------------------
+          vec2 rp = (vWorldPos.xz - uFlowOffset * 1.6) * 1.35
+                    + vec2(uTime * 0.10, uTime * -0.08);
           float e = 0.35;
           float n0 = vnoise(rp);
           float nx = vnoise(rp + vec2(e, 0.0));
@@ -239,6 +327,19 @@ export class Water {
           vec3 R = reflect(-V, N);
           float reflGrad = mix(1.12, 0.86, clamp(R.y * 0.5 + 0.5, 0.0, 1.0));
           vec3 reflColor = uSkyColor * reflGrad * mix(0.35, 1.0, day);
+
+          // --- Reflection-lite: projective sample of the mirrored-scene RT,
+          //     distorted by the ripple normal, blended into the analytic sky
+          //     reflection. uReflMix = 0 (off/underwater/low quality) restores
+          //     the exact legacy fresnel look. --------------------------------
+          if (uReflMix > 0.001) {
+            vec4 rc = uReflMatrix
+                    * vec4(vWorldPos + vec3(N.x, 0.0, N.z) * uReflDistort, 1.0);
+            if (rc.w > 0.0) {
+              vec3 rrgb = texture2DProj(uReflMap, rc).rgb;
+              reflColor = mix(reflColor, rrgb, uReflMix);
+            }
+          }
 
           vec3 col = mix(body, reflColor, fres);
 
@@ -270,10 +371,57 @@ export class Water {
     this.object3d.frustumCulled = false;  // waves push verts past the flat bounds
 
     if (this._scene) this._scene.add(this.object3d);
+
+    if (flow) this.setFlow(flow);
+    this.setReflectionQuality(reflectionQuality);
   }
 
   get enabled() {
     return this._enabled;
+  }
+
+  // --- Animated flow --------------------------------------------------------
+  // setFlow({ dirX, dirZ, speed }): steer the drift of the wave/ripple field.
+  // Partial updates are fine (omitted fields keep their current value); a
+  // zero-length direction is ignored; speed is clamped to >= 0 (0 = still
+  // water with only the residual shimmer). Never jumps phase: the offset is
+  // accumulated, so direction/speed changes glide.
+  setFlow(opts) {
+    if (!opts) return;
+    const { dirX, dirZ, speed } = opts;
+    if (typeof dirX === 'number' || typeof dirZ === 'number') {
+      const x = typeof dirX === 'number' ? dirX : this._flowDir.x;
+      const z = typeof dirZ === 'number' ? dirZ : this._flowDir.y;
+      const len = Math.hypot(x, z);
+      if (len > 1e-6) this._flowDir.set(x / len, z / len);
+    }
+    if (typeof speed === 'number' && isFinite(speed)) {
+      this._flowSpeed = Math.max(0, speed);
+    }
+  }
+
+  // Current flow as a plain object (allocates — not for per-frame use).
+  getFlow() {
+    return { dirX: this._flowDir.x, dirZ: this._flowDir.y, speed: this._flowSpeed };
+  }
+
+  // --- Reflection-lite ------------------------------------------------------
+  // 'off'/'low' (or false/null/0) = disabled (pure analytic sky fresnel),
+  // 'medium' = quarter-res RT, 'high'/'ultra' = half-res RT.
+  setReflectionQuality(q) {
+    let key = q;
+    if (q === false || q === null || q === undefined || q === 0) key = 'off';
+    const div = REFL_DIVISOR[key];
+    if (div === undefined) {
+      console.warn('Water.setReflectionQuality: unknown quality "' + q + '"');
+      return;
+    }
+    this._reflQuality = key;
+    this._reflDiv = div;
+  }
+
+  get reflectionQuality() {
+    return this._reflQuality;
   }
 
   // Seed/override the reflected-sky colour (e.g. from sky.getFogColor()).
@@ -304,7 +452,8 @@ export class Water {
     }
   }
 
-  // dt seconds, ctx = { camera, elapsed, timeOfDay, sunDir, skyColor?, ... }.
+  // dt seconds, ctx = { camera, renderer, scene, elapsed, timeOfDay, sunDir,
+  // skyColor?, ... }. renderer/scene/camera are only needed for reflection-lite.
   update(dt, ctx) {
     if (!this._enabled) return;
 
@@ -314,6 +463,12 @@ export class Water {
       ? ctx.elapsed
       : this._elapsed + (dt || 0);
     u.uTime.value = this._elapsed;
+
+    // --- Animated flow: accumulate the phase-field offset. ------------------
+    const dtEff = Math.max(0, Math.min(0.1, typeof dt === 'number' ? dt : 0.016));
+    const fo = u.uFlowOffset.value;
+    fo.x += this._flowDir.x * this._flowSpeed * dtEff;
+    fo.y += this._flowDir.y * this._flowSpeed * dtEff;
 
     // Sun direction: prefer the shared ctx vector, fall back to a sunRef.
     const cd = ctx && ctx.sunDir;
@@ -371,6 +526,141 @@ export class Water {
       u.uSkyColor.value.copy(this._sunRef.getFogColor());
     }
     this._lastTod = tod;
+
+    // --- Reflection-lite: render the mirrored scene into the small RT and
+    //     ease uReflMix toward its target (0 when off/underwater — graceful
+    //     degrade back to the analytic sky fresnel). -------------------------
+    let mixTarget = 0;
+    if (this._reflDiv > 0 && !this._inRefl &&
+        ctx && ctx.renderer && ctx.scene && ctx.camera &&
+        ctx.underwater !== true) {
+      ctx.camera.updateMatrixWorld();
+      this._camPos.setFromMatrixPosition(ctx.camera.matrixWorld);
+      if (this._camPos.y > this.object3d.position.y + 0.05) {
+        mixTarget = this._reflStrength;
+        this._renderReflection(ctx);
+      }
+    }
+    const mixNow = u.uReflMix.value;
+    u.uReflMix.value = mixNow + (mixTarget - mixNow) * Math.min(1, dtEff * 6);
+    if (mixTarget === 0 && u.uReflMix.value < 0.004) {
+      u.uReflMix.value = 0;
+      // Fully faded out AND quality says off: free the RT (idempotent).
+      if (this._reflDiv === 0 && this._reflRT) {
+        u.uReflMap.value = null;
+        this._reflRT.dispose();
+        this._reflRT = null;
+      }
+    }
+  }
+
+  // Render the scene mirrored about the water plane into the reflection RT.
+  // Allocation-free: every scratch object is preallocated in the constructor.
+  _renderReflection(ctx) {
+    const renderer = ctx.renderer;
+    const scene = ctx.scene;
+    const cam = ctx.camera;
+    const u = this._material.uniforms;
+    const level = this.object3d.position.y;
+
+    this._inRefl = true;
+    try {
+      // --- RT sizing (tracks the drawing buffer / quality divisor). --------
+      renderer.getDrawingBufferSize(this._dbSize);
+      const w = Math.max(16, Math.floor(this._dbSize.x / this._reflDiv));
+      const h = Math.max(16, Math.floor(this._dbSize.y / this._reflDiv));
+      if (!this._reflRT) {
+        this._reflRT = new THREE.WebGLRenderTarget(w, h, {
+          minFilter: THREE.LinearFilter,
+          magFilter: THREE.LinearFilter,
+          depthBuffer: true,
+          stencilBuffer: false,
+        });
+        this._reflRT.texture.name = 'Water.reflection';
+      } else if (this._reflRT.width !== w || this._reflRT.height !== h) {
+        this._reflRT.setSize(w, h);
+      }
+      u.uReflMap.value = this._reflRT.texture;
+
+      // --- Mirror camera: reflect position/target/up about y = level. ------
+      const mc = this._mirrorCam;
+      cam.getWorldDirection(this._v1);                       // forward
+      this._v2.copy(this._camPos).add(this._v1);             // look target
+      this._v2.y = 2 * level - this._v2.y;                   // reflected target
+      this._v3.set(this._camPos.x, 2 * level - this._camPos.y, this._camPos.z);
+      cam.getWorldQuaternion(this._q1);
+      this._v1.set(0, 1, 0).applyQuaternion(this._q1);       // camera world up
+      this._v1.y = -this._v1.y;                              // reflected up
+      mc.position.copy(this._v3);
+      mc.up.copy(this._v1);
+      mc.lookAt(this._v2);
+      mc.updateMatrixWorld();
+      mc.projectionMatrix.copy(cam.projectionMatrix);
+
+      // --- Projective texture matrix (built BEFORE the oblique clip below —
+      //     only x/y/w rows matter for the uv, matching THREE.Reflector). ----
+      const tm = u.uReflMatrix.value;
+      tm.set(
+        0.5, 0.0, 0.0, 0.5,
+        0.0, 0.5, 0.0, 0.5,
+        0.0, 0.0, 0.5, 0.5,
+        0.0, 0.0, 0.0, 1.0,
+      );
+      tm.multiply(mc.projectionMatrix);
+      tm.multiply(mc.matrixWorldInverse);
+
+      // --- Oblique near-plane clip at the water plane, so geometry BELOW the
+      //     surface (lake bed, fish-eye junk) never leaks into the mirror. ---
+      this._v1.set(0, 1, 0);
+      this._v2.set(0, level, 0);
+      this._plane.setFromNormalAndCoplanarPoint(this._v1, this._v2);
+      this._plane.applyMatrix4(mc.matrixWorldInverse);
+      const cp = this._clip4.set(
+        this._plane.normal.x, this._plane.normal.y,
+        this._plane.normal.z, this._plane.constant,
+      );
+      const pe = mc.projectionMatrix.elements;
+      const q = this._qc;
+      q.x = (Math.sign(cp.x) + pe[8]) / pe[0];
+      q.y = (Math.sign(cp.y) + pe[9]) / pe[5];
+      q.z = -1.0;
+      q.w = (1.0 + pe[10]) / pe[14];
+      cp.multiplyScalar(2.0 / cp.dot(q));
+      pe[2] = cp.x;
+      pe[6] = cp.y;
+      pe[10] = cp.z + 1.0 - 0.003;   // tiny bias against surface-edge shimmer
+      pe[14] = cp.w;
+
+      // --- Hide the water itself + particles/transparent objects (cost). ---
+      const waterWasVisible = this.object3d.visible;
+      this.object3d.visible = false;
+      this._hidden.length = 0;
+      scene.traverse(this._hideCb);
+
+      // --- Render with full state save/restore. Shadow-map auto-update is
+      //     frozen so the pass reuses this frame's existing shadow maps. -----
+      const prevRT = renderer.getRenderTarget();
+      const prevXr = renderer.xr.enabled;
+      const prevShadowAuto = renderer.shadowMap.autoUpdate;
+      renderer.xr.enabled = false;
+      renderer.shadowMap.autoUpdate = false;
+      renderer.setRenderTarget(this._reflRT);
+      if (renderer.state && renderer.state.buffers && renderer.state.buffers.depth) {
+        renderer.state.buffers.depth.setMask(true);  // ensure depth clear works
+      }
+      if (renderer.autoClear === false) renderer.clear();
+      renderer.render(scene, mc);
+      renderer.xr.enabled = prevXr;
+      renderer.shadowMap.autoUpdate = prevShadowAuto;
+      renderer.setRenderTarget(prevRT);
+
+      // --- Restore visibility. ----------------------------------------------
+      for (let i = 0; i < this._hidden.length; i++) this._hidden[i].visible = true;
+      this._hidden.length = 0;
+      this.object3d.visible = waterWasVisible;
+    } finally {
+      this._inRefl = false;
+    }
   }
 
   setEnabled(on) {
@@ -382,6 +672,10 @@ export class Water {
     if (this.object3d.parent) this.object3d.parent.remove(this.object3d);
     this._geo.dispose();
     this._material.dispose();
+    if (this._reflRT) {
+      this._reflRT.dispose();
+      this._reflRT = null;
+    }
   }
 }
 
