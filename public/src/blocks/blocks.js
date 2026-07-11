@@ -99,7 +99,9 @@ export function getBlockDef(id) {
 
 // Blocks the player can place from the creative palette. Excludes air.
 // Water and lava are included at the end so builders can use them too.
+// Portal (29) is placeable but special-cased: placing it inside a valid
+// obsidian/end-stone frame lights a portal (see gameplay/portals.js).
 export const CREATIVE_BLOCKS = [
   1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17,
-  18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 8, 28,
+  18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 8, 28, 29,
 ];

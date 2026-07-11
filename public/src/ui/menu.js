@@ -23,6 +23,12 @@
 //   getWorlds()                 — () -> world[] | Promise<world[]>, each
 //                                 { id?, name, seed?, createdAt? }.
 //   packsList                   — [{id, name}] for the texture-pack <select>.
+//   travelDims                  — optional [{id, name}] shown as a "Travel"
+//                                 row on the pause screen (creative shortcut
+//                                 to dimension travel; portals are the
+//                                 physical route).
+//   onTravel(dimId)             — a Travel destination clicked (menu hides
+//                                 itself first).
 //
 //   Settings shape (persisted to localStorage "loomfall.settings"):
 //     { renderDistance: 2..12 (6), fov: 60..110 (75),
@@ -111,8 +117,10 @@ export function initMenus(opts = {}) {
     onSettingsChange,
     onResume,
     onQuitToTitle,
+    onTravel,
     getWorlds,
     packsList = [],
+    travelDims = [],
   } = opts;
 
   // --- Root + backdrop -------------------------------------------------------
@@ -391,6 +399,24 @@ export function initMenus(opts = {}) {
       settingsReturn = 'pause';
       show('settings');
     });
+    // Travel row (creative convenience — the physical route is portals).
+    if (travelDims.length > 0) {
+      const travelWrap = el('div', 'pause-travel', buttons);
+      el('div', 'pause-travel-label', travelWrap, 'Travel');
+      const row = el('div', 'menu-buttons menu-buttons--row pause-travel-row', travelWrap);
+      for (const d of travelDims) {
+        const b = button(d.name, 'vx-btn vx-btn--small', row, () => {
+          hideAll();
+          if (typeof onTravel === 'function') onTravel(d.id);
+        });
+        b.dataset.travelDim = d.id;
+      }
+      travelWrap.style.marginTop = '10px';
+      const label = travelWrap.querySelector('.pause-travel-label');
+      label.style.cssText =
+        'font-size:12px;letter-spacing:0.14em;text-transform:uppercase;' +
+        'opacity:0.65;text-align:center;margin-bottom:6px;';
+    }
     button('Save & Quit to Title', 'vx-btn', buttons, () => {
       if (typeof onQuitToTitle === 'function') onQuitToTitle();
       show('main');

@@ -78,6 +78,12 @@ const BIOME = {
   SNOWCAP: 7,
 };
 
+// Display names for biomeAt(), indexed by BIOME id.
+export const BIOME_NAMES = [
+  'Ocean', 'Beach', 'Plains', 'Forest', 'Desert',
+  'Mountains', 'Snowfield', 'Snowcap',
+];
+
 // ------------------------------------------------------------- generator
 
 export class TerrainGenerator {
@@ -110,6 +116,19 @@ export class TerrainGenerator {
     // End noises.
     this.nOuter = makeNoise2D(s + '/end-outer');
     this.nEnd3 = makeNoise3D(s + '/end-shape');
+  }
+
+  /**
+   * Biome display name at a world column — the SAME noise query the
+   * overworld generator uses for its surface pass (cheap: two fbm2D
+   * evaluations plus the height stack). Returns null for nether/end,
+   * where terrain has no biome field.
+   * @returns {string|null} e.g. 'Forest' (see BIOME_NAMES)
+   */
+  biomeAt(wx, wz) {
+    if (this.dimension !== 'overworld') return null;
+    const { biome } = this._column(Math.floor(wx), Math.floor(wz));
+    return BIOME_NAMES[biome] ?? null;
   }
 
   /**
