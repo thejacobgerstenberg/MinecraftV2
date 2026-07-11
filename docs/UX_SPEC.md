@@ -94,7 +94,7 @@ type GameMode = 'survival' | 'creative' | 'adventure' | 'spectator' | 'hardcore'
 
 ### 0.5 Bitmap text & widget skin (procedural)
 
-- **Font:** a procedurally-drawn bitmap font, 8gp line height, ~6gp advance for most glyphs, rendered to a glyph atlas at load. CSS text uses this atlas OR a bundled monospace pixel webfont with `image-rendering:pixelated`. Every text draw has a **drop shadow**: color `#3F3F3F`, offset `(+1gp,+1gp)`.
+- **Font:** a procedurally-drawn bitmap font, 8gp line height, ~6gp advance for most glyphs, rendered to a glyph atlas at load. CSS text uses this atlas OR a bundled monospace pixel webfont with `image-rendering:pixelated`. Every text draw has a **drop shadow**: color `#3F3F3F`, offset `(+1gp,+1gp)`. **Two exceptions:** (1) static text on light `--ui-panel` faces (container/screen titles, slot-group labels) is set in `--ui-text-panel #404040` and draws with **no shadow** (dark-on-panel, 6.07:1 vs `#C6C6C6`); (2) `--ui-text-warn`/`--ui-text-err` text drawn on `--ui-panel` or `--ui-btn` faces (keybind-conflict rows §4.3, anvil `"Too Expensive!"` §6.8) draws a **1gp black `#000000` outline** (4× offset, like the level number §5.3) **instead of** the shadow — the plain `#3F3F3F` shadow leaves red/yellow below readable contrast on those faces (`#FF5555` vs `#3F3F3F` is only 3.35:1).
 - **Palette (procedural GUI skin):**
 
   | Token | Hex | Use |
@@ -107,6 +107,7 @@ type GameMode = 'survival' | 'creative' | 'adventure' | 'spectator' | 'hardcore'
   | `--ui-slot-lo` | `#373737` | slot top/left bevel |
   | `--ui-slot-hover` | `#FFFFFF @ 0.40` | hovered slot fill overlay |
   | `--ui-text` | `#FFFFFF` | primary text |
+  | `--ui-text-panel` | `#404040` | dark static text on light panel faces (container/screen titles, slot-group labels); drawn with NO shadow |
   | `--ui-text-dim` | `#A0A0A0` | disabled/hint text |
   | `--ui-text-warn` | `#FFFF55` | warnings |
   | `--ui-text-err` | `#FF5555` | errors/conflicts |
@@ -605,7 +606,7 @@ Base layer, `#hud-root`. All positions in gp, scaled by `S`. Bottom cluster anch
 
 ### 5.8 Status-effect icons
 
-- Anchor `top-right`. Beneficial effects on the **top row**, harmful on the **row below** (`dy +26gp`). Each icon `24×24 gp`, laid right→left with `26gp` pitch, `dx` from right edge = `-25 - 25*index`.
+- Anchor `top-right`. Beneficial effects on the **top row**, harmful on the **row below** (`dy +26gp`). Each icon `24×24 gp`, laid right→left with **`25gp` pitch** (24gp icon + 1gp gap), `dx` from right edge = `-25 - 25*index`. (An earlier revision said "26gp pitch", contradicting the dx formula; the dx formula is authoritative — pitch is 25gp.)
 - Each shows remaining duration as small text under the icon (`mm:ss`); ambient/beacon (infinite) show no timer. Icon **blinks** (alpha pulse) in the final ~10s (or 5s for the flashing threshold). Colorblind mode adds a shape badge. Only rendered when `activeEffects.length > 0`.
 
 ### 5.9 Mount / vehicle HUD
