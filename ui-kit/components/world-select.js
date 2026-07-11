@@ -3,7 +3,8 @@
  *
  * World-select screen body: a role="listbox" of world cards. Each card
  * shows a dimension-ramp thumbnail placeholder, world name, mode and
- * last-played line, and mouse action buttons (Play / Edit / Delete).
+ * last-played line, and an action row (Play / Edit / Delete) reachable by
+ * pointer or by arrow-roving from the focused card (see KEYBOARD).
  * Selection is a LUMINANCE-EDGE frame (knotlight outline on the dark
  * theme, deep duskwarp on the light theme — survives all three
  * colorblind sims; never a hue-only recolor). Delete always confirms via a composed <lf-modal> with an
@@ -16,6 +17,13 @@
  *     <lf-world-card name="Cinder Depths" mode="Hardcore" played="3 weeks ago"
  *                    ramp="cinderloom"></lf-world-card>
  *   </lf-world-select>
+ *
+ * <lf-world-card> ARIA CONTEXT (checked on every connect):
+ *   inside an element with role="listbox" (the normal <lf-world-select>
+ *   usage) a card is role="option" with aria-selected. Standalone cards
+ *   (gallery/demo swatches) expose role="group" named by the world name
+ *   instead — role="option" requires a listbox ancestor, so it is never
+ *   emitted outside one.
  *
  * <lf-world-card> PUBLIC ATTRIBUTES
  * @attr {string} name - World name (row heading, accessible name).
@@ -36,15 +44,20 @@
  *   detail: { value: string (world name), index: number }.
  * @fires lf-action - detail: { action: 'play'|'edit'|'delete',
  *   world: { name, mode, played }, index }. 'play' fires on Enter/Space,
- *   double-click, or the Play button; 'delete' fires ONLY after the user
- *   confirms in the modal.
+ *   double-click, or the Play button; 'edit' fires on E or the Edit
+ *   button; 'delete' fires ONLY after the user confirms in the modal.
  * @fires lf-back - Escape or the Back footer button: pop exactly ONE
  *   screen level.
  *
  * KEYBOARD
  *   Tab enters the list (roving tabindex, one stop). ArrowUp/ArrowDown
- *   move + select, Home/End jump, Enter/Space plays, Delete asks to
- *   delete (confirm modal), Escape emits lf-back.
+ *   move + select, Home/End jump, Enter/Space plays, E edits, Delete asks
+ *   to delete (confirm modal), Escape emits lf-back.
+ *   ArrowRight/ArrowLeft rove WITHIN the focused card, kit roving-tabindex
+ *   style: card → Play → Edit → Delete (wraps). Enter/Space activates the
+ *   focused action button; Escape returns focus to the card (one level per
+ *   press — the next Escape emits lf-back). Action buttons stay
+ *   tabindex="-1", so the card remains the list's single Tab stop.
  */
 import { LFElement, define, uid, RovingTabindex } from '../lf-core.js';
 import '../components/button.js';
@@ -73,9 +86,17 @@ const PLAY_ICON =
 export class LFWorldCard extends LFElement {
   static observedAttributes = ['name', 'mode', 'played', 'selected'];
 
-  render() {
-    this.setAttribute('role', 'option');
+  connectedCallback() {
+    // Context-sensitive role, re-checked on EVERY connect: role="option" is
+    // only valid inside a role="listbox" ancestor. <lf-world-select> moves
+    // authored cards into its listbox container after they first upgrade,
+    // so the answer can change between connects; standalone (gallery/demo)
+    // cards stay a named group. update() consumes this flag.
+    this._inListbox = !!this.closest('[role="listbox"]');
+    super.connectedCallback();
+  }
 
+  render() {
     const thumb = document.createElement('div');
     thumb.className = 'lf-world-card__thumb lf-pixelated';
     thumb.setAttribute('aria-hidden', 'true');
@@ -88,12 +109,14 @@ export class LFWorldCard extends LFElement {
     sub.className = 'lf-world-card__sub lf-text-sm';
     meta.append(name, sub);
 
-    // Mouse affordances only: removed from the a11y tree and Tab order.
-    // Keyboard users get Enter (play) / Delete (confirm) on the option
-    // itself — announced via the parent listbox usage hint.
+    // Action row: pointer affordance AND an arrow-key rove target (see the
+    // header KEYBOARD map). The card stays the list's single Tab stop, so
+    // the buttons keep tabindex="-1" permanently — ArrowRight/ArrowLeft
+    // from the focused card move focus among them (focus() works on
+    // tabindex="-1" elements); Enter (play) / E (edit) / Delete (confirm)
+    // also work on the card itself, announced via the listbox usage hint.
     const actions = document.createElement('div');
     actions.className = 'lf-world-card__actions';
-    actions.setAttribute('aria-hidden', 'true');
     for (const [action, icon, text] of [
       ['play', PLAY_ICON, 'Play'],
       ['edit', EDIT_ICON, 'Edit'],
@@ -104,6 +127,7 @@ export class LFWorldCard extends LFElement {
       b.tabIndex = -1;
       b.className = `lf-world-card__action lf-world-card__action--${action}`;
       b.dataset.action = action;
+      if (action === 'edit') b.setAttribute('aria-keyshortcuts', 'E');
       b.innerHTML = `${icon}<span>${text}</span>`;
       actions.appendChild(b);
     }
@@ -111,6 +135,55 @@ export class LFWorldCard extends LFElement {
     this.append(thumb, meta, actions);
     this._name = name;
     this._sub = sub;
+
+    this.addEventListener('keydown', (e) => this._actionKey(e));
+  }
+
+  /**
+   * Card-local keyboard map (header KEYBOARD): E edits; ArrowRight/ArrowLeft
+   * rove card → Play → Edit → Delete (wraps); on an action button Enter/
+   * Space activates it and Escape returns focus to the card. This listener
+   * sits deeper than the parent list's RovingTabindex, so every key handled
+   * here is stopPropagation()ed — Enter on an action button must not ALSO
+   * reach the listbox's Enter-plays binding, and Escape while on a button
+   * must not pop the screen (one level per press).
+   * @param {KeyboardEvent} e
+   */
+  _actionKey(e) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const target = /** @type {HTMLElement} */ (e.target);
+    const onButton = target.closest ? target.closest('.lf-world-card__action') : null;
+
+    if (e.key === 'e' || e.key === 'E') {
+      e.preventDefault();
+      e.stopPropagation();
+      const edit = this.$('.lf-world-card__action--edit');
+      if (edit) edit.click(); // parent list's click handler selects + emits
+      return;
+    }
+
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      e.preventDefault();
+      e.stopPropagation();
+      const ring = [/** @type {HTMLElement} */ (this), ...this.$$('.lf-world-card__action')];
+      const cur = Math.max(0, ring.indexOf(onButton || target));
+      const dir = e.key === 'ArrowRight' ? 1 : -1;
+      ring[(cur + dir + ring.length) % ring.length].focus();
+      return;
+    }
+
+    if (onButton && (e.key === 'Enter' || e.key === ' ')) {
+      e.preventDefault(); // suppress the native key-click; fire exactly one
+      e.stopPropagation();
+      onButton.click();
+      return;
+    }
+
+    if (onButton && e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      this.focus();
+    }
   }
 
   update() {
@@ -119,8 +192,18 @@ export class LFWorldCard extends LFElement {
     const played = this.getAttribute('played') || '';
     this._name.textContent = name;
     this._sub.textContent = played ? `${mode} · last played ${played}` : mode;
-    this.setAttribute('aria-selected', this.selected ? 'true' : 'false');
-    this.setAttribute('aria-label', `${name}, ${mode}${played ? `, last played ${played}` : ''}`);
+    if (this._inListbox) {
+      this.setAttribute('role', 'option');
+      this.setAttribute('aria-selected', this.selected ? 'true' : 'false');
+      this.setAttribute('aria-label', `${name}, ${mode}${played ? `, last played ${played}` : ''}`);
+    } else {
+      // Standalone card: role="option" requires a listbox parent (ARIA
+      // required-context rule), so expose a named group. Meta/sub text is
+      // then read as ordinary content — the label is just the world name.
+      this.setAttribute('role', 'group');
+      this.removeAttribute('aria-selected');
+      this.setAttribute('aria-label', name);
+    }
   }
 
   /** @type {boolean} */
@@ -157,7 +240,9 @@ export class LFWorldSelect extends LFElement {
     const hint = document.createElement('p');
     hint.className = 'lf-visually-hidden';
     hint.id = hintId;
-    hint.textContent = 'Press Enter to play the selected world, Delete to delete it.';
+    hint.textContent =
+      'Press Enter to play the selected world, E to edit it, Delete to delete it. ' +
+      'Right and Left arrows reach its Play, Edit and Delete buttons; Escape returns to the world.';
 
     const footer = document.createElement('div');
     footer.className = 'lf-world-select__footer';
