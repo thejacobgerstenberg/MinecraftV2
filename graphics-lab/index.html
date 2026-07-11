@@ -6,6 +6,9 @@
   <title>graphics-lab — voxel demo</title>
   <!-- Inline favicon: prevents the /favicon.ico 404 console error. -->
   <link rel="icon" href="data:," />
+  <!-- Graphics settings drawer styles (settings/settings.js is imported by
+       src/demo.js; the panel is skipped entirely under ?nogui=1). -->
+  <link rel="stylesheet" href="./settings/settings.css" />
   <style>
     :root { color-scheme: dark; }
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -19,6 +22,11 @@
 
     /* Control-panel mount point (populated by src/gui.js). */
     #gui { position: fixed; top: 12px; right: 12px; z-index: 20; }
+
+    /* Settings gear: bottom-right (the dev GUI owns the top-right corner, so
+       the two never overlap; the drawer itself slides over everything at
+       z-index 9001). This override is sanctioned by settings/README.md. */
+    .mc2gs-gear { top: auto; bottom: 16px; }
 
     /* Dark loading screen, fades out once the demo signals ready. */
     #loading {

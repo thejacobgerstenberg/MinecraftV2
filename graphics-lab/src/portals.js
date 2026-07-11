@@ -14,8 +14,12 @@
 //         distortion animated over uTime, an additive-ish glow core, and soft
 //         rectangular alpha edges so the swirl melts into the frame.
 //         Transparent, depthWrite:false, DoubleSide (walk around it / through it).
-//       * LIGHT — a soft PointLight at the portal centre, tinted to the live
-//         palette, intensity gently flickering (and surging on bursts).
+//       * LIGHT — a PointLight at the portal centre, tinted to the live
+//         palette, intensity gently flickering (and surging on bursts), plus a
+//         second ground-biased fill light low in front of the gate and an
+//         additive radial FLOOR GLOW quad at the base, so the palette-coloured
+//         spill pools visibly on the ground 3-5 units in front even on
+//         software-rasterised (SwiftShader) night shots.
 //
 //     Three dimension palettes (exported as PALETTES so the GUI can list them):
 //       'warpwold'   — deep violet/magenta swirl with teal filaments
@@ -136,6 +140,26 @@ function makeObsidianTexture(seed = 0xb51d) {
   tex.magFilter = THREE.NearestFilter;
   tex.minFilter = THREE.NearestFilter;
   tex.generateMipmaps = false;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// Soft radial gradient for the ground-pool quad at the portal base. Additive
+// blending: black rim = zero contribution, so the disc melts into the ground.
+function makeGroundGlowTexture() {
+  if (typeof document === 'undefined') return null;
+  const S = 128;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const g = cv.getContext('2d');
+  const grad = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+  grad.addColorStop(0, 'rgba(255,255,255,0.85)');
+  grad.addColorStop(0.3, 'rgba(255,255,255,0.42)');
+  grad.addColorStop(0.65, 'rgba(255,255,255,0.13)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, S, S);
+  const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
@@ -403,15 +427,50 @@ export class PortalGate {
     this.object3d.add(surface);
 
     // ---- LIGHT: palette-tinted point light at the portal centre. Strong
-    // enough (5.0, decay 1.8) to actually paint the frame, ground and nearby
-    // blocks with the portal colour — the old 1.6/decay-2 light died within
-    // a block and the surroundings stayed pitch black at night.
-    this._lightBase = 5.0;
+    // enough (8.5, decay 1.6) to paint a clearly visible colour pool on the
+    // ground 3-5 units in front at night — the previous 5.0/decay-1.8 spill
+    // read faint on SwiftShader shots.
+    this._lightBase = 8.5;
     this._light = new THREE.PointLight(
-      0xffffff, this._lightBase, Math.max(width, height) * 6, 1.8);
+      0xffffff, this._lightBase, Math.max(width, height) * 7, 1.6);
     this._light.position.set(0, height / 2, 1.1); // nudged out the front face
     this._light.castShadow = false;       // deliberate — perf
     this.object3d.add(this._light);
+
+    // Second, ground-biased soft fill: sits low in front of the gate so the
+    // ground plane gets a favourable N.L and the colour pool reads even when
+    // the centre light grazes it. Same palette tint, gentler falloff.
+    this._groundLightBase = 4.0;
+    this._groundLight = new THREE.PointLight(
+      0xffffff, this._groundLightBase, Math.max(width, height) * 4, 1.6);
+    this._groundLight.position.set(0, 0.9, 2.2); // low + in front of the face
+    this._groundLight.castShadow = false; // deliberate — perf
+    this.object3d.add(this._groundLight);
+
+    // ---- FLOOR GLOW: subtle additive gradient disc lying on the ground at
+    // the portal base, biased toward the front. Guarantees the palette pool
+    // is visible in headless/software shots where point-light shading alone
+    // can render too dim. Tinted to the live glow colour every frame.
+    this._glowTex = makeGroundGlowTexture();
+    this._glowGeo = new THREE.PlaneGeometry(width * 3.0, width * 2.2);
+    this._glowBaseOpacity = 0.38;
+    this._glowMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,                    // tinted to the live glow palette
+      map: this._glowTex,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      opacity: this._glowBaseOpacity,
+      fog: false,                         // additive: fog would tint the black rim
+    });
+    const floorGlow = new THREE.Mesh(this._glowGeo, this._glowMat);
+    floorGlow.name = 'portalFloorGlow';
+    floorGlow.rotation.x = -Math.PI / 2;  // flat on the ground
+    floorGlow.position.set(0, 0.045, 1.3); // just above grade, pooled in front
+    floorGlow.renderOrder = 1;            // after opaques/water, under the swirl
+    floorGlow.userData.noShadow = true;
+    this._floorGlow = floorGlow;
+    this.object3d.add(floorGlow);
 
     // ---- MOTES: additive glow particles drifting out of the surface.
     this._moteTex = makeMoteTexture();
@@ -464,6 +523,7 @@ export class PortalGate {
     u.uColFilament.value.copy(this._toFilament);
     u.uColGlow.value.copy(this._toGlow);
     this._light.color.copy(this._toLight);
+    this._groundLight.color.copy(this._toLight);
     this._dimension = start;
   }
 
@@ -530,6 +590,7 @@ export class PortalGate {
       u.uColFilament.value.lerpColors(this._fromFilament, this._toFilament, k);
       u.uColGlow.value.lerpColors(this._fromGlow, this._toGlow, k);
       this._light.color.lerpColors(this._fromLight, this._toLight, k);
+      this._groundLight.color.copy(this._light.color);
     }
 
     // Burst envelope.
@@ -550,11 +611,18 @@ export class PortalGate {
       }
     }
 
-    // Light: slight pulse/flicker + burst surge.
+    // Lights: slight pulse/flicker + burst surge. The ground fill and the
+    // floor-glow quad share the same pulse so the whole spill breathes as one.
     const t = this._time;
-    this._light.intensity = this._lightBase
-      * (0.86 + 0.09 * Math.sin(t * 5.3) + 0.05 * Math.sin(t * 13.7 + 1.7))
-      + burstRing * 4.0;
+    const pulse = 0.86 + 0.09 * Math.sin(t * 5.3) + 0.05 * Math.sin(t * 13.7 + 1.7);
+    this._light.intensity = this._lightBase * pulse + burstRing * 4.0;
+    this._groundLight.intensity = this._groundLightBase * pulse + burstRing * 2.5;
+
+    // Floor glow: live palette tint, pulsing opacity, flare on bursts.
+    this._glowMat.color.copy(u.uColGlow.value);
+    const glowOp = this._glowBaseOpacity * pulse
+      + burstRing * 0.25 + u.uBurstFlash.value * 0.2;
+    this._glowMat.opacity = glowOp > 1 ? 1 : glowOp;
 
     // Motes: deterministic per-index orbits. Each mote loops a life cycle
     // that carries it through the plane (z -0.9 -> +0.9) while slowly
@@ -596,7 +664,11 @@ export class PortalGate {
     this._moteGeo.dispose();
     this._moteMat.dispose();
     if (this._moteTex) this._moteTex.dispose();
+    this._glowGeo.dispose();
+    this._glowMat.dispose();
+    if (this._glowTex) this._glowTex.dispose();
     this._light.dispose();
+    this._groundLight.dispose();
     this.object3d.clear();
   }
 }

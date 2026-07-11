@@ -331,3 +331,279 @@ export function generateDemoChunk() {
 }
 
 export default generateDemoChunk;
+
+// =============================================================================
+// generateTestWorld — large deterministic benchmark volume
+// =============================================================================
+//
+// generateTestWorld({ chunksX = 6, chunksZ = 6, chunkSize = 16, seed = 7 })
+//   -> Volume (same interface as generateDemoChunk):
+//      { sx, sy, sz, get, isSolid, isOpaque, WATER_LEVEL, blocks, lights }
+//
+// A chunksX*chunkSize x 40 x chunksZ*chunkSize world of rolling fbm terrain
+// (valleys dip below WATER_LEVEL and flood into natural ponds, high ground
+// caps with snow), scattered trees on a hashed grid, and a handful of
+// deterministic structures (plank huts with glowstone lanterns + jagged stone
+// ruin towers with glowing braziers).
+//
+// Everything is O(columns + cells) and driven purely by hash2(seed) — no
+// Math.random, no rejection loops — so a 96x40x96 world generates in
+// milliseconds and byte-identical output for the same options. `blocks` (the
+// convenience list of non-air voxels) is a LAZY getter: benchmark consumers
+// only need get/isOpaque, so the ~100k-entry list is built on first access.
+
+const TEST_SY = 40;               // fixed height per the benchmark contract
+const TEST_WATER_LEVEL = 10;      // matches the demo chunk
+const TEST_SNOW_LINE = 24;
+
+export function generateTestWorld({
+  chunksX = 6,
+  chunksZ = 6,
+  chunkSize = 16,
+  seed = 7,
+} = {}) {
+  const sx = Math.max(1, chunksX | 0) * Math.max(1, chunkSize | 0);
+  const sz = Math.max(1, chunksZ | 0) * Math.max(1, chunkSize | 0);
+  const sy = TEST_SY;
+  const WL = TEST_WATER_LEVEL;
+
+  const data = new Uint8Array(sx * sy * sz);
+  const heights = new Int16Array(sx * sz);
+
+  const idx = (x, y, z) => (y * sz + z) * sx + x;
+  const inRange = (x, y, z) =>
+    x >= 0 && y >= 0 && z >= 0 && x < sx && y < sy && z < sz;
+
+  const get = (x, y, z) => (inRange(x, y, z) ? data[idx(x, y, z)] : AIR);
+  const set = (x, y, z, id) => {
+    if (inRange(x, y, z)) data[idx(x, y, z)] = id;
+  };
+  const hAt = (x, z) => heights[z * sx + x];
+
+  // --- Pass 1: rolling terrain + water ---------------------------------------
+  // Two noise scales: broad rolling hills + fine detail. Low valleys flood.
+
+  for (let z = 0; z < sz; z++) {
+    for (let x = 0; x < sx; x++) {
+      const rolling = fbm(x * 0.022, z * 0.022, seed);
+      const detail = fbm(x * 0.09, z * 0.09, seed + 4177);
+      // fbm sums cluster around 0.5, so spread them around a midline: valleys
+      // genuinely dip below WATER_LEVEL (flooded ponds), peaks clear SNOW_LINE.
+      const h = 14 + (rolling - 0.5) * 32 + (detail - 0.5) * 5; // ~2..27
+      const surfaceY = Math.max(1, Math.min(sy - 9, Math.round(h)));
+      heights[z * sx + x] = surfaceY;
+
+      const topBlock =
+        surfaceY <= WL + 1 ? SAND :
+        surfaceY >= TEST_SNOW_LINE ? SNOW : GRASS;
+
+      for (let y = 0; y <= surfaceY; y++) {
+        let block;
+        if (y === surfaceY) block = topBlock;
+        else if (y >= surfaceY - 3) block = topBlock === SAND ? SAND : DIRT;
+        else block = STONE;
+        data[idx(x, y, z)] = block;
+      }
+      // Flood valleys up to the water level (no-op on dry columns).
+      for (let y = surfaceY + 1; y <= WL; y++) data[idx(x, y, z)] = WATER;
+    }
+  }
+
+  // --- Pass 2: scattered structures -------------------------------------------
+  // One candidate per 32x32 cell; the cell hash picks presence, type and a
+  // jittered position. Placement is validated (dry, reasonably flat, in
+  // bounds) and claimed footprints keep trees out.
+
+  const lights = [];
+  const claims = []; // { x0, z0, x1, z1 } tree-exclusion rects
+
+  const claimed = (x, z) => {
+    for (let i = 0; i < claims.length; i++) {
+      const c = claims[i];
+      if (x >= c.x0 && x <= c.x1 && z >= c.z0 && z <= c.z1) return true;
+    }
+    return false;
+  };
+
+  // Height spread over a footprint (corners + centre): flatness test.
+  const heightSpread = (x0, z0, x1, z1) => {
+    const cx = (x0 + x1) >> 1;
+    const cz = (z0 + z1) >> 1;
+    let lo = Infinity;
+    let hi = -Infinity;
+    const sample = (x, z) => {
+      const y = hAt(x, z);
+      if (y < lo) lo = y;
+      if (y > hi) hi = y;
+    };
+    sample(x0, z0); sample(x1, z0); sample(x0, z1); sample(x1, z1); sample(cx, cz);
+    return { lo, hi };
+  };
+
+  // Small plank hut: 5x5 footprint, 3-high walls, doorway, flat roof,
+  // glowstone lantern under the ceiling.
+  const placeHut = (x0, z0) => {
+    const x1 = x0 + 4;
+    const z1 = z0 + 4;
+    if (x0 < 1 || z0 < 1 || x1 >= sx - 1 || z1 >= sz - 1) return false;
+    const { lo, hi } = heightSpread(x0, z0, x1, z1);
+    if (hi - lo > 3 || lo <= WL) return false; // too steep or wet — skip
+
+    const fy = hi; // floor sits on the highest corner; fill below
+    for (let x = x0; x <= x1; x++) {
+      for (let z = z0; z <= z1; z++) {
+        for (let y = fy + 1; y <= Math.min(sy - 1, fy + 7); y++) set(x, y, z, AIR);
+        for (let y = fy - 1; y >= 0 && get(x, y, z) === AIR; y--) set(x, y, z, DIRT);
+        set(x, fy, z, PLANK);
+        heights[z * sx + x] = fy;
+      }
+    }
+    const wallTop = fy + 3;
+    for (let x = x0; x <= x1; x++) {
+      for (let z = z0; z <= z1; z++) {
+        if (x !== x0 && x !== x1 && z !== z0 && z !== z1) continue;
+        for (let y = fy + 1; y <= wallTop; y++) set(x, y, z, PLANK);
+      }
+    }
+    const doorX = x0 + 2;
+    set(doorX, fy + 1, z1, AIR); // doorway (2 tall) on the +z face
+    set(doorX, fy + 2, z1, AIR);
+    for (let x = x0; x <= x1; x++) {
+      for (let z = z0; z <= z1; z++) set(x, wallTop + 1, z, PLANK); // flat roof
+    }
+    set(x0 + 2, wallTop, z0 + 2, GLOWSTONE); // hanging lantern
+    lights.push({ x: x0 + 2, y: wallTop, z: z0 + 2 });
+
+    claims.push({ x0: x0 - 2, z0: z0 - 2, x1: x1 + 2, z1: z1 + 2 });
+    return true;
+  };
+
+  // Ruined stone tower: jagged 5x5 stone ring, per-column height from the
+  // hash, sometimes a glowing brazier in the centre.
+  const placeRuin = (cx, cz, rseed) => {
+    if (cx < 3 || cz < 3 || cx >= sx - 3 || cz >= sz - 3) return false;
+    const { lo, hi } = heightSpread(cx - 2, cz - 2, cx + 2, cz + 2);
+    if (hi - lo > 5 || lo <= WL) return false; // ruins tolerate slopes (per-column bases)
+
+    const baseH = 4 + Math.floor(hash2(cx, cz, rseed) * 4); // 4..7
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dz = -2; dz <= 2; dz++) {
+        if (Math.max(Math.abs(dx), Math.abs(dz)) !== 2) continue; // ring only
+        const x = cx + dx;
+        const z = cz + dz;
+        const colH = 1 + Math.floor(hash2(x, z, rseed + 77) * baseH); // jagged
+        const gy = hAt(x, z);
+        for (let y = gy + 1; y <= gy + colH; y++) set(x, y, z, STONE);
+      }
+    }
+    if (hash2(cx, cz, rseed + 5) < 0.6) {
+      const gy = hAt(cx, cz);
+      set(cx, gy + 1, cz, GLOWSTONE); // brazier
+      lights.push({ x: cx, y: gy + 1, z: cz });
+    }
+    claims.push({ x0: cx - 4, z0: cz - 4, x1: cx + 4, z1: cz + 4 });
+    return true;
+  };
+
+  const SCELL = 32;
+  const sgx = Math.max(1, Math.round(sx / SCELL));
+  const sgz = Math.max(1, Math.round(sz / SCELL));
+  for (let gz = 0; gz < sgz; gz++) {
+    for (let gx = 0; gx < sgx; gx++) {
+      if (hash2(gx, gz, seed + 9001) < 0.25) continue; // ~75% of cells build
+      const px = gx * SCELL + 5 + Math.floor(hash2(gx, gz, seed + 9002) * 20);
+      const pz = gz * SCELL + 5 + Math.floor(hash2(gx, gz, seed + 9003) * 20);
+      // Preferred type first; if the site rejects it (slope/water), try the
+      // other one so hilly seeds still get their scattered structures.
+      const rseed = seed + 9005 + gx * 131 + gz * 197;
+      if (hash2(gx, gz, seed + 9004) < 0.5) {
+        if (!placeHut(px, pz)) placeRuin(px + 2, pz + 2, rseed);
+      } else {
+        if (!placeRuin(px + 2, pz + 2, rseed)) placeHut(px, pz);
+      }
+    }
+  }
+
+  // --- Pass 3: trees on a hashed grid -----------------------------------------
+
+  const placeTree = (bx, bz, tseed) => {
+    const gy = hAt(bx, bz);
+    if (get(bx, gy, bz) !== GRASS) return;
+    const trunkH = 4 + Math.floor(hash2(bx, bz, tseed) * 3); // 4..6
+    const topY = gy + trunkH;
+
+    for (let dy = -2; dy <= 1; dy++) {
+      const r = dy <= -1 ? 2 : 1;
+      const yy = topY + dy;
+      for (let dx = -r; dx <= r; dx++) {
+        for (let dz = -r; dz <= r; dz++) {
+          const corner = Math.abs(dx) === r && Math.abs(dz) === r;
+          if (corner && r === 2 && hash2(bx + dx, bz + dz, tseed + dy) < 0.5) {
+            continue; // trim outer corners for a rounder canopy
+          }
+          if (get(bx + dx, yy, bz + dz) === AIR) set(bx + dx, yy, bz + dz, LEAVES);
+        }
+      }
+    }
+    for (let y = gy + 1; y <= topY; y++) set(bx, y, bz, WOOD);
+  };
+
+  const TCELL = 6;
+  const tgx = Math.floor(sx / TCELL);
+  const tgz = Math.floor(sz / TCELL);
+  for (let gz = 0; gz < tgz; gz++) {
+    for (let gx = 0; gx < tgx; gx++) {
+      if (hash2(gx, gz, seed + 501) > 0.4) continue; // ~40% of cells get a tree
+      const bx = gx * TCELL + 1 + Math.floor(hash2(gx, gz, seed + 502) * (TCELL - 2));
+      const bz = gz * TCELL + 1 + Math.floor(hash2(gx, gz, seed + 503) * (TCELL - 2));
+      if (bx < 2 || bz < 2 || bx >= sx - 2 || bz >= sz - 2) continue;
+      if (claimed(bx, bz)) continue;
+      placeTree(bx, bz, seed + 601 + gx * 53 + gz * 97);
+    }
+  }
+
+  // --- Public volume API -------------------------------------------------------
+
+  const isSolid = (x, y, z) => {
+    const id = get(x, y, z);
+    return id !== AIR && id !== WATER;
+  };
+  const isOpaque = (x, y, z) => {
+    const id = get(x, y, z);
+    return id !== AIR && id !== WATER && id !== LEAVES;
+  };
+
+  let blocksCache = null;
+
+  return {
+    sx,
+    sy,
+    sz,
+    get,
+    isSolid,
+    isOpaque,
+    WATER_LEVEL: WL,
+    // Lazy: only built if someone actually reads .blocks (it is ~100k entries
+    // at 96x40x96 and the benchmark path never needs it).
+    get blocks() {
+      if (!blocksCache) {
+        blocksCache = [];
+        for (let y = 0; y < sy; y++) {
+          for (let z = 0; z < sz; z++) {
+            for (let x = 0; x < sx; x++) {
+              const id = data[idx(x, y, z)];
+              if (id !== AIR) blocksCache.push({ x, y, z, id });
+            }
+          }
+        }
+      }
+      return blocksCache;
+    },
+    lights,
+    // Metadata (handy for benchmark labels; not part of the core contract).
+    seed,
+    chunksX,
+    chunksZ,
+    chunkSize,
+  };
+}

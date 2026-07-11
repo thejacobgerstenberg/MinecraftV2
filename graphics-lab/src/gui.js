@@ -59,6 +59,12 @@ const CSS = `
   font-variant-numeric: tabular-nums;
   font-size: 11px; color: #6ea8fe; font-weight: 600;
 }
+#gui .glab-caret {
+  background: none; border: none; color: #9fb2c8; cursor: pointer;
+  font-size: 10px; line-height: 1; padding: 0 6px 0 0; margin: 0;
+}
+#gui .glab-caret:hover { color: #e6edf3; }
+#gui .glab-titlerow { display: flex; align-items: baseline; cursor: pointer; }
 #gui .glab-section {
   margin-top: 12px; padding-top: 10px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
@@ -110,6 +116,8 @@ const CSS = `
 const EFFECTS = [
   'ao', 'sky', 'shadows', 'water', 'post', 'particles', 'fog',
   'portal', 'crack', 'viewmodel', 'torchlights', 'wind', 'biome',
+  // Phase 3: post-chain SSAO / god rays / bloom + greedy-mesher A-B switch.
+  'ssao', 'godrays', 'bloom', 'greedy',
 ];
 const QUALITIES = ['low', 'medium', 'high', 'ultra'];
 const WEATHERS = ['clear', 'rain', 'snow'];
@@ -196,12 +204,33 @@ export function createGUI(demo, state = {}) {
 
   const panel = el('div', 'glab-panel');
 
-  // Header + FPS.
+  // Header + FPS + collapse caret. The panel boots COLLAPSED (header only) so
+  // the dev controls don't fight the graphics settings drawer for attention;
+  // clicking the title row (or caret) expands it.
   const header = el('div', 'glab-header');
-  header.appendChild(el('div', 'glab-title', 'graphics-lab'));
+  const titleRow = el('div', 'glab-titlerow');
+  const caret = el('button', 'glab-caret', '▸');
+  caret.type = 'button';
+  caret.title = 'expand/collapse dev controls';
+  titleRow.appendChild(caret);
+  titleRow.appendChild(el('div', 'glab-title', 'graphics-lab'));
+  header.appendChild(titleRow);
   const fpsEl = el('div', 'glab-fps', '– fps');
   header.appendChild(fpsEl);
   panel.appendChild(header);
+
+  // Collapsible body: every section lands here instead of the panel root.
+  const bodyEl = el('div', 'glab-body');
+  panel.appendChild(bodyEl);
+
+  let collapsed = true;
+  function setCollapsed(c) {
+    collapsed = !!c;
+    bodyEl.style.display = collapsed ? 'none' : '';
+    caret.textContent = collapsed ? '▸' : '▾';
+  }
+  setCollapsed(true);
+  titleRow.addEventListener('click', () => setCollapsed(!collapsed));
 
   // --- Effects toggles -------------------------------------------------------
   const fxBoxes = {}; // name -> checkbox input, for refresh()
@@ -220,7 +249,7 @@ export function createGUI(demo, state = {}) {
     grid.appendChild(label);
   }
   fxSection.appendChild(grid);
-  panel.appendChild(fxSection);
+  bodyEl.appendChild(fxSection);
 
   // --- Quality ---------------------------------------------------------------
   const qSection = el('div', 'glab-section');
@@ -234,7 +263,7 @@ export function createGUI(demo, state = {}) {
   }
   qSel.addEventListener('change', () => call('setQuality', qSel.value));
   qSection.appendChild(qSel);
-  panel.appendChild(qSection);
+  bodyEl.appendChild(qSection);
 
   // --- Time of day -----------------------------------------------------------
   const tSection = el('div', 'glab-section');
@@ -260,7 +289,7 @@ export function createGUI(demo, state = {}) {
     call('setTimeOfDay', v);
   });
   tSection.appendChild(tSlider);
-  panel.appendChild(tSection);
+  bodyEl.appendChild(tSection);
 
   // --- Weather ---------------------------------------------------------------
   const wSection = el('div', 'glab-section');
@@ -274,7 +303,7 @@ export function createGUI(demo, state = {}) {
   }
   wSel.addEventListener('change', () => call('setWeather', wSel.value));
   wSection.appendChild(wSel);
-  panel.appendChild(wSection);
+  bodyEl.appendChild(wSection);
 
   // --- Portal dimension --------------------------------------------------------
   const pSection = el('div', 'glab-section');
@@ -288,7 +317,7 @@ export function createGUI(demo, state = {}) {
   }
   pSel.addEventListener('change', () => call('setPortalDimension', pSel.value));
   pSection.appendChild(pSel);
-  panel.appendChild(pSection);
+  bodyEl.appendChild(pSection);
 
   // --- Held item -----------------------------------------------------------------
   const hSection = el('div', 'glab-section');
@@ -302,7 +331,7 @@ export function createGUI(demo, state = {}) {
   }
   hSel.addEventListener('change', () => call('setHeldItem', hSel.value));
   hSection.appendChild(hSel);
-  panel.appendChild(hSection);
+  bodyEl.appendChild(hSection);
 
   // --- Biome grade -----------------------------------------------------------------
   const bSection = el('div', 'glab-section');
@@ -316,7 +345,7 @@ export function createGUI(demo, state = {}) {
   }
   bSel.addEventListener('change', () => call('setBiome', bSel.value));
   bSection.appendChild(bSel);
-  panel.appendChild(bSection);
+  bodyEl.appendChild(bSection);
 
   // --- Break block button ------------------------------------------------------------
   const brSection = el('div', 'glab-section');
@@ -324,7 +353,7 @@ export function createGUI(demo, state = {}) {
   brBtn.type = 'button';
   brBtn.addEventListener('click', () => call('triggerBreak'));
   brSection.appendChild(brBtn);
-  panel.appendChild(brSection);
+  bodyEl.appendChild(brSection);
 
   // --- Underwater ------------------------------------------------------------
   const uSection = el('div', 'glab-section');
@@ -336,7 +365,7 @@ export function createGUI(demo, state = {}) {
   uLabel.appendChild(uBox);
   uLabel.appendChild(el('span', null, 'underwater'));
   uSection.appendChild(uLabel);
-  panel.appendChild(uSection);
+  bodyEl.appendChild(uSection);
 
   // In ?nogui=1 mode the panel is never mounted (nothing renders); otherwise
   // attach it now. show() can mount it later either way.

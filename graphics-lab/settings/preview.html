@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>graphics-lab — settings panel preview</title>
+<link rel="icon" href="data:," />
+<link rel="stylesheet" href="./settings.css" />
+<style>
+  /* -------- demo page chrome only (the panel styles live in settings.css) -------- */
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: #e9e7df;
+    background:
+      radial-gradient(1100px 640px at 78% -10%, rgba(126, 231, 135, 0.07), transparent 62%),
+      radial-gradient(900px 700px at 8% 110%, rgba(90, 140, 255, 0.05), transparent 60%),
+      linear-gradient(180deg, #0d0f13 0%, #0a0c10 100%);
+    min-height: 100vh;
+  }
+  /* faint voxel grid backdrop */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.022) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(1200px 800px at 50% 30%, #000 30%, transparent 90%);
+    -webkit-mask-image: radial-gradient(1200px 800px at 50% 30%, #000 30%, transparent 90%);
+  }
+  .page {
+    position: relative;
+    max-width: 860px;
+    padding: 44px 28px 60px;
+    margin: 0 auto;
+  }
+  .kicker {
+    font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+    font-size: 11px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: #7ee787;
+    text-shadow: 0 0 12px rgba(126, 231, 135, 0.3);
+    margin: 0 0 10px;
+  }
+  h1 {
+    margin: 0 0 8px;
+    font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+    font-size: clamp(22px, 4vw, 34px);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    text-shadow: 0 3px 0 rgba(0, 0, 0, 0.6);
+  }
+  .lede { margin: 0 0 26px; color: #8b93a3; max-width: 60ch; font-size: 14px; }
+  .lede code {
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: #cfd6e2;
+    background: #171b22;
+    border: 1px solid #262b35;
+    border-radius: 4px;
+    padding: 1px 6px;
+  }
+
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 22px; }
+  .toolbar button {
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #c9cfdb;
+    cursor: pointer;
+    padding: 8px 14px;
+    background: linear-gradient(180deg, #232833, #171b22);
+    border: 1px solid #262b35;
+    border-radius: 5px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), inset 0 -2px 0 rgba(0, 0, 0, 0.45);
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+  .toolbar button:hover { color: #7ee787; border-color: #34503a; }
+  .toolbar button:active { transform: translateY(1px); }
+
+  .panes { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 720px) { .panes { grid-template-columns: 1fr; } }
+  .pane {
+    background: linear-gradient(180deg, #14171d, #101216);
+    border: 1px solid #232833;
+    border-radius: 8px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 10px 30px rgba(0, 0, 0, 0.4);
+    overflow: hidden;
+  }
+  .pane h2 {
+    margin: 0;
+    padding: 11px 14px 9px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: #7ee787;
+    border-bottom: 1px solid #1f242e;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .pane h2 .meta {
+    color: #5b6373;
+    letter-spacing: 0.06em;
+    text-transform: none;
+    font-weight: 400;
+  }
+  #log {
+    margin: 0;
+    padding: 8px 0;
+    list-style: none;
+    height: 380px;
+    overflow-y: auto;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 11.5px;
+    scrollbar-width: thin;
+    scrollbar-color: #303744 transparent;
+  }
+  #log li {
+    display: flex;
+    gap: 10px;
+    padding: 3px 14px;
+    white-space: nowrap;
+    animation: flash 0.9s ease-out;
+  }
+  #log li:first-child { background: rgba(126, 231, 135, 0.05); }
+  @keyframes flash { from { background: rgba(126, 231, 135, 0.14); } to { background: transparent; } }
+  #log .t { color: #5b6373; }
+  #log .k { color: #7ee787; min-width: 110px; }
+  #log .v { color: #f0c96e; }
+  #log .empty { color: #5b6373; font-style: italic; }
+  #state {
+    margin: 0;
+    padding: 12px 14px;
+    height: 380px;
+    overflow: auto;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 11.5px;
+    line-height: 1.55;
+    color: #aab3c2;
+    scrollbar-width: thin;
+    scrollbar-color: #303744 transparent;
+  }
+  #state .key { color: #7ee787; }
+  #state .num { color: #f0c96e; }
+  #state .bool-true { color: #7ee787; }
+  #state .bool-false { color: #ff8a70; }
+  #state .str { color: #9ecbff; }
+  .statusline {
+    margin-top: 14px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 11px;
+    color: #5b6373;
+  }
+  .statusline b { color: #8b93a3; font-weight: 600; }
+</style>
+</head>
+<body>
+  <div class="page">
+    <p class="kicker">graphics-lab / settings</p>
+    <h1>Graphics Settings Panel</h1>
+    <p class="lede">
+      Standalone preview — no three.js, no renderer. Click the gear (top right)
+      or use the buttons below. Every change persists to
+      <code>localStorage</code> and emits <code>graphics-settings-change</code>
+      on <code>window</code>; the log and state dump update live.
+    </p>
+
+    <div class="toolbar">
+      <button id="btn-open" type="button">Open panel</button>
+      <button id="btn-close" type="button">Close panel</button>
+      <button id="btn-ultra" type="button">set({ preset: 'ultra' }) via API</button>
+      <button id="btn-silent" type="button">set({ fov: 100 }, { silent: true })</button>
+      <button id="btn-clear" type="button">Clear log</button>
+      <button id="btn-wipe" type="button">Wipe storage + reload</button>
+    </div>
+
+    <div class="panes">
+      <div class="pane">
+        <h2>Event log <span class="meta" id="log-count">0 events</span></h2>
+        <ul id="log"><li class="empty">— waiting for changes —</li></ul>
+      </div>
+      <div class="pane">
+        <h2>panel.get() <span class="meta" id="cb-count">onChange calls: 0</span></h2>
+        <pre id="state"></pre>
+      </div>
+    </div>
+
+    <p class="statusline">
+      storage key: <b id="sk"></b> · event: <b>graphics-settings-change</b> ·
+      panel handle: <b>window.__settingsPanel</b>
+    </p>
+  </div>
+
+  <script type="module">
+    import { createSettingsPanel } from './settings.js';
+
+    const STORAGE_KEY = 'mc2.graphics.preview';
+    document.getElementById('sk').textContent = STORAGE_KEY;
+
+    const logEl = document.getElementById('log');
+    const logCountEl = document.getElementById('log-count');
+    const cbCountEl = document.getElementById('cb-count');
+    const stateEl = document.getElementById('state');
+    let eventCount = 0;
+    let cbCount = 0;
+
+    function fmtValue(v) {
+      return typeof v === 'string' ? `'${v}'` : String(v);
+    }
+
+    function renderState(s) {
+      const lines = Object.entries(s).map(([k, v]) => {
+        let cls = 'str';
+        if (typeof v === 'number') cls = 'num';
+        else if (typeof v === 'boolean') cls = v ? 'bool-true' : 'bool-false';
+        return `  <span class="key">${k}</span>: <span class="${cls}">${fmtValue(v)}</span>`;
+      });
+      stateEl.innerHTML = `{\n${lines.join(',\n')}\n}`;
+    }
+
+    function addLog({ key, value }) {
+      eventCount += 1;
+      logCountEl.textContent = `${eventCount} event${eventCount === 1 ? '' : 's'}`;
+      const empty = logEl.querySelector('.empty');
+      if (empty) empty.remove();
+      const li = document.createElement('li');
+      const t = document.createElement('span');
+      t.className = 't';
+      t.textContent = new Date().toLocaleTimeString();
+      const k = document.createElement('span');
+      k.className = 'k';
+      k.textContent = key;
+      const v = document.createElement('span');
+      v.className = 'v';
+      v.textContent = fmtValue(value);
+      li.append(t, k, v);
+      logEl.prepend(li);
+      while (logEl.children.length > 200) logEl.lastChild.remove();
+    }
+
+    // Both delivery paths, demonstrated side by side:
+    window.addEventListener('graphics-settings-change', (e) => {
+      addLog(e.detail);
+      renderState(e.detail.settings);
+    });
+
+    const panel = createSettingsPanel({
+      mount: document.body,
+      storageKey: STORAGE_KEY,
+      initial: { renderDistance: 12 },   // only used for keys not yet stored
+      startOpen: true,
+      onChange: () => {
+        cbCount += 1;
+        cbCountEl.textContent = `onChange calls: ${cbCount}`;
+      },
+    });
+    window.__settingsPanel = panel;      // automation / console poking
+    renderState(panel.get());
+
+    document.getElementById('btn-open').addEventListener('click', () => panel.open());
+    document.getElementById('btn-close').addEventListener('click', () => panel.close());
+    document.getElementById('btn-ultra').addEventListener('click', () => panel.set({ preset: 'ultra' }));
+    document.getElementById('btn-silent').addEventListener('click', () => {
+      panel.set({ fov: 100 }, { silent: true });   // no event, no onChange — but persisted
+      renderState(panel.get());
+    });
+    document.getElementById('btn-clear').addEventListener('click', () => {
+      eventCount = 0;
+      logCountEl.textContent = '0 events';
+      logEl.innerHTML = '<li class="empty">— waiting for changes —</li>';
+    });
+    document.getElementById('btn-wipe').addEventListener('click', () => {
+      try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+      location.reload();
+    });
+
+    window.__previewReady = true;        // hook for screenshot harnesses
+  </script>
+</body>
+</html>

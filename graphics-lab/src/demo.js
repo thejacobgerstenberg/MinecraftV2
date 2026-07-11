@@ -3,19 +3,24 @@
 // INTEGRATED SHOWCASE ENTRY.
 //
 // Wires the full effect stack together into one voxel vignette:
-//   worldgen volume -> AO-meshed chunk (voxelMesher + voxelMaterial) textured
-//   from the procedural block atlas (textures.js),
+//   worldgen volume -> GREEDY-meshed chunk (greedyMesher + tiled voxelMaterial)
+//   textured from the procedural block atlas (textures.js) — with a live
+//   demo.toggle('greedy', bool) A-B switch back to the classic per-face
+//   voxelMesher path (non-tiled material, absolute atlas UVs),
 //   DynamicSky (sun/hemi light rig + dome/stars/clouds),
 //   ShadowController (soft directional shadows on the shared sun),
 //   Water surface + UnderwaterOverlay at WATER_LEVEL,
 //   DistanceFog synced to the sky horizon colour,
 //   Particles (torch flames at every glowstone + weather + block-break debris),
-//   PostFX (HDR bloom + ACES tonemap + vignette + FXAA) as the final pass.
+//   InstancedProps (all ~36 scattered torch meshes in ONE draw call),
+//   PostFX (HDR bloom + SSAO + god rays + ACES tonemap + vignette + FXAA).
 //
-// Exposes the window.demo control API from API_CONTRACT.md, builds the GUI, and
-// sets window.__demoReady = true after the first successful frame. The whole
-// init is wrapped in try/catch so any failure surfaces in a visible #error div
-// (and console.error) for verification.
+// Exposes the window.demo control API from API_CONTRACT.md, builds the dev GUI
+// (top-right, collapsed by default) plus the persistent graphics settings
+// drawer (settings/settings.js — gear bottom-right, hidden by ?nogui=1,
+// storageKey 'mc2.graphics'), and sets window.__demoReady = true after the
+// first successful frame. The whole init is wrapped in try/catch so any
+// failure surfaces in a visible #error div (and console.error).
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/OrbitControls.js';
@@ -24,6 +29,7 @@ import { generateDemoChunk } from './worldgen.js';
 import { BLOCKS, AIR, WATER, LEAVES, WOOD, GLOWSTONE } from './blocks.js';
 import { createBlockAtlas } from './textures.js';
 import { buildChunkGeometry } from './voxelMesher.js';
+import { buildGreedyChunkGeometry } from './greedyMesher.js';
 import { createVoxelMaterial } from './voxelMaterial.js';
 import { DynamicSky } from './sky.js';
 import { ShadowController } from './shadows.js';
@@ -35,9 +41,11 @@ import { PortalGate } from './portals.js';
 import { BlockCracks } from './blockcrack.js';
 import { FirstPersonViewModel } from './viewmodel.js';
 import { TorchLightManager, QUALITY_LIGHTS, makeTorchMesh } from './torchlights.js';
+import { InstancedProps } from './instancedProps.js';
 import { applyWindSway, getWindController } from './windsway.js';
 import { BiomeGrading } from './biomelut.js';
 import { createGUI } from './gui.js';
+import { createSettingsPanel } from '../settings/settings.js';
 
 // ---------------------------------------------------------------------------
 // Visible error surface (verification hook). Created lazily so a hard failure
@@ -73,6 +81,13 @@ try {
 
 function init() {
   const canvasHost = document.getElementById('app') || document.body;
+  const noGui = (() => {
+    try {
+      return new URLSearchParams(window.location.search).get('nogui') === '1';
+    } catch (e) {
+      return false;
+    }
+  })();
 
   // ==========================================================================
   // 1. Renderer.  AA off (FXAA in PostFX), high-performance, colour-managed,
@@ -164,27 +179,84 @@ function init() {
   }
 
   // ==========================================================================
-  // 3. Voxel chunk: AO-meshed solid + transparent(leaves) geometry, textured
-  //    from the procedural 16x16 block atlas (textures.js). The mesher writes
-  //    atlas UVs + neutral tints; the material multiplies map * tint * AO.
+  // 3. Voxel chunk: GREEDY-meshed solid + transparent(leaves) geometry (Phase
+  //    3 default), textured from the procedural 16x16 block atlas via the
+  //    TILED material path — greedy quads carry LOCAL 0..W/0..H uvs +
+  //    tileOrigin, and the tiled shader repeats one tile per block. The
+  //    classic per-face voxelMesher path stays available for A-B comparison
+  //    (demo.toggle('greedy', false)): it emits ABSOLUTE atlas UVs, so it
+  //    pairs with the plain (non-tiled) material. Both paths share the same
+  //    'ao' attribute contract, so AO looks identical either way.
+  //
+  //    MATERIAL COMPOSITION ORDER (important): createVoxelMaterial installs
+  //    its AO/tile onBeforeCompile hook first; applyWindSway (below) then
+  //    WRAPS that hook (prev-first) on the leaves materials and extends the
+  //    program cache key — so tiled/plain and swayed/unswayed variants never
+  //    collide in the program cache.
   // ==========================================================================
   const atlas = createBlockAtlas();
-  const geom = buildChunkGeometry(volume, { ao: true, atlas });
 
-  const solidMat = createVoxelMaterial({ transparent: false, map: atlas.texture });
-  // With a map, transparent:true switches to alpha-cutout foliage (leaf holes).
-  const leavesMat = createVoxelMaterial({ transparent: true, map: atlas.texture });
+  // Tiled pair — greedy geometry (local tile-space uvs + tileOrigin attribute).
+  const solidMatGreedy = createVoxelMaterial({
+    transparent: false, map: atlas.texture, tiled: true, atlasInfo: atlas,
+  });
+  const leavesMatGreedy = createVoxelMaterial({
+    transparent: true, map: atlas.texture, tiled: true, atlasInfo: atlas,
+  });
+  // Plain pair — classic voxelMesher geometry (absolute atlas uvs).
+  const solidMatNaive = createVoxelMaterial({ transparent: false, map: atlas.texture });
+  const leavesMatNaive = createVoxelMaterial({ transparent: true, map: atlas.texture });
 
-  const solidMesh = new THREE.Mesh(geom.solid, solidMat);
+  const voxelMats = [solidMatGreedy, leavesMatGreedy, solidMatNaive, leavesMatNaive];
+
+  let usingGreedy = true;
+  let chunkGeom = buildGreedyChunkGeometry(volume, { ao: true, atlas });
+  if (chunkGeom.stats) {
+    console.log('[graphics-lab] greedy mesh: ' + chunkGeom.stats.quadsBefore
+      + ' -> ' + chunkGeom.stats.quadsAfter + ' quads ('
+      + (chunkGeom.stats.quadsBefore / Math.max(1, chunkGeom.stats.quadsAfter)).toFixed(2)
+      + 'x reduction)');
+  }
+
+  const solidMesh = new THREE.Mesh(chunkGeom.solid, solidMatGreedy);
   solidMesh.name = 'ChunkSolid';
   scene.add(solidMesh);
 
-  let leavesMesh = null;
-  if (geom.transparent) {
-    leavesMesh = new THREE.Mesh(geom.transparent, leavesMat);
-    leavesMesh.name = 'ChunkLeaves';
-    leavesMesh.renderOrder = 1;
-    scene.add(leavesMesh);
+  const leavesMesh = new THREE.Mesh(
+    chunkGeom.transparent || new THREE.BufferGeometry(), leavesMatGreedy,
+  );
+  leavesMesh.name = 'ChunkLeaves';
+  leavesMesh.renderOrder = 1;
+  leavesMesh.visible = !!chunkGeom.transparent;
+  scene.add(leavesMesh);
+
+  // A-B rebuild: swap mesher AND the matching material pair in place (same
+  // Mesh objects keep their shadow flags). Old geometry is disposed.
+  function rebuildChunk(greedy) {
+    usingGreedy = !!greedy;
+    const next = usingGreedy
+      ? buildGreedyChunkGeometry(volume, { ao: true, atlas })
+      : buildChunkGeometry(volume, { ao: true, atlas });
+    const prev = chunkGeom;
+    chunkGeom = next;
+
+    solidMesh.geometry = next.solid;
+    solidMesh.material = usingGreedy ? solidMatGreedy : solidMatNaive;
+    if (next.transparent) {
+      leavesMesh.geometry = next.transparent;
+      leavesMesh.material = usingGreedy ? leavesMatGreedy : leavesMatNaive;
+      leavesMesh.visible = true;
+    } else {
+      leavesMesh.visible = false;
+    }
+    if (prev) {
+      prev.solid.dispose();
+      if (prev.transparent) prev.transparent.dispose();
+    }
+    if (usingGreedy && next.stats) {
+      console.log('[graphics-lab] greedy mesh: ' + next.stats.quadsBefore
+        + ' -> ' + next.stats.quadsAfter + ' quads');
+    }
   }
 
   // Torch/glowstone lighting is handled by the pooled TorchLightManager below
@@ -235,7 +307,9 @@ function init() {
   particles.setWeather('clear');
 
   // ==========================================================================
-  // 5. PostFX — the final render step (replaces renderer.render).
+  // 5. PostFX — the final render step (replaces renderer.render). Owns bloom,
+  //    SSAO + god rays (quality-gated per QUALITY presets: off at low, on from
+  //    medium up), ACES tonemap, per-biome grade, vignette, FXAA.
   // ==========================================================================
   const post = new PostFX(renderer, scene, camera, { quality: 'medium' });
 
@@ -287,9 +361,12 @@ function init() {
     return null;
   }
 
-  const torchMeshes = new THREE.Group();
-  torchMeshes.name = 'scatterTorches';
-  scene.add(torchMeshes);
+  // ---- Scattered torch PROPS via InstancedProps: all ~36 torch meshes render
+  // as ONE InstancedMesh (single draw call) instead of 36 individual meshes.
+  // Light registration with TorchLightManager is unchanged — the pooled
+  // point-light budget still snaps to the nearest torches.
+  const props = new InstancedProps(scene);
+  props.addType('torch', makeTorchMesh(), null, 48);
   {
     const GOLDEN = Math.PI * (3 - Math.sqrt(5));
     const taken = new Set();
@@ -308,9 +385,7 @@ function init() {
       if (!t || t.y < WATER_LEVEL + 1) continue;              // dry land only
       if (t.id === LEAVES || t.id === WOOD || t.id === GLOWSTONE) continue;
       taken.add(key);
-      const mesh = makeTorchMesh();
-      mesh.position.set(x + 0.5, t.y + 1, z + 0.5); // base on the block top
-      torchMeshes.add(mesh);
+      props.place('torch', { x: x + 0.5, y: t.y + 1, z: z + 0.5 }); // base on the block top
       torchMgr.register({ x, y: t.y + 1, z });      // flame ~0.55 above base
       placed++;
     }
@@ -319,8 +394,12 @@ function init() {
   // Synthetic stress-test registrations (window.demo.setTorchCount).
   const syntheticTorchIds = [];
 
-  // ---- Foliage wind sway on the transparent (leaves) material instance.
-  applyWindSway(leavesMat, { mode: 'leaves' });
+  // ---- Foliage wind sway on BOTH transparent (leaves) material instances
+  // (greedy/tiled + naive/plain), so the canopy keeps swaying across the
+  // A-B mesher toggle. applyWindSway composes AFTER the voxel material's own
+  // AO/tile hook (prev hook runs first) — see composition note above.
+  applyWindSway(leavesMatGreedy, { mode: 'leaves' });
+  applyWindSway(leavesMatNaive, { mode: 'leaves' });
   const wind = getWindController();
 
   // ---- Per-biome colour grading through PostFX.setGrade (eased in-post).
@@ -338,6 +417,12 @@ function init() {
       particles: true, fog: true,
       portal: true, crack: true, viewmodel: true, torchlights: true,
       wind: true, biome: true,
+      // Phase 3: ssao/godrays/bloom mirror post.features (quality-gated:
+      // medium defaults all three ON); greedy = which mesher built the chunk.
+      ssao: !!post.features.ssao,
+      godrays: !!post.features.godrays,
+      bloom: !!post.features.bloom,
+      greedy: true,
     },
     quality: 'medium',
     timeOfDay: 0.35,
@@ -346,6 +431,11 @@ function init() {
     dimension: 'warpwold',
     heldItem: 'block:1',
     biome: 'plains',
+    // Phase 3 settings-panel state (gui refresh + settings drawer truth).
+    fov: 55,
+    fpsCap: 0,             // 0 = uncapped; settings replay applies its own cap
+    renderDistance: 8,     // chunks — stored + logged (single-chunk demo)
+    vsync: true,
   };
 
   const ctxSkyColor = new THREE.Color().copy(sky.getFogColor());
@@ -443,7 +533,7 @@ function init() {
       else applyView(currentView);
     },
 
-    // Camera view presets: 'hero' | 'sunrise' | 'closeup'.
+    // Camera view presets: 'hero' | 'sunrise' | 'closeup' | ...
     setView(name) {
       applyView(name);
     },
@@ -454,6 +544,29 @@ function init() {
       post.setQuality(quality);
       shadows.setQuality(quality);
       torchMgr.setMaxLights(QUALITY_LIGHTS[quality] || QUALITY_LIGHTS.medium);
+      // setQuality resets post.features per the QUALITY preset (ssao/godrays
+      // gate OFF at low, ON at medium+) — mirror that so the GUI stays honest.
+      state.effects.ssao = !!post.features.ssao;
+      state.effects.godrays = !!post.features.godrays;
+      state.effects.bloom = !!post.features.bloom;
+    },
+
+    // Camera field of view in degrees (settings drawer: 60..110).
+    setFov(deg) {
+      let v = Number(deg);
+      if (!Number.isFinite(v)) v = 75;
+      v = Math.max(30, Math.min(120, v));
+      state.fov = v;
+      camera.fov = v;
+      camera.updateProjectionMatrix();
+    },
+
+    // Render-loop FPS cap. n = 30|60|120|... frames/s, 0 (or anything falsy)
+    // = uncapped. rAF stays scheduled; the cap only skips frame work.
+    setFpsCap(n) {
+      n = Math.round(Number(n));
+      if (!Number.isFinite(n) || n < 0) n = 0;
+      state.fpsCap = n;
     },
 
     // Portal: crossfade to another dimension palette (+ activation burst).
@@ -502,8 +615,8 @@ function init() {
       if (name in state.effects) state.effects[name] = b;
       switch (name) {
         case 'ao':
-          solidMat.userData.setAoEnabled(b);
-          leavesMat.userData.setAoEnabled(b);
+          // Both material pairs (tiled greedy + plain naive) share the knob.
+          for (const m of voxelMats) m.userData.setAoEnabled(b);
           break;
         case 'sky': sky.setEnabled(b); break;
         case 'shadows': shadows.setEnabled(b); break;
@@ -516,10 +629,17 @@ function init() {
         case 'viewmodel': viewmodel.setEnabled(b); break;
         case 'torchlights':
           torchMgr.setEnabled(b);
-          torchMeshes.visible = b; // hide the prop meshes with their lights
+          props.setEnabled(b); // hide the instanced prop meshes with their lights
           break;
         case 'wind': wind.setEnabled(b); break;
         case 'biome': biomes.setEnabled(b); break;
+        // Phase 3 toggles:
+        case 'ssao': post.toggle('ssao', b); break;
+        case 'godrays': post.toggle('godrays', b); break;
+        case 'bloom': post.toggle('bloom', b); break;
+        case 'greedy':
+          if (b !== usingGreedy) rebuildChunk(b);
+          break;
         default: break;
       }
     },
@@ -535,12 +655,72 @@ function init() {
     scene,
     sky,
     controls,
+    post,
+    props,
   };
 
   // ==========================================================================
-  // 8. GUI + resize.
+  // 8. Dev GUI (top-right, collapsed by default) + graphics settings drawer
+  //    (settings/settings.js — gear bottom-right; both skipped by ?nogui=1
+  //    for clean beauty shots) + resize.
   // ==========================================================================
   createGUI(window.demo, state);
+
+  // Map a settings-drawer key onto the live modules. Every key is wired:
+  // preset -> demo.setQuality, fov -> camera, fpsCap -> loop throttle,
+  // renderDistance -> stored + logged (single-chunk demo has no chunk ring),
+  // vsync -> stored (advisory; rAF is always vsynced in browsers),
+  // toggles -> demo.toggle (incl. the new ssao/godrays mapping).
+  function applySetting(key, value) {
+    const d = window.demo;
+    switch (key) {
+      case 'preset':
+        if (value !== 'custom') d.setQuality(value);
+        break;
+      case 'renderDistance':
+        state.renderDistance = value;
+        console.log('[graphics-lab] settings: renderDistance = ' + value
+          + ' chunks (single-chunk demo — stored only)');
+        break;
+      case 'fov': d.setFov(value); break;
+      case 'fpsCap': d.setFpsCap(value); break;
+      case 'vsync': state.vsync = !!value; break;
+      case 'ao': d.toggle('ao', value); break;
+      case 'ssao': d.toggle('ssao', value); break;
+      case 'shadows': d.toggle('shadows', value); break;
+      case 'water': d.toggle('water', value); break;
+      case 'bloom': d.toggle('bloom', value); break;
+      case 'godRays': d.toggle('godrays', value); break;
+      case 'windSway': d.toggle('wind', value); break;
+      case 'particles': d.toggle('particles', value); break;
+      case 'fog': d.toggle('fog', value); break;
+      case 'biomeGrading': d.toggle('biome', value); break;
+      case 'portalFx': d.toggle('portal', value); break;
+      default: break;
+    }
+  }
+
+  let settingsPanel = null;
+  if (!noGui) {
+    try {
+      settingsPanel = createSettingsPanel({
+        mount: document.body,
+        storageKey: 'mc2.graphics',
+        onChange: (detail) => applySetting(detail.key, detail.value),
+      });
+      // Replay the hydrated state once so the renderer matches storage.
+      // 'preset' first (it fans out to post/shadows/torch budgets), then the
+      // individual keys — custom toggle overrides land after the preset reset.
+      const s = settingsPanel.get();
+      applySetting('preset', s.preset);
+      for (const key of Object.keys(s)) {
+        if (key !== 'preset') applySetting(key, s[key]);
+      }
+      window.demo.settings = settingsPanel;
+    } catch (err) {
+      console.error('[graphics-lab] settings panel failed to mount:', err);
+    }
+  }
 
   function onResize() {
     const w = window.innerWidth;
@@ -553,15 +733,26 @@ function init() {
   window.addEventListener('resize', onResize);
 
   // ==========================================================================
-  // 9. Render loop.
+  // 9. Render loop (rAF-paced, with the settings drawer's optional FPS cap:
+  //    the cap skips frame WORK but never unschedules the loop).
   // ==========================================================================
   const clock = new THREE.Clock();
   let firstFrame = true;
   let bbTimer = 0;
   let bbIndex = 0;
+  let lastFrameStamp = 0;
 
-  function animate() {
+  function animate(nowMs) {
     requestAnimationFrame(animate);
+
+    // FPS cap (state.fpsCap; 0 = uncapped). Drift-free cadence per the
+    // settings README: carry the remainder so 60 -> exactly 60, not ~58.
+    const cap = state.fpsCap;
+    if (cap > 0 && typeof nowMs === 'number') {
+      const interval = 1000 / cap;
+      if (nowMs - lastFrameStamp < interval - 0.1) return;
+      lastFrameStamp = nowMs - ((nowMs - lastFrameStamp) % interval);
+    }
 
     const dt = Math.min(clock.getDelta(), 0.05);
     const elapsed = clock.elapsedTime;
@@ -597,9 +788,10 @@ function init() {
     cracks.update(dt, ctx);      // break-stage animations (fires onComplete)
     viewmodel.update(dt, ctx);   // idle bob + swing arc + night fill
     torchMgr.update(dt, ctx);    // nearest-N light pooling + flame flicker
+    props.update(dt, ctx);       // instanced props: bounds refresh when dirty
     wind.update(dt, ctx);        // weather-driven sway strength (2 uniforms)
     biomes.update(dt, ctx);      // no-op (PostFX eases the grade internally)
-    post.update(dt, ctx);        // auto night boost from sun altitude
+    post.update(dt, ctx);        // sun capture for god rays + auto night boost
                                  // (wider/stronger bloom as the sun sets)
 
     // Periodic block-break debris so shots always show flying voxels.
@@ -628,5 +820,5 @@ function init() {
     }
   }
 
-  animate();
+  requestAnimationFrame(animate);
 }

@@ -8,14 +8,26 @@
 // vendored, allocation-free and fully controllable.
 //
 // Pipeline (render(dt)):
-//   scene ──▶ sceneRT (HDR, half-float, linear)
+//   scene ──▶ sceneRT (HDR, half-float, linear, + attached DepthTexture)
+//         ──▶ SSAO (src/ssao.js, half/full-res AO from depth + 4-tap denoise)
 //         ──▶ bright-pass (soft-knee threshold)        ▲ bloom branch
 //         ──▶ separable gaussian blur (downsampled, N iterations, ping-pong)
-//         ──▶ COMPOSITE  (scene + bloom*strength, exposure, ACES filmic
-//                          tonemap, per-biome colour grade, vignette,
-//                          sRGB encode)
+//         ──▶ GOD RAYS (src/godrays.js, quarter-res sky mask + 2x radial blur
+//                        toward the sun's screen position)
+//         ──▶ COMPOSITE  (scene * SSAO, + bloom*strength, + rays*tint,
+//                          exposure, ACES filmic tonemap, per-biome colour
+//                          grade, vignette, sRGB encode)
 //         ──▶ [optional FXAA on the final LDR sRGB image]
 //         ──▶ screen
+//
+// SSAO multiplies the scene colour BEFORE tonemap (and before bloom/rays are
+// added — light halos and shafts are unoccluded light). Its default intensity
+// is modest (0.55) so it complements the mesher's baked per-vertex corner AO
+// with contact darkening instead of double-darkening every crevice. God rays
+// reuse the scene colour+depth (no second scene render): sky pixels (depth at
+// the far plane) stay bright — the sun disc drives the shafts — and geometry
+// masks to black. Both effects need a readable depth texture; on renderers
+// without one (WebGL1 sans WEBGL_depth_texture) they are skipped cleanly.
 //
 // All passes run on an OrthographicCamera over a single reused fullscreen
 // triangle. No per-frame allocation: uniform values are mutated in place and
@@ -36,7 +48,7 @@
 //                              // ctx.timeOfDay unless setNightBoost was called
 //   setSize(w, h)              // resize targets (device px; auto-detected too)
 //   setQuality('low'|'medium'|'high'|'ultra')
-//   toggle('bloom'|'tonemap'|'vignette'|'fxaa', bool)
+//   toggle('bloom'|'tonemap'|'vignette'|'fxaa'|'ssao'|'godrays', bool)
 //   setExposure(x)             // linear pre-tonemap exposure (default 1.1)
 //   setBloomStrength(x)        // bloom additive weight (default 0.8)
 //   setBloomThreshold(x)       // bright-pass threshold (default 0.75)
@@ -53,11 +65,22 @@
 //                              // Live values ease toward the target over
 //                              // ~0.5 s. Omitted fields reset to neutral
 //                              // (lift [0,0,0], gain [1,1,1], sat 1).
+//   setSsaoEnabled(bool)       // convenience for toggle('ssao', bool)
+//   setGodRaysEnabled(bool)    // convenience for toggle('godrays', bool)
+//   setSsaoIntensity(x)        // 0..1 AO blend (default 0.55 — modest, the
+//                              // baked vertex AO already carries the look)
+//   setSsaoRadius(r)           // AO world-unit radius (default 0.8)
+//   setGodRaysStrength(x)      // ray add weight baseline (default 0.55; the
+//                              // per-frame sun fade multiplies on top)
+//   .ssao / .godrays           // the pass objects (null when depth textures
+//                              // are unsupported) for advanced tuning
 //   setEnabled(bool)           // false => straight renderer.render (bypass)
 //   get enabled()
 //   dispose()
 
 import * as THREE from 'three';
+import { SSAOPass } from './ssao.js';
+import { GodRaysPass } from './godrays.js';
 
 // ---------------------------------------------------------------------------
 // Quality presets.
@@ -72,11 +95,13 @@ import * as THREE from 'three';
 // so the extra iteration at medium/high costs a fraction of a full-res pass.
 // Iterations also escalate their tap radius (see render()), so each one widens
 // the halo more than the last — emissives get a real glow, not a 2px dot.
+//   ssao       : SSAO on/off; ssaoSamples 8|12; ssaoDiv 2 = half-res, 1 = full.
+//   godrays    : crepuscular rays on/off (always quarter-res internally).
 const QUALITY = {
-  low:    { bloom: false, bloomDiv: 2, iterations: 1, fxaa: false },
-  medium: { bloom: true,  bloomDiv: 2, iterations: 2, fxaa: true  },
-  high:   { bloom: true,  bloomDiv: 2, iterations: 3, fxaa: true  },
-  ultra:  { bloom: true,  bloomDiv: 1, iterations: 4, fxaa: true  },
+  low:    { bloom: false, bloomDiv: 2, iterations: 1, fxaa: false, ssao: false, ssaoSamples: 8,  ssaoDiv: 2, godrays: false },
+  medium: { bloom: true,  bloomDiv: 2, iterations: 2, fxaa: true,  ssao: true,  ssaoSamples: 8,  ssaoDiv: 2, godrays: true  },
+  high:   { bloom: true,  bloomDiv: 2, iterations: 3, fxaa: true,  ssao: true,  ssaoSamples: 12, ssaoDiv: 2, godrays: true  },
+  ultra:  { bloom: true,  bloomDiv: 1, iterations: 4, fxaa: true,  ssao: true,  ssaoSamples: 12, ssaoDiv: 1, godrays: true  },
 };
 
 // Shared vertex shader: a fullscreen triangle whose clip-space positions are
@@ -129,11 +154,17 @@ void main() {
 }
 `;
 
-// Composite: additive bloom, exposure, ACES filmic tonemap, per-biome colour
-// grade (post-tonemap, pre-vignette), vignette, sRGB out.
+// Composite: SSAO multiply, additive bloom + god rays, exposure, ACES filmic
+// tonemap, per-biome colour grade (post-tonemap, pre-vignette), vignette,
+// sRGB out.
 const COMPOSITE_FRAG = /* glsl */ `
 uniform sampler2D tScene;        // HDR linear scene
 uniform sampler2D tBloom;        // blurred bloom (linear, low-res, upsampled)
+uniform sampler2D tAO;           // SSAO (r, 1 = open; 1x1 white when off)
+uniform sampler2D tRays;         // god rays (low-res; 1x1 black when off)
+uniform float uSsao;             // 0/1
+uniform vec3 uRaysTint;          // altitude-derived warm sun tint
+uniform float uRaysStrength;     // strength x sun fade (0 disables)
 uniform float exposure;
 uniform float bloomStrength;
 uniform float uBloom;            // 0/1
@@ -159,8 +190,12 @@ vec3 linearToSRGB(vec3 c) {
 }
 void main() {
   vec3 hdr = texture2D(tScene, vUv).rgb;
+  // SSAO multiplies the scene BEFORE bloom/rays are added: halos and light
+  // shafts are unoccluded light and must not be AO-darkened.
+  hdr *= mix(1.0, texture2D(tAO, vUv).r, uSsao);
   vec3 bloom = texture2D(tBloom, vUv).rgb;
   hdr += bloom * bloomStrength * uBloom;
+  hdr += texture2D(tRays, vUv).rgb * uRaysTint * uRaysStrength;
   hdr *= exposure;
 
   vec3 color = mix(hdr, aces(hdr), uTonemap);
@@ -295,9 +330,18 @@ export class PostFX {
     this._gradeTau = 0.5 / 3;        // ~0.5 s to reach ~95% of the target
 
     // Feature flags (live state). setQuality resets them; toggle() mutates one.
-    this.features = { bloom: true, tonemap: true, vignette: true, fxaa: true };
+    this.features = {
+      bloom: true, tonemap: true, vignette: true, fxaa: true,
+      ssao: true, godrays: true,
+    };
     this._bloomDiv = 2;
     this._iterations = 1;
+
+    // Sun state for god rays — captured from ctx in update(dt, ctx). Until the
+    // first update() with a ctx.sunDir arrives, god rays stay dormant.
+    this._sunDir = new THREE.Vector3(0, 1, 0);
+    this._hasSun = false;
+    this._underwater = false;
 
     // HDR half-float where available (WebGL2 makes RGBA16F renderable AND
     // filterable); byte fallback on WebGL1 (bloom still works, no HDR headroom).
@@ -324,6 +368,27 @@ export class PostFX {
     this.sceneRT.texture.colorSpace = THREE.LinearSRGBColorSpace;
     this.sceneRT.texture.generateMipmaps = false;
 
+    // Attach a depth TEXTURE to the scene target so SSAO + god rays can read
+    // scene depth for free (the depth buffer is written anyway; three keeps
+    // the texture sized to the RT automatically). WebGL2 always supports
+    // this; WebGL1 needs WEBGL_depth_texture — without it both effects are
+    // skipped and the rest of the chain is untouched.
+    const depthOK = renderer.capabilities.isWebGL2 ||
+      (renderer.extensions && renderer.extensions.has &&
+       renderer.extensions.has('WEBGL_depth_texture'));
+    if (depthOK) {
+      this._depthTexture = new THREE.DepthTexture(1, 1);
+      this.sceneRT.depthTexture = this._depthTexture;
+      this.ssao = new SSAOPass({
+        samples: 8, radius: 0.8, intensity: 0.55, resolutionDiv: 2,
+      });
+      this.godrays = new GodRaysPass({ strength: 0.55, type: hdrType });
+    } else {
+      this._depthTexture = null;
+      this.ssao = null;
+      this.godrays = null;
+    }
+
     // Bloom ping-pong (downsampled HDR).
     this.bloomA = new THREE.WebGLRenderTarget(1, 1, { ...rtCommon, type: hdrType });
     this.bloomB = new THREE.WebGLRenderTarget(1, 1, { ...rtCommon, type: hdrType });
@@ -342,6 +407,12 @@ export class PostFX {
       new Uint8Array([0, 0, 0, 255]), 1, 1, THREE.RGBAFormat,
     );
     this._blackTex.needsUpdate = true;
+
+    // 1x1 white texture bound to tAO when SSAO is off (ao = 1 => no darkening).
+    this._whiteTex = new THREE.DataTexture(
+      new Uint8Array([255, 255, 255, 255]), 1, 1, THREE.RGBAFormat,
+    );
+    this._whiteTex.needsUpdate = true;
 
     // Fullscreen triangle + ortho camera (reused by every pass).
     const geo = new THREE.BufferGeometry();
@@ -377,6 +448,11 @@ export class PostFX {
     this.compositeMat = mk(COMPOSITE_FRAG, {
       tScene: { value: null },
       tBloom: { value: null },
+      tAO: { value: this._whiteTex },
+      tRays: { value: this._blackTex },
+      uSsao: { value: 0 },
+      uRaysTint: { value: new THREE.Color(1, 0.8, 0.6) },
+      uRaysStrength: { value: 0 },
       exposure: { value: this.exposure },
       bloomStrength: { value: this.bloomStrength },
       uBloom: { value: 1 },
@@ -395,6 +471,10 @@ export class PostFX {
       resolution: { value: new THREE.Vector2() },
     });
 
+    // Bound pass runner handed to the SSAO / god-rays pass objects (built
+    // once — no per-frame closure allocation).
+    this._passFn = (material, target) => this._pass(material, target);
+
     this.setQuality(quality);
     this.setSize(); // auto-detect from renderer drawing buffer
   }
@@ -407,9 +487,19 @@ export class PostFX {
     this._enabled = !!on;
   }
 
-  // Individually override a feature. Names: 'bloom','tonemap','vignette','fxaa'.
+  // Individually override a feature.
+  // Names: 'bloom','tonemap','vignette','fxaa','ssao','godrays'.
   toggle(name, on) {
     if (name in this.features) this.features[name] = !!on;
+  }
+
+  // Convenience wrappers over toggle() for the two depth-based effects.
+  setSsaoEnabled(on) {
+    this.toggle('ssao', on);
+  }
+
+  setGodRaysEnabled(on) {
+    this.toggle('godrays', on);
   }
 
   // ---- Runtime look setters (all values are the DAY baseline; nightBoost
@@ -429,6 +519,23 @@ export class PostFX {
 
   setBloomRadius(x) {
     this.bloomRadius = Math.max(0.1, +x || 0.1);
+  }
+
+  // SSAO blend, 0..1 (default 0.55 — modest on purpose: the baked per-vertex
+  // corner AO already carries the look, SSAO only adds contact darkening).
+  setSsaoIntensity(x) {
+    if (this.ssao) this.ssao.setIntensity(x);
+  }
+
+  // SSAO occlusion radius in world units (default 0.8 ≈ one voxel).
+  setSsaoRadius(r) {
+    if (this.ssao) this.ssao.setRadius(r);
+  }
+
+  // God-ray additive weight baseline (default 0.55). The per-frame sun fade
+  // (altitude / behind-camera / screen-edge) multiplies on top of this.
+  setGodRaysStrength(x) {
+    if (this.godrays) this.godrays.setStrength(x);
   }
 
   // f in 0..1. 0 = clean day grade; 1 = full night: bloom strength ×2.2,
@@ -458,11 +565,22 @@ export class PostFX {
     this._gradeSatTarget = _num(sat, 1);
   }
 
-  // Effects-contract hook (optional — render() alone still works). When auto
-  // night boost is active, derives nightBoost from the sun altitude:
+  // Effects-contract hook (optional — render() alone still works, though god
+  // rays stay dormant until a ctx.sunDir has been seen here). Captures the
+  // sun direction + underwater flag for the god-ray pass, then — when auto
+  // night boost is active — derives nightBoost from the sun altitude:
   // 0 while the sun is above ~0.12, ramping to 1 once it dips below ~-0.15.
   update(dt, ctx) {
-    if (!this._autoNight || !ctx) return;
+    if (!ctx) return;
+
+    // Sun capture for god rays (works even when night boost is manual).
+    if (ctx.sunDir && typeof ctx.sunDir.y === 'number') {
+      this._sunDir.set(ctx.sunDir.x, ctx.sunDir.y, ctx.sunDir.z);
+      this._hasSun = true;
+    }
+    this._underwater = !!ctx.underwater;
+
+    if (!this._autoNight) return;
     let alt = null;
     if (ctx.sunDir && typeof ctx.sunDir.y === 'number') {
       alt = ctx.sunDir.y; // sunDir points toward the sun => y is sun altitude
@@ -486,11 +604,19 @@ export class PostFX {
       tonemap: true,
       vignette: true,
       fxaa: preset.fxaa,
+      ssao: preset.ssao && !!this.ssao,
+      godrays: preset.godrays && !!this.godrays,
     };
     // Resize the bloom buffers if the downsample factor changed.
     if (preset.bloomDiv !== this._bloomDiv) {
       this._bloomDiv = preset.bloomDiv;
       if (this._w > 1) this._resizeBloom();
+    }
+    // SSAO tier config: 8 samples at medium, 12 at high/ultra; full-res only
+    // at ultra. (Recompile happens only when the sample define changes.)
+    if (this.ssao) {
+      this.ssao.setSamples(preset.ssaoSamples);
+      this.ssao.setResolutionDiv(preset.ssaoDiv);
     }
   }
 
@@ -509,6 +635,8 @@ export class PostFX {
     this.ldrRT.setSize(w, h);
     this.fxaaMat.uniforms.resolution.value.set(1 / w, 1 / h);
     this._resizeBloom();
+    if (this.ssao) this.ssao.setSize(w, h);
+    if (this.godrays) this.godrays.setSize(w, h);
   }
 
   _resizeBloom() {
@@ -547,9 +675,23 @@ export class PostFX {
     // Scene must land in the HDR buffer un-tonemapped and linear.
     r.toneMapping = THREE.NoToneMapping;
 
-    // 1) Scene -> HDR linear buffer.
+    // 1) Scene -> HDR linear buffer (+ depth texture when supported).
     r.setRenderTarget(this.sceneRT);
     r.render(this.scene, this.camera);
+
+    // 1b) SSAO: half-res (full-res at ultra) AO from the depth texture +
+    // one 4-tap denoise blur. Skipped entirely when off — zero cost.
+    const ssaoOn = !!(this.features.ssao && this.ssao);
+    if (ssaoOn) {
+      this.ssao.render(this._passFn, this._depthTexture, this.camera);
+    }
+
+    // 1c) God rays: CPU sun bookkeeping now (camera matrices are current
+    // after the scene render), passes deferred to after the bloom branch.
+    // raysActive => the quarter-res mask + 2 radial blurs are worth running.
+    const raysOn = !!(this.features.godrays && this.godrays && this._hasSun);
+    const raysActive = raysOn &&
+      this.godrays.updateSun(this.camera, this._sunDir, this._underwater) > 0.002;
 
     // Night-boosted effective grade (baselines untouched; nb=0 => exact day
     // look). Wider + stronger + lower-threshold bloom and a slight exposure
@@ -590,6 +732,13 @@ export class PostFX {
       }
     }
 
+    // 2b) God rays: quarter-res sky mask + two 12-tap radial blurs toward the
+    // sun. Only runs while the sun fade is non-zero (day, sun on/near screen),
+    // so night frames pay nothing.
+    if (raysActive) {
+      this.godrays.render(this._passFn, this.sceneRT.texture, this._depthTexture);
+    }
+
     // Ease the live per-biome grade toward its setGrade() target. Exponential
     // smoothing (frame-rate independent) with tau = ~0.5s/3, so a new target
     // is ~95% reached in about half a second. Lerps mutate the shared uniform
@@ -600,10 +749,21 @@ export class PostFX {
     this._gradeGain.lerp(this._gradeGainTarget, gk);
     this._gradeSat += (this._gradeSatTarget - this._gradeSat) * gk;
 
-    // 3) Composite (scene + bloom, exposure, ACES, grade, vignette, sRGB).
+    // 3) Composite (scene * AO + bloom + rays, exposure, ACES, grade,
+    // vignette, sRGB).
     const cu = this.compositeMat.uniforms;
     cu.tScene.value = this.sceneRT.texture;
     cu.tBloom.value = bloomOn ? this.bloomA.texture : this._blackTex;
+    cu.tAO.value = ssaoOn ? this.ssao.texture : this._whiteTex;
+    cu.uSsao.value = ssaoOn ? 1 : 0;
+    if (raysActive) {
+      cu.tRays.value = this.godrays.texture;
+      cu.uRaysStrength.value = this.godrays.strength * this.godrays.fadeValue;
+      cu.uRaysTint.value.copy(this.godrays.tint);
+    } else {
+      cu.tRays.value = this._blackTex;
+      cu.uRaysStrength.value = 0;
+    }
     cu.exposure.value = effExposure;
     cu.bloomStrength.value = effStrength;
     cu.uBloom.value = bloomOn ? 1 : 0;
@@ -635,11 +795,15 @@ export class PostFX {
     this.bloomB.dispose();
     this.ldrRT.dispose();
     this._blackTex.dispose();
+    this._whiteTex.dispose();
     this._geo.dispose();
     this.brightMat.dispose();
     this.blurMat.dispose();
     this.compositeMat.dispose();
     this.fxaaMat.dispose();
+    if (this._depthTexture) this._depthTexture.dispose();
+    if (this.ssao) this.ssao.dispose();
+    if (this.godrays) this.godrays.dispose();
   }
 }
 

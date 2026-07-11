@@ -244,7 +244,10 @@ export class FirstPersonViewModel {
     const group = new THREE.Group();
     group.name = 'fp-item-block-' + id;
 
-    const geo = new THREE.BoxGeometry(0.72, 0.72, 0.72);
+    // ~15% smaller than the old 0.72 cube and pulled toward the arm below —
+    // sized/placed so the near corner sits inside the cubic hand and the
+    // whole thing reads as one held unit, not a block floating by the arm.
+    const geo = new THREE.BoxGeometry(0.61, 0.61, 0.61);
     const block = getBlock(id);
     let mesh;
 
@@ -273,8 +276,10 @@ export class FirstPersonViewModel {
     group.add(mesh);
 
     // Held pose: top tipped toward the viewer, two side faces visible.
+    // Position pulled down-right toward the hand/forearm so the block's near
+    // corner overlaps the hand cube (was centred at (0, 0.05, 0), detached).
     group.rotation.set(0.3, 0.62, 0);
-    group.position.set(0, 0.05, 0);
+    group.position.set(0.08, -0.07, 0.05);
     group.visible = false;
     return group;
   }
@@ -303,9 +308,10 @@ export class FirstPersonViewModel {
   }
 
   // Blocky forearm: a long box aimed from the lower-right screen corner up to
-  // the held item, with a darker sleeve band at the shoulder end. Rig-local;
-  // rendered as part of the overlay (same depthTest:false + renderOrder rules,
-  // drawn just UNDER the item so the block sits in the palm).
+  // the held item, with a darker sleeve band at the shoulder end and a cubic
+  // hand wrapping the held block's near corner. Rig-local; rendered as part
+  // of the overlay (same depthTest:false + renderOrder rules, arm -> band ->
+  // hand -> item so the block sits in the palm).
   _buildArm() {
     const group = new THREE.Group();
     group.name = 'fp-viewmodel-arm';
@@ -322,10 +328,13 @@ export class FirstPersonViewModel {
     const skin = makeLambert(ARM_SKIN, { emissiveScale: 0.04 });
     const sleeve = makeLambert(ARM_SLEEVE, { emissiveScale: 0.04 });
 
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 2.0), skin);
-    arm.position.copy(dir).multiplyScalar(0.95).add(hand);
+    // Extended past the hand anchor toward the held block (2.3 long, centred
+    // at 0.8 along dir => near end 0.35 BEYOND the hand point) so the forearm
+    // visually plugs into the hand/block instead of stopping short of it.
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 2.3), skin);
+    arm.position.copy(dir).multiplyScalar(0.8).add(hand);
     arm.quaternion.copy(q);
-    markOverlay(arm, -2);
+    markOverlay(arm, -3);
     group.add(arm);
 
     // Sleeve band across the mid-forearm (on-screen, so the strip clearly
@@ -333,8 +342,17 @@ export class FirstPersonViewModel {
     const band = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.56, 0.42), sleeve);
     band.position.copy(dir).multiplyScalar(0.55).add(hand);
     band.quaternion.copy(q);
-    markOverlay(band, -1);
+    markOverlay(band, -2);
     group.add(band);
+
+    // Simple cubic hand wrapping the held block's near-lower corner: drawn
+    // after the arm/band and just under the item, it bridges forearm -> item
+    // so the silhouette connects with no gap (the "detached block" fix).
+    const handCube = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.34, 0.34), skin);
+    handCube.position.set(0.27, -0.24, 0.16);
+    handCube.quaternion.copy(q);
+    markOverlay(handCube, -1);
+    group.add(handCube);
 
     return group;
   }
