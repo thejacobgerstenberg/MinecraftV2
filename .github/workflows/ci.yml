@@ -1,0 +1,105 @@
+# CI pipeline for MinecraftV2.
+#
+# Three independent jobs, each of which skips gracefully (job stays green)
+# when its target does not exist yet on the branch being built:
+#   - content-validation : needs content/       (dependency-free node script)
+#   - audio-verification : needs audio/         (installs Playwright + Chromium in $RUNNER_TEMP)
+#   - game-tests         : needs package.json   (root package.json is owned elsewhere; never created here)
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Validate game content definitions. scripts/validate-content.mjs is
+  # dependency-free, so plain `node` is enough — no npm install, no setup-node.
+  # ---------------------------------------------------------------------------
+  content-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate content
+        run: |
+          if [ -d content ]; then
+            node scripts/validate-content.mjs
+          else
+            echo "no content/ directory — skipping"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Verify the procedural audio engine by offline-rendering it in headless
+  # Chromium. GitHub-hosted runners ship no browsers for Playwright, so we
+  # install playwright + Chromium into $RUNNER_TEMP — never into the repo
+  # (a root package.json is owned by another branch and must not appear here).
+  # ---------------------------------------------------------------------------
+  audio-verification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Detect audio/ and expose the result as an output so the later steps
+      # skip cleanly (and the job stays green) when it is absent.
+      - name: Check for audio/
+        id: audio
+        run: |
+          if [ ! -d audio ]; then
+            echo "no audio/ directory — skipping"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "present=true" >> "$GITHUB_OUTPUT"
+
+      - name: Install Playwright + Chromium (outside the repo)
+        if: steps.audio.outputs.present == 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/pw"
+          cd "$RUNNER_TEMP/pw"
+          npm init -y
+          npm i playwright
+          npx playwright install --with-deps chromium
+
+      - name: Verify audio engine
+        if: steps.audio.outputs.present == 'true'
+        run: PW_DIR="$RUNNER_TEMP/pw" node scripts/verify-audio.mjs
+
+  # ---------------------------------------------------------------------------
+  # Run the game's test suite, if a root package.json with a `test` script
+  # exists. Structured so a real `npm test` failure fails the step — the
+  # "skipping" fallback only fires when the test script is missing.
+  # ---------------------------------------------------------------------------
+  game-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run tests
+        run: |
+          if [ ! -f package.json ]; then
+            echo "no package.json — skipping"
+            exit 0
+          fi
+          if node -e "const s=require('./package.json').scripts||{}; process.exit(s.test?0:1)"; then
+            if [ -f package-lock.json ]; then
+              npm ci
+            else
+              npm install
+            fi
+            npm test
+          else
+            echo "no test script — skipping"
+          fi
