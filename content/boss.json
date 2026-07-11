@@ -1,5 +1,5 @@
 {
-  "$comment": "Loomfall final encounter wiring. The Last Needle is not killed — it is bound, turned, and taught for a while to mend; the trigger id kill_entity:last_needle is retained for systems compatibility with achievements.json (id: taught_to_mend). Arena, gauntlet, and hazards mirror structures.json id eye_of_the_last_hem exactly. Prose/design companion: boss.md.",
+  "$comment": "Loomfall final encounter wiring. The Last Needle is not killed — it is bound, turned, and taught for a while to mend; the trigger id kill_entity:last_needle is retained for systems compatibility with achievements.json (id: taught_to_mend). Arena and hazards mirror structures.json id eye_of_the_last_hem exactly; the gauntlet mirrors structures.json id selvage_outpost (unique_set of four, one seal each — see boss.gauntlet.seals). The seal predicates are seal_released:<id>, each bound to the death of its outpost's spawn-tagged seal-holder (canonical trigger kill_entity:selvage_warden); they are deliberately not seal_fray, which remains the fray-mending verb (achievements.json: the_first_fray_sealed). Prose/design companion: boss.md.",
   "boss": {
     "id": "last_needle",
     "name": "The Last Needle",
@@ -12,9 +12,44 @@
     },
     "gauntlet": {
       "name": "The Approach Causeway",
-      "description": "Four Selvage Warden outposts stand the approach causeway. Each felled warden (kill_entity:selvage_warden; achievement argue_past_certainty on the first) lowers one strand of the everthread barrier-chords at the arena mouth. All four must fall before the eye opens.",
+      "structure": "selvage_outpost",
       "outposts": 4,
-      "barrier": "everthread barrier-chords, one lowered per outpost cleared"
+      "ordered": false,
+      "description": "Four Selvage Warden outposts stand the approach causeway — structures.json id selvage_outpost, generated as a fixed set of four, only with and only once with this arena. Each outpost's structure-bound seal-holder warden felled (kill_entity:selvage_warden, bound to that holder's instance wherever the body comes to rest; achievement argue_past_certainty on the first, exactly as for any first warden) releases that outpost's seal and lowers one strand of the everthread barrier-chords at the arena mouth — each chord takes its outpost's name. All four must fall, in any order, before the eye opens.",
+      "seals": [
+        {
+          "id": "seal_measured",
+          "name": "The Measured Chord",
+          "outpost": "selvage_outpost_measured",
+          "releasedBy": "kill_entity:selvage_warden, bound to the spawn-tagged seal-holder of selvage_outpost_measured — the seal releases on that holder's death wherever the body comes to rest (per structures.json id selvage_outpost, variants)"
+        },
+        {
+          "id": "seal_folded",
+          "name": "The Folded Chord",
+          "outpost": "selvage_outpost_folded",
+          "releasedBy": "kill_entity:selvage_warden, bound to the spawn-tagged seal-holder of selvage_outpost_folded — the seal releases on that holder's death wherever the body comes to rest (per structures.json id selvage_outpost, variants)"
+        },
+        {
+          "id": "seal_pinned",
+          "name": "The Pinned Chord",
+          "outpost": "selvage_outpost_pinned",
+          "releasedBy": "kill_entity:selvage_warden, bound to the spawn-tagged seal-holder of selvage_outpost_pinned — the seal releases on that holder's death wherever the body comes to rest (per structures.json id selvage_outpost, variants)"
+        },
+        {
+          "id": "seal_sewn",
+          "name": "The Sewn Chord",
+          "outpost": "selvage_outpost_sewn",
+          "releasedBy": "kill_entity:selvage_warden, bound to the spawn-tagged seal-holder of selvage_outpost_sewn — the seal releases on that holder's death wherever the body comes to rest (per structures.json id selvage_outpost, variants)"
+        }
+      ],
+      "barrier": "everthread barrier-chords, one lowered per seal released, each chord named for its outpost; the eye opens only when all four seals in gauntlet.seals read released",
+      "sealRules": [
+        "A released seal is permanent: it survives the Mender's unpicking, the arena's full encounter reset, and everything else — the slackened chord draws inward and coils at the central binding-anvil, waiting to be the thread of the eighth stitch (see phase 3, The Binding; books.json letter_three_stitches narrates the completed gauntlet from the far side)",
+        "Each outpost garrisons exactly one spawn-tagged, structure-bound seal-holder (bestiary.json selvage_warden: hp 90, damage 9, regen 2 hp per second, suppressed 3 seconds by any single hit dealing 6 or more; it never pursues beyond its footprint); it restores to full hp when no Mender has stood within the outpost's 15x21x15 footprint for 10 consecutive seconds, and instantly on the engaged Mender's unpicking — bolts loosed from beyond the threshold buy nothing the mending does not take back — and it does not respawn once felled",
+        "seal_released:<id> binds to the seal-holder's instance, not to ground: knockback cannot carry a kill out of counting (the holder's seal releases wherever its body comes to rest), and a rim-patrol Selvage Warden that wanders or spawns inside an outpost footprint and dies there releases nothing; rim-patrol wardens felled anywhere fire kill_entity:selvage_warden and its achievements exactly as normal, and release nothing",
+        "An outpost's voidknot stitch-point takes a knotlight as an ordinary Nevermend anchor — a Mender unpicked on the causeway re-stitches at the nearest knotted outpost — and does not satisfy set_anchor, which is evaluated only within the 199x199 footprint of eye_of_the_last_hem (the outposts must_not_overlap it)",
+        "The seal predicates are deliberately NOT spellings of seal_fray: that trigger is the fray-mending verb (achievements.json the_first_fray_sealed; ordering caveat at structures.json unhemmed_stair) and must never fire on the causeway — a seal coming undone is a chord released, not a tear closed"
+      ]
     },
     "arenaFeatures": {
       "floor": "Concentric bands of finished hem that unravel and re-knit on a cycle; unravelled bands drop to the Loosened Dark below.",
@@ -22,7 +57,7 @@
       "beaconPyres": "Mothdust_brick beacon-pyres at the four cardinal points; lit, each grants a brief safe zone the Needle's sweeps will not cross.",
       "bindingAnvil": "A single everthread stitch-point at the center — the binding-anvil where the encounter resolves. Requires an everthread_needle (items.json) to work."
     },
-    "summonRequirement": "all_of[ kill_count:selvage_warden:4 (scope: the four causeway outposts of structure eye_of_the_last_hem; each felled warden lowers one strand of the everthread barrier-chords at the arena mouth; the first kill fires the existing achievement argue_past_certainty via its canonical trigger kill_entity:selvage_warden), structure_unlocked:eye_of_the_last_hem (per structures.json spawnRules — approach_with_everthread_gear OR ride_spoolmare_in:nevermend), set_anchor (scope: evaluated only within the 199x199 footprint of eye_of_the_last_hem; the anchor is set by placing a knotlight on any prepared voidknot stitch-point and knotting to it) ] — no composite trigger string is required: each condition is an individually-evaluable canonical trigger or structure predicate, checked in order by arena-local logic. The encounter begins the instant the anchor-knot is tied. A new permanence, declared at the rim of everything, on the Ravelling's own doorstep: it is the one provocation the Last Needle is constitutionally unable to ignore, and it comes to unpick it.",
+    "summonRequirement": "all_of[ seal_released:seal_measured, seal_released:seal_folded, seal_released:seal_pinned, seal_released:seal_sewn (scope: the four causeway outposts of structure selvage_outpost per structures.json; each predicate is set true — permanently, and in any order — by the canonical trigger kill_entity:selvage_warden bound to the death of that outpost's spawn-tagged seal-holder, wherever the body comes to rest, and lets one strand of the everthread barrier-chords at the arena mouth go slack; the first warden felled fires the existing achievement argue_past_certainty via kill_entity:selvage_warden exactly as any first warden kill does; wardens other than the four seal-holders release nothing, wherever they fall; the predicate family is deliberately not seal_fray, which remains the fray-mending verb per achievements.json the_first_fray_sealed), structure_unlocked:eye_of_the_last_hem (per structures.json spawnRules — approach_with_everthread_gear OR ride_spoolmare_in:nevermend), set_anchor (scope: evaluated only within the 199x199 footprint of eye_of_the_last_hem — an outpost knotlight on the causeway is an ordinary anchor and does not satisfy this; the anchor is set by placing a knotlight on any prepared voidknot stitch-point and knotting to it) ] — no composite trigger string is required: each condition is an individually-evaluable canonical trigger or structure predicate, checked in order by arena-local logic. The encounter begins the instant the anchor-knot is tied. A new permanence, declared at the rim of everything, on the Ravelling's own doorstep: it is the one provocation the Last Needle is constitutionally unable to ignore, and it comes to unpick it.",
     "stats": {
       "hp": 800,
       "defense": "Unwoundable along its length — the shaft takes 0 from every weapon, arrow, and hazard; no knockback, no fire, no status. Damage lands only through the Eye (a 3x3x3 hitbox) during defined exposure windows: 4s after every Hemstroke dive and 5s after every Seam-Rip drag (Phase 1), 3s after every Wide Unweaving plus automatic weapon damage x3 when passing through the Eye during Threading the Dark (Phase 2). Weapon damage versus the Eye per melee hit: needle_iron 4, dawnthread 6, everthread 8 (ranged bolts land at tier value minus 2); hit cadence 1 per 0.8s; each exposure window caps at 48 damage, and total damage clamps at every phase-boundary hp value (480, 120) so no window or bind-chain can skip a phase. In Phase 2 only, each bind_block completed inside the arena strikes for 8 through all defenses (max 10 such binds counted per phase; clamped at 120 hp). From 120 hp (15%) the Needle is fully immune to all damage: the last 120 hp can only be sewn off, 15 per stitch, eight stitches, the eighth drawn taut through the central everthread binding-anvil. It cannot be killed. kill_entity:last_needle fires at the anvil when the eighth stitch is drawn taut."

@@ -12,7 +12,7 @@ And it cannot be killed. The trigger is named `kill_entity:last_needle` because 
 
 ## The Road In: The Approach Causeway
 
-The Eye of the Last Hem is reached along a single causeway of finished hem, held by four Selvage Warden outposts. The wardens are wound from finished hem-thread, more coherent than anything else in the void, and they mend their own wounds as fast as you can open them. Each one felled lowers one strand of the everthread barrier-chords strung across the arena mouth.
+The Eye of the Last Hem is reached along a single causeway of finished hem, held by four Selvage Warden outposts (`structures.json`: `selvage_outpost`, a fixed set of four generated with the arena; seal wiring in `boss.json` `gauntlet.seals`). Menders who came before named them for the four motions that finish a hem — the Measured, the Folded, the Pinned, and the Sewn Posts — and the naming outlived every namer. The wardens are wound from finished hem-thread, more coherent than anything else in the void, and they mend their own wounds as fast as you can open them. Each outpost's warden felled lowers one strand of the everthread barrier-chords strung across the arena mouth.
 
 This gauntlet is the player's tuition. Fighting a warden teaches the core lesson of the whole encounter: **out here, damage is an argument, and the void argues back.** A Mender who cannot out-pace a warden's self-mending is not ready for a thing that mends the entire idea of unmaking.
 

@@ -1,5 +1,5 @@
 {
-  "$comment": "Loomfall bestiary: the 17 canonical mobs from naming.json, with the snake_case entity ids used by achievement triggers (kill_entity:*, tame_entity:*, trade_with:*). core=true marks the ten locked core species. audioArchetype is the sound-design bucket for the audio team: passive_grazer (soft browsing, breath, cropping sounds), trader (voiced murmur, greeting phrases), hostile_groaner (low creaks, strained-thread groans), exploder (pressure-swell then burst), flying_screecher (wingbeat with a thin rising keen). spawnRules.biomes use the canonical naming.json biome ids. stats are balanced against a ~20 hp player baseline, threat rising Warpwold < Cinderloom < Nevermend. Drop ids reference items.json item ids or naming.json block ids only; chance is per-kill (shear/graze drops noted). Kills are spoken gently — unpicked, unmade, laid straight — never gore.",
+  "$comment": "Loomfall bestiary: the 17 canonical mobs from naming.json, with the snake_case entity ids used by achievement triggers (kill_entity:*, tame_entity:*, trade_with:*, breed_entity:*). core=true marks the ten locked core species. audioArchetype is the sound-design bucket for the audio team: passive_grazer (soft browsing, breath, cropping sounds), trader (voiced murmur, greeting phrases), hostile_groaner (low creaks, strained-thread groans), exploder (pressure-swell then burst), flying_screecher (wingbeat with a thin rising keen). spawnRules.biomes use the canonical naming.json biome ids. stats are balanced against a ~20 hp player baseline, threat rising Warpwold < Cinderloom < Nevermend. Drop ids reference items.json item ids or naming.json block ids only; chance is per-kill (shear/graze drops noted). Kills are spoken gently — unpicked, unmade, laid straight — never gore. husbandry is the machine-readable breeding/taming block for passive species: breedingFood and tameFood reference items.json item ids or naming.json block ids only (null = the species does not breed); tameable species fire tame_entity:<id>; bred young fire breed_entity:<id> the moment they are wound new; young drop nothing and cannot breed until grown (two day-cycles, the wool-rewind constant); each parent winds at most one young per day-cycle; mountRequires names the items.json item that gates riding.",
   "mobs": [
     {
       "id": "skeinling",
@@ -15,7 +15,7 @@
         "groupSize": "4-8",
         "rarity": "common"
       },
-      "behavior": "Grazes the Sennmeadows in soft flocks, cropping warpsod in a slow drift toward the nearest stand of knot-flowers; follows any player holding raw_skein within 8 blocks. Utterly trusting — it never flees, never fights, and re-approaches the thing that just struck it. Sheared with needle_iron_shears it yields raw_skein and the wool rewinds over two day-cycles; a freshly sheared skeinling grazes twice as often until regrown. A flock strays no more than 24 blocks from where it woke. Shear, do not slaughter: the flock remembers nothing, which is why someone should.",
+      "behavior": "Grazes the Sennmeadows in soft flocks, cropping warpsod in a slow drift toward the nearest stand of knot-flowers; follows any player holding raw_skein within 8 blocks. Utterly trusting — it never flees, never fights, and re-approaches the thing that just struck it. Sheared with needle_iron_shears it yields raw_skein and the wool rewinds over two day-cycles; a freshly sheared skeinling grazes twice as often until regrown. A flock strays no more than 24 blocks from where it woke. Fed one raw_skein apiece, two grown skeinlings wind a lambkin new between them, each parent once per day-cycle and never past 8 head to a flock — the wool you sheared, given back as more of what grew it. Shear, do not slaughter: the flock remembers nothing, which is why someone should.",
       "stats": {
         "hp": 8,
         "damage": 0,
@@ -24,6 +24,12 @@
       "drops": [
         { "item": "raw_skein", "chance": 1.0, "note": "Sheared with needle_iron_shears; the wool grows back. Shear, do not slaughter." }
       ],
+      "husbandry": {
+        "breedable": true,
+        "breedingFood": "raw_skein",
+        "tameable": false,
+        "note": "Feed one raw_skein to each of two grown skeinlings standing within 8 blocks of each other (both skeins consumed on feeding) and a lambkin is wound new between them 30 seconds later, firing breed_entity:skeinling the moment it is wound. Each parent winds at most one young per day-cycle; no lambkin is wound if 8 or more skeinlings already stand within 24 blocks of either parent at the moment of feeding. A lambkin is grown after two day-cycles (the wool-rewind constant) — before that it drops nothing, cannot breed, and will not answer the shears; its first wool finishes winding as it comes of age."
+      },
       "visual": {
         "palette": ["#F2EAD8", "#DCCDB0", "#B8A47E", "#8A7350", "#C9938A"],
         "silhouette": "A near-perfect ball of wound wool-thread on four two-pixel stub legs, the winding drawn as concentric curved pixel-bands; a small bare face pokes from the front of the ball with two dark dot eyes and a soft pink nose-pixel, and one loose thread-end pixel always trails from the flank, waiting for the shears."
@@ -43,7 +49,7 @@
         "groupSize": "2-4",
         "rarity": "common"
       },
-      "behavior": "Browses the Thrumwood underbrush and the Understitch Downs in small bands, antlers wound like spooled bobbins that unspool a little more each season. Skittish: startles at 16 blocks from a sprinting player or any hostile mob and bounds away in 3-block leaps, unspooling a faint one-pixel thread-trail that fades over 10 seconds — the surest way to track a band to calmer ground. Calm grazing bobbin-deer are the sign the forest has not yet woken for the night; when every deer in earshot startles at once with nothing visible, night's first needlejack has already unbent, and you should already be walking home.",
+      "behavior": "Browses the Thrumwood underbrush and the Understitch Downs in small bands, antlers wound like spooled bobbins that unspool a little more each season. Skittish: startles at 16 blocks from a sprinting player or any hostile mob and bounds away in 3-block leaps, unspooling a faint one-pixel thread-trail that fades over 10 seconds — the surest way to track a band to calmer ground. Calm grazing bobbin-deer are the sign the forest has not yet woken for the night; when every deer in earshot startles at once with nothing visible, night's first needlejack has already unbent, and you should already be walking home. Penned and fed one sennit_grain apiece, two calm deer wind a fawn new between them, its little bobbin-antlers barely started — a standing larder, so long as nothing sprints along the fence line.",
       "stats": {
         "hp": 14,
         "damage": 0,
@@ -53,6 +59,12 @@
         { "item": "thread_sinew", "chance": 0.9 },
         { "item": "hide_cloth", "chance": 0.6 }
       ],
+      "husbandry": {
+        "breedable": true,
+        "breedingFood": "sennit_grain",
+        "tameable": false,
+        "note": "Feed one sennit_grain to each of two grown bobbin-deer standing within 8 blocks of each other, both calm (both grains consumed on feeding; calm = no startle within the last 10 seconds, the thread-trail fade figure) and a fawn is wound new between them 30 seconds later, its little bobbin-antlers barely started, firing breed_entity:bobbin_deer the moment it is wound. Each parent winds at most one young per day-cycle; no fawn is wound if 8 or more deer already stand within 24 blocks of either parent at the moment of feeding. A fawn is grown after two day-cycles — before that it drops nothing and cannot breed. Machine companion to tips.json id a-standing-larder."
+      },
       "visual": {
         "palette": ["#A5764A", "#7C5432", "#52371E", "#E0C9A8", "#D9B98C"],
         "silhouette": "A slender deer on thin two-pixel legs, pale at the belly and darker along the back; the antlers are two short stacked spool-cylinders drawn as flat-topped pixel drums with a single loose thread-pixel unspooling from each, and the short tail is a snipped thread-end rather than a tuft."
@@ -72,7 +84,7 @@
         "groupSize": "2-5",
         "rarity": "uncommon"
       },
-      "behavior": "Wild bands canter along the doubled ghost-rivers of the Downs and shy 12 blocks from any sprinting player. Taming is one mechanic (tame_entity:spoolmare): each mount attempt has a base 15% success chance, +10% for each raw_skein fed to the mare between attempts, capped at 75%; a failed attempt throws the rider without damage. A bonded spoolmare accepts a saddle_frame to sit and answers a whistle within 32 blocks. Ridden in Nevermend, a bonded mare stitches a one-block-wide thread-tread under its hooves across open fray; each stitch of ground unravels 5 seconds after it passes. Tamed spoolmares persist and never despawn. Unpicked, one comes apart into slack sinew — a poor trade for a friend that would have carried you over nothing.",
+      "behavior": "Wild bands canter along the doubled ghost-rivers of the Downs and shy 12 blocks from any sprinting player. Taming is one mechanic (tame_entity:spoolmare): each mount attempt has a base 15% success chance, +10% for each raw_skein fed to the mare between attempts, capped at 75%; a failed attempt throws the rider without damage. A bonded spoolmare accepts a saddle_frame to sit and answers a whistle within 32 blocks. Ridden in Nevermend, a bonded mare stitches a one-block-wide thread-tread under its hooves across open fray; each stitch of ground unravels 5 seconds after it passes. Tamed spoolmares persist and never despawn. Spoolmares do not foal: new mares are wound where the ghost-rivers run, and the Downs keep their own count. Unpicked, one comes apart into slack sinew — a poor trade for a friend that would have carried you over nothing.",
       "stats": {
         "hp": 26,
         "damage": 0,
@@ -81,6 +93,14 @@
       "drops": [
         { "item": "thread_sinew", "chance": 0.5, "note": "Only if unpicked — a poor trade for a friend that would have carried you over nothing." }
       ],
+      "husbandry": {
+        "breedable": false,
+        "breedingFood": null,
+        "tameable": true,
+        "tameFood": "raw_skein",
+        "mountRequires": "saddle_frame",
+        "note": "Taming is the one mechanic (tame_entity:spoolmare — base 15% per mount attempt, +10% per raw_skein fed between attempts, cap 75%). Per structures.json: wild mares grazing the ghost-banks of twice_ford are calmest there ('raised tame chance within the footprint'), and the spoolmare_picket corral holds 2-4 already-gentled mares at 'greatly raised tame chance' — the intended early path to tame_entity:spoolmare. Spoolmares do not foal: new mares are wound where the ghost-rivers run, and the Downs keep their own count. A saddle_frame is required to ride; the bond is required before the frame."
+      },
       "visual": {
         "palette": ["#C8B7E0", "#9E86C2", "#6B5694", "#F0EAF7", "#3A2E52"],
         "silhouette": "A horse silhouette whose body is visibly bundled parallel thread-lines rather than solid flesh — gaps of background show between strands at the belly and neck; the mane and tail trail off into three or four loose unattached thread-pixels that drift behind it."
