@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Loomfall">
+  <!-- Loomfall favicon: simplified icon for 16-32px. Heavier thread, bigger eye,
+       two-strand fray; violet selvage hem + muslin inner hairline keep the plate
+       edge readable at favicon size on any ground. -->
+  <rect width="64" height="64" rx="12" fill="#14101F"/>
+  <rect x="2" y="2" width="60" height="60" rx="10.5" fill="none" stroke="#61539E" stroke-width="3"/>
+  <rect x="4.3" y="4.3" width="55.4" height="55.4" rx="8.4" fill="none" stroke="#EDE7DA" stroke-width="1.2" opacity="0.85"/>
+  <g stroke="#F2C14E" fill="none" stroke-linecap="round">
+    <path stroke-width="7" d="M10.5 31 H44.5 Q50.5 31 50.5 37 V45.5"/>
+    <path stroke-width="4.6" d="M50.5 45.5 C49.5 51 46.5 54 43.5 56"/>
+    <path stroke-width="4.6" d="M50.5 45.5 C52 51 55 53 57 54.5"/>
+  </g>
+  <path fill-rule="evenodd" fill="#EDE7DA" d="M32 14 L49 31 L32 48 L15 31 Z M32 22 L41 31 L32 40 L23 31 Z"/>
+  <path d="M15 31 H27" stroke="#14101F" stroke-width="9.4" fill="none" stroke-linecap="butt"/>
+  <path d="M10.5 31 H29" stroke="#F2C14E" stroke-width="7" fill="none" stroke-linecap="round"/>
+  <circle cx="10.5" cy="31" r="4.6" fill="#F2C14E"/>
+</svg>
