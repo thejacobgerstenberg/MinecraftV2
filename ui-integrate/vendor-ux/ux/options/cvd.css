@@ -1,0 +1,129 @@
+/* =========================================================================
+   Loomfall UX — colorblind-mode token overrides (ux/options/cvd.css)
+
+   Scoped under html[data-lf-cvd="<mode>"] (set by options-store.js;
+   data-colorblind is mirrored for legacy shells but selectors here use the
+   canonical contract attribute). Loaded once for all modes — the attribute
+   does the switching, no per-mode file swapping.
+
+   RULES (architecture contract §5):
+   - ONLY meaning-bearing accents shift: status (success/warn/error/info),
+     rarity edges, and stat fills. Brand neutrals (gold CTAs, violet panels,
+     muslin text, dimension ramps) are untouched.
+   - Every value is a re-mapping of an EXISTING tokens.css token via var()
+     — no raw hex anywhere. Derivations documented per mode below.
+   - Color is never the only channel: the kit's shape glyphs (droplet /
+     stitch-check / fray-knot / frayed-X), rarity stitch patterns and pip
+     silhouettes stay primary. These overrides widen the hue/lightness
+     separation for each deficiency; residual near-collisions are noted.
+
+   KEPT IN ALL MODES (documented decisions):
+   - --lf-accent-knotlight (selection frame) and --lf-color-focus-ring:
+     both are high-luminance golds; selection/focus cues are carried by a
+     luminance frame + stitched notch (shape), legible to all three types.
+   - The --lf-status-* aliases are declared as var(--lf-color-*) references
+     on the same element (html), so they re-resolve to these overrides
+     automatically — do not redeclare them here.
+
+   Light theme: each mode has a second block for html-level
+   [data-theme="light"] AND light-themed subtrees, because tokens.css
+   re-declares the status colors inside [data-theme="light"].
+   ========================================================================= */
+
+/* ------------------------------------------------------------------------
+   DEUTERANOPIA (green-weak/blind — red↔green axis collapses)
+   Dark-theme kit collisions: success #A3E060 (yellow-green) reads like
+   warn gold and error salmon.
+   Substitutions (dark):
+   - success -> --lf-accent-hemstone-cyan (#9CC8D6): moves "good" onto the
+     intact blue axis. 8.8:1 on panel.
+   - error   -> --lf-ramp-cinderloom-5 (#E8722A): stays alarming-warm but
+     separates from warn gold by a full lightness step. 5.2:1 on panel.
+   - info    -> --lf-brand-secondary-lift (#A48FD4): frees the light-blue
+     band for the new success cyan. 5.6:1 on panel.
+   - warn unchanged (#FFD24A — yellow is fully visible to deutans).
+   - --lf-accent-warp-green (uncommon rarity edge) -> --lf-accent-dye-indigo:
+     green edge would read as a dull gold next to the epic gold edge.
+   ------------------------------------------------------------------------ */
+html[data-lf-cvd="deuteranopia"] {
+  --lf-color-success: var(--lf-accent-hemstone-cyan);
+  --lf-color-error: var(--lf-ramp-cinderloom-5);
+  --lf-color-info: var(--lf-brand-secondary-lift);
+  --lf-accent-warp-green: var(--lf-accent-dye-indigo);
+}
+
+/* Light: success -> dye indigo (#35509E, 5.5:1 on light panel); error ->
+   --lf-brand-secondary (#4A3670, 7.5:1) — deutans see violet as blue,
+   clearly apart from the ochre warn. Residual: info (#2C517E) and the new
+   indigo success are both blues — the droplet vs stitch-check glyphs
+   disambiguate (documented residual, not hue-fixable with dark-on-light
+   tokens). */
+html[data-lf-cvd="deuteranopia"][data-theme="light"],
+html[data-lf-cvd="deuteranopia"] [data-theme="light"] {
+  --lf-color-success: var(--lf-accent-dye-indigo);
+  --lf-color-error: var(--lf-brand-secondary);
+  --lf-color-info: var(--lf-pair-light-info-fg); /* reset: dark-block lavender would fail on parchment */
+  --lf-accent-warp-green: var(--lf-accent-dye-indigo);
+}
+
+/* ------------------------------------------------------------------------
+   PROTANOPIA (red-weak/blind — as deuteranopia, PLUS deep reds lose
+   perceived luminance and go near-black)
+   Same substitution set as deuteranopia, with one addition:
+   - --lf-accent-madder (health-pip fill #B03A52) -> --lf-ramp-cinderloom-5:
+     madder would dim to mud for protans; cinder orange keeps the health
+     row bright. (Health pips share the danger-warm family with error by
+     design; the kite pip silhouette is the identity cue.)
+   ------------------------------------------------------------------------ */
+html[data-lf-cvd="protanopia"] {
+  --lf-color-success: var(--lf-accent-hemstone-cyan);
+  --lf-color-error: var(--lf-ramp-cinderloom-5);
+  --lf-color-info: var(--lf-brand-secondary-lift);
+  --lf-accent-warp-green: var(--lf-accent-dye-indigo);
+  --lf-accent-madder: var(--lf-ramp-cinderloom-5);
+}
+
+html[data-lf-cvd="protanopia"][data-theme="light"],
+html[data-lf-cvd="protanopia"] [data-theme="light"] {
+  --lf-color-success: var(--lf-accent-dye-indigo);
+  --lf-color-error: var(--lf-brand-secondary);
+  --lf-color-info: var(--lf-pair-light-info-fg); /* reset: dark-block lavender would fail on parchment */
+  --lf-accent-warp-green: var(--lf-accent-dye-indigo);
+  --lf-accent-madder: var(--lf-ramp-cinderloom-4); /* darker cinder for the light panel (>=3:1 non-text) */
+}
+
+/* ------------------------------------------------------------------------
+   TRITANOPIA (blue-yellow — blue↔green and yellow↔pink collapse)
+   Dark-theme kit collisions: info light-blue reads green (collides with
+   success green); warn gold and error salmon both drift pinkish.
+   Substitutions (dark):
+   - info -> --lf-brand-primary-pale (#FFF6DF): info becomes a pale-thread
+     neutral (14:1) — the droplet glyph carries the semantics; it no longer
+     sits on the collapsing blue axis at all.
+   - warn -> --lf-accent-weld (#D9B93A): a full lightness step below error
+     salmon, so warn vs error separate by lightness where hue fails. 7.9:1.
+   - success (#A3E060) and error (#FF8578) unchanged — the red↔green axis
+     is intact for tritans.
+   - --lf-accent-hemstone-cyan (rare rarity edge, armor pips, hotbar item
+     flash) -> --lf-brand-secondary-lift: cyan is the classic tritan
+     casualty (reads green, colliding with the uncommon green edge);
+     lavender reads pink — apart from green. Residual: lavender-pink sits
+     near the epic gold edge for tritans; the epic double-stitch pattern
+     vs the rare single edge disambiguates.
+   ------------------------------------------------------------------------ */
+html[data-lf-cvd="tritanopia"] {
+  --lf-color-info: var(--lf-brand-primary-pale);
+  --lf-color-warn: var(--lf-accent-weld);
+  --lf-accent-hemstone-cyan: var(--lf-brand-secondary-lift);
+}
+
+/* Light: info blue (#2C517E) would read green next to success dark-green
+   (#38601A) — re-thread info to --lf-brand-secondary (#4A3670, 7.5:1).
+   Warn/success/error keep their light values (already separated by
+   lightness on parchment). Rare edge remap as in dark. */
+html[data-lf-cvd="tritanopia"][data-theme="light"],
+html[data-lf-cvd="tritanopia"] [data-theme="light"] {
+  --lf-color-info: var(--lf-brand-secondary);
+  --lf-color-warn: var(--lf-pair-light-warn-fg); /* reset: dark-block weld would fail on parchment */
+  --lf-accent-hemstone-cyan: var(--lf-brand-secondary-lift);
+}
