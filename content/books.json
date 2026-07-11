@@ -1,0 +1,196 @@
+{
+  "books": [
+    {
+      "id": "journal_the_house_it_liked_less",
+      "title": "The House It Liked Less",
+      "type": "journal_page",
+      "placement": [
+        "unpicked_manor"
+      ],
+      "text": "Third day in the tall house. Whoever raised it changed their mind midway and did not trouble to finish disliking it — the stair climbs three steps and gives up, the doorways open on air, and where the furniture stood there are only pressed outlines in the loam, as if the chairs were not moved but forgiven. The silence-moths keep the upper landings now, thick as grey frost; beneath them the house does not so much creak as decline to. One wall in the cellar is finished. Truly finished — you can feel the difference under your palm, the way the threads lie content. Everything the Weaver completed, they completed by accident, on the way to something else. I am sleeping in the finished corner tonight. It is the only part of the house that is not still waiting to be told what it is."
+    },
+    {
+      "id": "lore_scroll_the_telling",
+      "title": "The Telling of How the Ground Was Made",
+      "type": "lore_scroll",
+      "placement": [
+        "unpicked_manor",
+        "wickerkin_weft_hamlet"
+      ],
+      "text": "A Wickerkin lore-scroll, sold and resold, the ink gone tea-brown: In the beginning the Teller made the ground, and saw that it was mostly right, and moved on, for the Teller had a great deal to do. And the Teller made the hills twice, because the first hills were too proud. And the river was put where rivers go, and then put somewhere better. And the Teller made the folk of cane and kindness and said — here the scroll is worn; the word is gone — and the folk waited to hear the rest, and wait yet, for a story is a promise, and the Teller was never once known to break — the scroll ends in a decorated border, very carefully done, with room left for more words."
+    },
+    {
+      "id": "journal_mid_twist",
+      "title": "Mid-Twist",
+      "type": "journal_page",
+      "placement": [
+        "tangle_spire"
+      ],
+      "text": "The tower is a rope the world started to braid and then set down. Not unpicked, mind — the old drafts got unpicked, you can see their ghosts all through the Downs — this one was simply turned away from, and that is worse, somehow. An unpicked thing was at least reconsidered. The knotlights on the landings are burned past waking; whatever vigil they were lit for outlasted them. I climbed to where the braid splays open and the strands hang loose as hair, and the Thrum in there is loud enough to feel in your teeth. I understand why the jacks nest in the crown. They like it where the weave is still deciding. So did the Weaver, I suppose, right up until they didn't."
+    },
+    {
+      "id": "warning_the_water_that_was",
+      "title": "A Courtesy Concerning the Old Crossing",
+      "type": "warning",
+      "placement": [
+        "twice_ford",
+        "spoolmare_picket"
+      ],
+      "text": "To any soul grazing mares at the old crossing — a courtesy, from the Downs folk: The bridge is honest. The river under it is not there, and mostly knows it. But stand on the middle span at dusk and look along the shimmer, and you will see the water the valley used to wear, running hard and cold and certain it still matters. Do not pity it aloud. Do not wade in what you see. One of ours knelt to drink from the remembering, and came up with her hands wet from a river forty drafts gone, and was never afterward entirely sure which crossing she had made. The mares know. The bobbin-deer will not so much as cross. Graze where the mares graze."
+    },
+    {
+      "id": "warning_meadow_beneath",
+      "title": "Stop Walking",
+      "type": "warning",
+      "placement": [
+        "meadow_beneath"
+      ],
+      "text": "If you have found the ring of stumps, stop walking. This courtesy was learned dearly; take it free. There is a meadow under the meadow. The grass you stand on was drawn over an older grass that was never fully taken out, and the older grass has not finished leaving. Sometimes one of the Understruck comes up through the thin place to stand in the ghost of its old field. It is not hunting. It is remembering, in the only shape remembering left it. Let it. Do not approach, do not offer light, and if it turns its face toward you, hold still and be a thing it might once have known. It will go back down when the grass forgets again. It always forgets again. Pity it for that, from here."
+    },
+    {
+      "id": "journal_the_stair_before_the_ground",
+      "title": "The Stair Before the Ground",
+      "type": "journal_page",
+      "placement": [
+        "unhemmed_stair"
+      ],
+      "text": "The stair was here before the ground. You can see it plain in the clear stretches: the steps hang through the sketch of the world like thread through a practice-cloth. The Weaver drew the way down first and the hill around it second, and never finished the hill. Which means the down mattered more. The last eleven steps are the cold black stuff, voidknot, older than any of it, and at the bottom there is a sealed landing, and behind the seal something breathes the way a gap breathes. The hounds den under the mid-flight. They will not go lower than the last honest step. I am going lower. If the hill is ever finished, tell it I said"
+    },
+    {
+      "id": "letter_forty_two_marks",
+      "title": "Forty-Two Marks",
+      "type": "letter",
+      "placement": [
+        "fallen_loomgate"
+      ],
+      "text": "Forty-one marks on the slab now, one for each time I have tried to wake the gate. It drifted here entire, the way lost things do in the fray — though on the bad nights I remember dragging it, and the telling costs more than the doing did — because it carried me down to the burning once, and I believed a door is a door from either side. It is not. The fray does not thread twice. The arch is snapped in three and the dark inside it is only dark. I have laid a ring of voidknot, which the Unpicked will not cross, though they circle it patient as weather, and the Ravelers pick at the ring's edge and find nothing worth taking. If you find this: the way home is not behind you. I do not yet know where it is. Forty-two."
+    },
+    {
+      "id": "hymn_bar_the_door",
+      "title": "The Dusk-Song",
+      "type": "hymn",
+      "placement": [
+        "wickerkin_weft_hamlet"
+      ],
+      "text": "Bar the door and bless the bar, / sing the dark politely far. / We are woven, we are warm, / nothing hollow comes to harm. // Needle-guests outside the pane, / walk your hunger home again; / we have swept, and we have prayed, / we are cloth and unafraid. // Keep the lamp. Keep the thread. / Keep the supper table spread — / for the Teller's on the morrow's road / and carries home the chapter owed. // (Sung at dusk, all together, courteously, until the listening outside loses interest. If the singing falters, begin again. It has always worked. It only has to always work.)"
+    },
+    {
+      "id": "hymn_grace_for_the_standing_feast",
+      "title": "Grace for the Standing Feast",
+      "type": "hymn",
+      "placement": [
+        "wickerkin_weft_hamlet"
+      ],
+      "text": "We set the table in the spring; / the spring went by. We set it new. / The bowl is turned, the cloth is clean, / the chair is drawn, the door in view. // We do not ask when. Asking wears / the waiting thin, and thin things fray. / We only keep the supper warm / a hundred years, another day. // Whoever wove us meant to come / and tell us how the story ends. / A guest is late. A guest is not / a thing that never — sing it, friends: / We set the table in the spring; / the spring went by. We set it new."
+    },
+    {
+      "id": "hymn_the_drumming_song",
+      "title": "The Drumming Song of the Herders",
+      "type": "hymn",
+      "placement": [
+        "spoolmare_picket"
+      ],
+      "text": "Drummed soft on the picket posts at night, palm and knuckle, in turns: We do not ride. We never learned; / our legs were woven for the ground. / But mares get lonely being fast, / with all that quick and nowhere bound. // So drum the post and dim the light / and let them stand with heads together — / they speak of running, we of night, / and both of us, a bit, of weather. // The Weaver made them for a course / that never got its finish drawn. / We keep them company, of course. / What else is company for? Drum on."
+    },
+    {
+      "id": "rhyme_the_five_threads",
+      "title": "A Counting Rhyme for Little Ones",
+      "type": "rhyme",
+      "placement": [
+        "wickerkin_weft_hamlet",
+        "spoolmare_picket"
+      ],
+      "text": "A counting rhyme of the woven folk, for teaching the small ones their threads: Knotwood first, that bends and gives, / for hands still learning how anything lives. / Threadstone next, that holds and stays, / for walls and wells and working days. / Needle-Iron, cold and true, / for mending what the tearing knew. / Dawnthread then, if dawn you find, / spun where the light was first designed. / And last a thread you cannot spin, / that all the others hide within — / the First, the One, the Everthread. / You will not hold it. Hold my hand instead."
+    },
+    {
+      "id": "guestlog_the_vigil_slate",
+      "title": "The Guest-Slate",
+      "type": "guest_log",
+      "placement": [
+        "menders_vigil_waystation"
+      ],
+      "text": "Scratched in the guest-slate, in different hands: — Took cloth. Left a skein off my own skeinlings. Pass is clear east across the Warpwold. Walk soft. — B. // — Took the dawnthread sliver, and I am sorry, but I am going down the fray and will need it more than you. Left everything else I had. Count it; you'll see. — no name // — Took nothing. Left bread. My anchor held last night, first time. Whoever built this place: it held. — T., newly woken // — Took bread. Left this: the Needle is not a story. I saw the hem move. Go home. — R. // — There is no home it will not eventually reach. Took the warning. Left the lamp lit. — the last hand, unsigned"
+    },
+    {
+      "id": "journal_for_the_next_to_wake",
+      "title": "For the Next One to Wake",
+      "type": "journal_page",
+      "placement": [
+        "menders_vigil_waystation"
+      ],
+      "text": "For the next to wake, because someone left words for me and I did not believe them either. It is not madness. The morning you woke, you did not wake out of a dream; you woke into the plain truth, and the truth is that the grass is thread, and the sky, and your mother, and the bread. Do not tell your village. They cannot hear it as anything but cruelty, and they will be right. Come up to the passes instead. Mend small things first — a fence, a fray no wider than your hand. The world does not need you to save it yet. It needs you to practice. The light on the plinth is for you. It was for me, once. It works by being left."
+    },
+    {
+      "id": "ledger_watch_of_the_scaldwatch",
+      "title": "Watch Ledger, Span of the Molten Skein",
+      "type": "ledger",
+      "placement": [
+        "scaldwatch_bastion"
+      ],
+      "text": "WATCH LEDGER, SCALDWATCH. Standing order: hold the crossing. Let no thread pass that does not sing true. Countermand: none received. This shift reported to the western niche at the turning of the spindle. The niche was empty. This is noted, as it has been noted, and the report was given in full, as is proper. The count of shifts since the last order stands at — the figure runs off the page in tallies, column after column, the later marks pressed harder — Requisition: none. The stores hold. The walls hold. The wardens hold. Beneath, in a smaller hand: If the Weaver reads this — we did not doubt. Some of us learned to want to. We reported that too."
+    },
+    {
+      "id": "ledger_tithe_roll_south_tower",
+      "title": "Tithe Roll, South Tower",
+      "type": "ledger",
+      "placement": [
+        "scaldwatch_bastion"
+      ],
+      "text": "TITHE ROLL, SOUTH TOWER. Received of the spinners under the bridge: nine bales scorched silk, fair weight, tithed without complaint as ever. Quenched and stacked. Received of the molten skein: heat, in the usual quantity. Dispatched upward to the cloth-realm: nothing, no requisition having come. The stores stand at full. The overflow galleries stand at full. We have begun stacking the silk in the empty niches, having no better use for either. It is not for the wardens to ask what the making is for. It is noted only that the cloth above has not sent down for warmth in living memory, and that the fires are kept regardless, and that the silk is very fine."
+    },
+    {
+      "id": "inscription_the_offering_altar",
+      "title": "The Offering Behind the Third Gate",
+      "type": "inscription",
+      "placement": [
+        "spindlegate"
+      ],
+      "text": "Carved into the tallowstone altar behind the third gate, in warden-script, set down here by an earlier hand: HERE IS LAID ONE STRAND OF THE FIRST THREAD, DRAWN FROM THE DEEPEST SPINDLE, QUENCHED IN THE OLD WAY, AWAITING THE HAND OF THE WEAVER. IT IS NOT FOR THE WARDENS. IT IS NOT FOR THE FIRE. IT IS NOT FOR YOU. Beneath, in the same translating hand: They renew the strand when the heat dulls it. They have renewed it more times than the guardroom tallies can hold. The gate has forgotten it was built to keep the fire in, and the offering has not been told it will never be collected. I took it anyway. May whatever wakes below forgive me. The wardens will not."
+    },
+    {
+      "id": "ledger_keepers_roll",
+      "title": "Keepers' Roll, the Cool Shelves",
+      "type": "ledger",
+      "placement": [
+        "tallow_reliquary"
+      ],
+      "text": "KEEPERS' ROLL, THE COOL SHELVES. Nothing herein was ordered saved. Let that be set down plainly, once, where the fire cannot read it. The standing order says: all first-draft work returns to the flame, that the thread be drawn again. That order was given when the Weaver still came to choose which drafts were worth the keeping. The Weaver no longer comes. The choosing stopped. The burning did not. So we keep them — the trial knots, the practice-cloth, the small woven bird that does not fly. We built the cold to hold them. We stand between them and the waxlings, who would only love it all into wax, and we tell ourselves it is not disobedience if no one comes to be disobeyed. If a hand reads this that is not a warden's: they will fight you for these, and grieve while they do it. Feel it too. That is all we ask."
+    },
+    {
+      "id": "letter_on_stone",
+      "title": "Written on Stone",
+      "type": "letter",
+      "placement": [
+        "stitched_stead"
+      ],
+      "text": "Love — I am writing on stone because paper does not last here, and I am not sure I do either. We came out four. I write this one. Marn went in her sleep, if the Ravelling can be said to let you sleep; the island she watched from is not there anymore, and neither — I set a slate for her. I set three slates. The causeway is finished as far as I could take it, a stitch a day toward the last selvage, and I have bound the doorframe and the chest in bindwax, so that something of us stays refused. The weather here does not hate us. That is the worst of it. I could have carried hate. If this reaches you, I did not, and you knew it the moment you saw stone instead of paper. Kiss the small one. Keep the door bound."
+    },
+    {
+      "id": "notes_everthread_tempering",
+      "title": "Tempering Notes, Hemstone Slate",
+      "type": "tempering_notes",
+      "placement": [
+        "stitched_stead"
+      ],
+      "text": "For whoever's hands come after mine. Everthread cannot be made. Get that hope out of your grip early; it will cost you a finger to keep it. It was drawn once, at the first, and everything since is that same drawing. What you can do is re-thread: take dawnthread work — good, finished dawnthread work, there is no shortcut through the making — and work the old strand over it; any honest handloom will take the working, though your hands will not soon forgive you. The gear remembers what it was near the start of things. The strand the wardens keep on their altar in the Cinderloom is real. The one below, the one the First Bobbin coils around, is realer. Cost me what it cost me. Eight stitches bind a thing that cannot die. I proofed the count on smaller frays. Eight. Remember the number when you get there."
+    },
+    {
+      "id": "memorial_the_rim_carving",
+      "title": "The Carving on the Rim",
+      "type": "memorial",
+      "placement": [
+        "eye_of_the_last_hem"
+      ],
+      "text": "Carved into the hemstone rim in many hands, each line taken up where the last hand failed, only the final line stopping mid-stroke: WE CAME OUT PAST THE LAST OF EVERYTHING TO SEE WHAT THE WORLD WAS HEMMED WITH. WE LIT THE PYRES. WE LAID THE STITCH-POINTS. NOT FOR US — WE KNEW BY THEN. FOR THE ONE WHO COMES WHOLE, WITH THE FIRST THREAD IN HAND. IT CANNOT BE KILLED. WE TRIED, AND WE ARE SORRY FOR THE TRYING, FOR IT ONLY UNPICKS, AND EVERYTHING WE STRUCK IT WITH IT PATIENTLY UNMADE. BIND IT AT THE EYE. TEACH IT THE OTHER STROKE. IT HAS ONLY EVER KNOWN THE ONE, AND THAT IS NOT ITS FAULT. AND WHEN YOU HAVE BOUND IT, DO NOT MISTAKE"
+    },
+    {
+      "id": "letter_three_stitches",
+      "title": "Three Stitches",
+      "type": "letter",
+      "placement": [
+        "eye_of_the_last_hem"
+      ],
+      "text": "If you are reading this at the anvil, the wardens on the causeway are behind you, unwound, the last chord down, which means you carry the true thread, which means you are the one we set the table for — no. Forgive me. I have been too long among the Wickerkin hymns. Plainly, then: I never reached the anvil. I crossed Nevermend with the strand in my hand, and at the rim my nerve went — not my strength, my nerve — for I watched the Needle at its work, patient as weather, tidying the world out of the world, and I understood that to bind it is to answer the question the Weaver left open, and I had no answer. I laid three stitch-points at the rim's edge and came away. They will hold your thread when you set it. Do not mistake them for a victory; they are a bequest. Have your answer before you come."
+    }
+  ]
+}

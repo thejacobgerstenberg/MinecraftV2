@@ -1,0 +1,158 @@
+{
+  "$comment": "Loomfall death messages. Every string is a third-person broadcast containing {player}. Kills are spoken gently — unpicked, unmade, unwound, laid straight — never gore; pity over hate. Cause ids: mob:* ids match bestiary.json entity ids exactly. 'lava' and 'explosion' are engine-facing fallback ids kept for systems compatibility — in fiction the liquid is always the molten skein (see naming.json/tips.json) and the only canon blast source is the waxling burst; builders should not invent new blast sources, and no in-game string may say 'lava'.",
+  "deathMessages": [
+    {
+      "cause": "fall",
+      "messages": [
+        "{player} was dropped, like a stitch.",
+        "{player} came down faster than the pattern could think to catch.",
+        "{player} mistook a long way down for a short one. The ground kept every knot to itself."
+      ]
+    },
+    {
+      "cause": "lava",
+      "note": "Engine fallback id retained for systems compatibility; the fiction calls it the molten skein, never lava.",
+      "messages": [
+        "{player} went into the molten skein and came out as someone else's color.",
+        "{player} stepped into a river of thread still deciding what to be. It decided without them.",
+        "{player} was rendered back to raw thread in the making-fire. The Cinderloom did not notice the donation."
+      ]
+    },
+    {
+      "cause": "drowning",
+      "messages": [
+        "{player} forgot that a Mender is mostly wool, and wool takes on water.",
+        "{player} went under the weave of the water and never found the surface stitch."
+      ]
+    },
+    {
+      "cause": "explosion",
+      "note": "Engine fallback id. The only canon blast source is the waxling burst (covered under mob:waxling); this cause exists for systems compatibility, and builders should not invent new blast sources to feed it.",
+      "messages": [
+        "{player} came apart all at once, which is at least tidier than slowly.",
+        "{player} was scattered past mending. The pieces remain fond of one another."
+      ]
+    },
+    {
+      "cause": "starvation",
+      "messages": [
+        "{player} ran out of thread halfway through the pattern.",
+        "{player} wound down to the bare spool. Even a Waking Thread must be fed back into itself."
+      ]
+    },
+    {
+      "cause": "fire",
+      "messages": [
+        "{player} caught, and burned, and the smoke rose toward a Weaver who was not watching.",
+        "{player} learned that thread and fire were never meant to keep long company."
+      ]
+    },
+    {
+      "cause": "cinderloom_heat",
+      "messages": [
+        "{player} stood still in the Emberwarp, which down there counts as volunteering.",
+        "{player} carried Warpwold's chill too deep, and the heat of first-making warmed them past holding."
+      ]
+    },
+    {
+      "cause": "void_unravel",
+      "messages": [
+        "{player} drifted past the last selvage, and the dark picked them apart with great patience.",
+        "{player} fell where a dropped thread falls forever. In a loose sort of way, they are falling still.",
+        "{player} came undone in Nevermend. The Ravelling was not unkind about it; it is only the weather there."
+      ]
+    },
+    {
+      "cause": "mob:needlejack",
+      "messages": [
+        "{player} was stitched into a needlejack's count. It stands a little taller now, and is no less wrong.",
+        "{player} stayed out past the unbending hour.",
+        "{player} was unpicked by something that is not cruel, only wrong-woven, and was never allowed to be anything else."
+      ]
+    },
+    {
+      "cause": "mob:understruck",
+      "messages": [
+        "{player}'s thread was drawn out, slowly and sorrowfully, by hands no one ever tidied away. Do not mistake it for a victory; it is still not whole.",
+        "{player} held still one moment past the mercy of the Understruck."
+      ]
+    },
+    {
+      "cause": "mob:frayed_hound",
+      "messages": [
+        "{player} was worried loose at the hems. The pack politely waited until two of them could see.",
+        "{player} stopped to mend the fraying, and the second hound was already behind them."
+      ]
+    },
+    {
+      "cause": "mob:silence_moth",
+      "messages": [
+        "{player} stood still while the Silence-Moths took the armor stitch by stitch, and then took the rest. None of it made a sound.",
+        "{player} was nibbled down to bare warp by things too gentle to mean it."
+      ]
+    },
+    {
+      "cause": "mob:emberspinner",
+      "messages": [
+        "{player} was snared in burning silk and kept, briefly, like something precious.",
+        "{player} slowed by half, and half again, and the emberspinner came along its own line to collect."
+      ]
+    },
+    {
+      "cause": "mob:waxling",
+      "messages": [
+        "{player} was sealed in hot tallow, like a letter no one will send.",
+        "{player} let the soft slumping thing come close enough to give everything it had."
+      ]
+    },
+    {
+      "cause": "mob:scaldwarden",
+      "messages": [
+        "{player} took from the forges, and an order no one ever cancelled was carried out to the letter.",
+        "{player}'s warmth was drawn out through a spindle-stave by a keeper that has already resumed its rounds, murmuring the report to an empty niche."
+      ]
+    },
+    {
+      "cause": "mob:slagmoth",
+      "messages": [
+        "{player} carried the cold of home into the Wastes, and the slagmoths came to fix it.",
+        "{player} was warmed all the way through, inside their own armor, by things that only wanted the chill gone."
+      ]
+    },
+    {
+      "cause": "mob:molthkin",
+      "messages": [
+        "{player} was wound onto the First Bobbin and fed to a fire that still believes the Weaver is coming back.",
+        "{player} became new thread for a work that cannot finish. The First Bobbin did not stop turning."
+      ]
+    },
+    {
+      "cause": "mob:unpicked",
+      "messages": [
+        "{player} was taken apart, thread by borrowed thread, by something trying to be whole again. It is still not. Nothing marks the spot.",
+        "{player} was gathered in by The Unpicked, and the pattern has already forgotten what they carried."
+      ]
+    },
+    {
+      "cause": "mob:raveler",
+      "messages": [
+        "{player} dangled, for one moment, like untidiness. A raveler came and tidied.",
+        "{player} was undone mid-grip by something that never hated what they built."
+      ]
+    },
+    {
+      "cause": "mob:selvage_warden",
+      "messages": [
+        "{player} raised a point against the finished edge. The hem had heard it before, and kept its answer wound and waiting.",
+        "{player} was laid straight along the hem, in the neat, unhurried way of a thing that has only ever had one duty and no doubt."
+      ]
+    },
+    {
+      "cause": "mob:last_needle",
+      "messages": [
+        "{player} stood on the line the Last Needle meant to unpick, and went with it. The Needle did not notice the difference.",
+        "{player} met the point of the horizon. It is not done. Neither, quite, was {player}; the anchor held."
+      ]
+    }
+  ]
+}

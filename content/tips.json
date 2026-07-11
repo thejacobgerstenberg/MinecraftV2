@@ -33,7 +33,7 @@
     {
       "id": "thread-wears-thin",
       "system": "hunger",
-      "text": "Your thread wears thin as you work and wander. Roast bobbin-deer, bread of grown grain, a fish off the Dyewater Coast — eat, or your cloth begins to fray from want alone, with nothing having laid a hand on you at all."
+      "text": "Your thread wears thin as you work and wander. Berries thick from the hedgerows, bread of grown grain, a fish off the Dyewater Coast — eat, or your cloth begins to fray from want alone, with nothing having laid a hand on you at all."
     },
     {
       "id": "nothing-holds-itself",
@@ -73,7 +73,7 @@
     {
       "id": "the-last-upgrade",
       "system": "crafting",
-      "text": "Threadstone serves at first, Needle-Iron longer, Dawnthread longer still — yet each is only cloth grown hard, and cloth can be undone. Everthread alone was drawn in an unfinished world, and so a finished one has no hold on it. Nothing you ever carry will outlast it."
+      "text": "Knotwood carries a first morning, Threadstone serves at first, Needle-Iron longer, Dawnthread longer still — yet each is only cloth grown hard, and cloth can be undone. Everthread alone was drawn in an unfinished world, and so a finished one has no hold on it. Nothing you ever carry will outlast it."
     },
     {
       "id": "understruck-grief",
@@ -88,12 +88,12 @@
     {
       "id": "never-sit-down",
       "system": "dimensions",
-      "text": "The Cinderloom keeps no shade and grants no night, and to stand too long on Cinderthread is a slow way to be unmade from the feet upward. Bring water, and settle on a way back before ever you go in — and whatever your legs tell you down there, do not sit to rest."
+      "text": "The Cinderloom keeps no shade and grants no night, and to stand too long on Cinderthread is a slow way to be unmade from the feet upward. Nothing runs cool down there, so carry Frostlace for the quenching, and settle on a way back before ever you go in — and whatever your legs tell you down there, do not sit to rest."
     },
     {
       "id": "slagmoths-cold",
       "system": "combat",
-      "text": "Slagmoths are drawn not to light but to cold, and you come into the fire carrying the whole chill of Warpwold on your skin. They gather to it and cook you inside your own armor. Shed heat where you can, and keep moving, so they never quite settle onto you."
+      "text": "Slagmoths are drawn not to light but to cold, and you come into the fire carrying the whole chill of Warpwold on your skin. They gather to it and cook you inside your own armor. Shed the chill where you can — even a moment's footing on warm cinderthread reads as too warm to be worth wanting — and keep moving, so they never quite settle onto you."
     },
     {
       "id": "stitch-your-path",
@@ -138,17 +138,17 @@
     {
       "id": "frayed-hounds-bite",
       "system": "combat",
-      "text": "Frayed hounds run in packs out of the Muslin Fens and the Unfinished Hem, and their bite does not stop when the jaws let go — it leaves your own cloth unravelling with every stride you take after. Reach a safe fire and mend it, or you will bleed thread the whole way home."
+      "text": "Frayed hounds run in packs out of the Muslin Fens and the Unfinished Hem, and their bite does not stop when the jaws let go — it leaves your own cloth unravelling with every stride you take after. Stand still a few breaths to mend the seam, or press a mothdust poultice to it; keep running and you will bleed thread the whole way home."
     },
     {
       "id": "shear-not-slaughter",
       "system": "hunger",
-      "text": "Skeinlings crop the meadow in trusting flocks. Shear one for Raw Skein and the wool returns in a few days' grazing; kill it for meat and there is only the once. A patient Mender keeps a flock and eats from it for many nights without ever thinning the herd."
+      "text": "Skeinlings crop the meadow in trusting flocks. Shear one for Raw Skein and the wool returns in a few days' grazing; unpick one and you get nothing the shears would not have given twice over. A patient Mender keeps a flock and lives off it for many seasons without ever thinning the herd."
     },
     {
       "id": "a-standing-larder",
       "system": "farming",
-      "text": "Give two bobbin-deer the grain they favor and in time a fawn is wound new between them, its little bobbin-antlers barely started. A penned herd is a larder that refills itself — thread-sinew, hide-cloth, meat — and far kinder on your nights than stalking the Thrumwood in the dark."
+      "text": "Give two bobbin-deer the grain they favor and in time a fawn is wound new between them, its little bobbin-antlers barely started. A penned herd is a store that refills itself — thread-sinew and hide-cloth without ever leaving your gate — and far kinder on your nights than stalking the Thrumwood in the dark."
     },
     {
       "id": "never-straight-down",
@@ -198,7 +198,7 @@
     {
       "id": "selvage-wardens",
       "system": "combat",
-      "text": "The Selvage Wardens stand across the last edge, wound from finished hem-thread and closing their own wounds as fast as ever you can open them. Fighting one is less a battle than a slow disagreement you were always going to lose. Come rethreaded in Everthread, or do not come at all."
+      "text": "The Selvage Wardens stand across the last edge, wound from finished hem-thread and closing their own wounds as fast as ever you can open them. Only a heavy blow makes them pause in the mending, so light taps buy you nothing. Come with Dawnthread in your hands at the least, or do not come at all."
     },
     {
       "id": "gild-your-work",
@@ -298,7 +298,7 @@
     {
       "id": "cook-it-first",
       "system": "hunger",
-      "text": "Raw meat sits poorly and can fray you from the inside as surely as any hound. Hold it to a Knotlight's flame or set it in the furnace first. Fire is the one gift the Cinderloom ever sent up to the surface, paid for in its endless burning — spend a little of it on warmth and an honest meal."
+      "text": "A raw catch off the Dyewater sits poorly and can fray you from the inside as surely as any hound. Hold it to a Knotlight's flame or set it in the furnace first. Fire is the one gift the Cinderloom ever sent up to the surface, paid for in its endless burning — spend a little of it on warmth and an honest meal."
     },
     {
       "id": "the-choice-unstitched",
