@@ -23,12 +23,17 @@ python3 -m http.server 8099        # or: npm run serve
 `setWeather('clear'|'rain'|'snow')`, `setUnderwater(bool)`,
 `setQuality('low'|'medium'|'high'|'ultra')`,
 `toggle(name, bool)` for
-`ao|sky|shadows|water|post|particles|fog|portal|crack|viewmodel|torchlights|wind|biome`,
-`setView('hero'|'sunrise'|'closeup'|'firstperson'|'portal'|'torches')`, plus the
+`ao|sky|shadows|water|post|particles|fog|portal|crack|viewmodel|torchlights|wind|biome`
+plus the Phase 3 names `ssao|godrays|bloom|greedy` (`greedy` A-Bs the chunk
+between the greedy and classic meshers live),
+`setView('hero'|'sunrise'|'closeup'|'firstperson'|'portal'|'torches')`, the
 Phase 2 calls: `setPortalDimension('warpwold'|'cinderloom'|'nevermend')`,
 `triggerBreak()`, `setHeldItem('block:<id|name>'|'tool:pickaxe'|null)`,
 `swing()`, `setBiome('plains'|'desert'|'tundra'|'swamp'|'cinder')` and
-`setTorchCount(n)` (0..500 synthetic stress registrations)), and
+`setTorchCount(n)` (0..500 synthetic stress registrations), and the Phase 3
+calls `setFov(deg)` (clamped 30..120) and `setFpsCap(n)` (0 = uncapped —
+render-loop throttle, rAF stays scheduled). `window.demo.settings` is the
+mounted settings-panel handle (see the settings section below).
 `window.__demoReady === true` after the first rendered frame. `window.__gui.hide()/show()` toggles the panel from
 automation scripts. `verify.mjs` is the headless Playwright harness that
 produced the screenshots below.
@@ -47,6 +52,9 @@ produced the screenshots below.
 | ![portal](./screenshots/08-portal.png) | Portal gate (Phase 2): obsidian-textured voxel frame, three-layer parallax swirl shader with fbm filaments, palette-tinted point light painting the terrain, drifting energy motes. |
 | ![firstperson](./screenshots/09-firstperson.png) | First-person view model (Phase 2): held atlas-textured block + blocky arm anchored lower-right, idle bob, swing arc on every block break, drawn over world geometry. |
 | ![torches](./screenshots/10-torches.png) | Pooled torch lighting at night (Phase 2): dozens of registered torches, a fixed budget of real point lights snapped to the nearest N, flame flicker + cross-fade handoff, emissive coal heads feeding bloom. |
+| ![godrays](./screenshots/11-godrays.png) | God rays at sunrise (Phase 3): quarter-res radial-blur shafts streaming past the island silhouette, altitude-derived warm tint, occluded by geometry (mask = sky-only HDR colour), on top of SSAO + the full post chain. |
+| ![settings](./screenshots/12-settings.png) | Settings drawer (Phase 3): gear-button panel with quality presets, render distance / FOV sliders, FPS cap, VSync and per-effect toggles — pure DOM, persists to `localStorage`, broadcasts `graphics-settings-change` events the demo maps onto module APIs. |
+| ![benchmark](./screenshots/13-benchmark.png) | `bench.html` (Phase 3): deterministic meshing/rendering suite — naive vs greedy vs greedy+LOD+culling over the same 96×40×96 world and fixed 8 s orbit; the table below is this run. |
 
 ## Module catalog
 
@@ -306,7 +314,13 @@ post.render(dt)          // call INSTEAD of renderer.render(scene, camera)
 post.update(dt, ctx)     // optional: auto-derives nightBoost from ctx.sunDir/timeOfDay
 post.setSize(w?, h?)     // omit args to auto-detect drawing-buffer size
 post.setQuality('low'|'medium'|'high'|'ultra')
-post.toggle('bloom'|'tonemap'|'vignette'|'fxaa', on)
+post.toggle('bloom'|'tonemap'|'vignette'|'fxaa'|'ssao'|'godrays', on)
+post.setSsaoEnabled(on)      // convenience for toggle('ssao', on)
+post.setGodRaysEnabled(on)   // convenience for toggle('godrays', on)
+post.setSsaoIntensity(x); post.setSsaoRadius(r); post.setGodRaysStrength(x)
+post.ssao / post.godrays     // the pass objects (null when depth textures
+                             // are unavailable — the toggles then no-op)
+post.features                // live { bloom, tonemap, vignette, fxaa, ssao, godrays }
 post.setExposure(x)          // default 1.1
 post.setBloomStrength(x)     // default 0.8
 post.setBloomThreshold(x)    // default 0.75
@@ -335,12 +349,18 @@ gaussian done in 5 bilinear fetches; tonemap + vignette live in the single
 composite pass (~free, on at every tier). Targets are reused, uniforms mutated
 in place — zero per-frame allocation.
 
-| quality | bloom | bloom buffer | blur iterations | FXAA |
-|---|---|---|---|---|
-| low | off | — | — | off |
-| medium | on | half-res | 2 | on |
-| high | on | half-res | 3 | on |
-| ultra | on | full-res | 4 | on |
+| quality | bloom | bloom buffer | blur iterations | FXAA | SSAO | god rays |
+|---|---|---|---|---|---|---|
+| low | off | — | — | off | off | off |
+| medium | on | half-res | 2 | on | 8 samples, half-res | on (quarter-res) |
+| high | on | half-res | 3 | on | 12 samples, half-res | on (quarter-res) |
+| ultra | on | full-res | 4 | on | 12 samples, full-res | on (quarter-res) |
+
+`setQuality` re-gates SSAO/god rays per this table (both OFF at low, ON at
+medium+); `post.toggle(...)` afterwards overrides the gate until the next
+`setQuality`. Both passes also hard-require a readable depth texture (WebGL2,
+or `WEBGL_depth_texture` on WebGL1) — without it `post.ssao`/`post.godrays`
+are `null` and the features stay off silently.
 
 ### particles.js — `Particles`
 
@@ -750,6 +770,259 @@ biomes.setBiome('desert');
 biome or enabled state changes, and the grade itself is a handful of ALU ops
 already living in the composite shader (no extra pass, no LUT texture fetch).
 
+### greedyMesher.js — `buildGreedyChunkGeometry` (Phase 3)
+
+**What it does.** Greedy variant of the chunk mesher: collapses runs of
+identical coplanar faces into single quads while preserving the per-vertex
+corner AO and atlas texturing of `voxelMesher.js`. Drop-in for the same volume
+contract; on the 96×40×96 bench world it cuts meshed triangles **101,338 →
+42,154 (2.4×)**; the flat 8×1×8 self-test slab collapses 160 faces → 6 quads.
+
+**AO-merge rule** (the correctness core). Two cells merge only when their
+`(blockId, face direction)` match — which fixes the atlas tile, shade bucket
+and vertex colour — **and** their four corner-AO tuples are IDENTICAL, **and**
+the tuple is UNIFORM ALONG EACH MERGE AXIS (extend width only when
+`ao(u0,*) == ao(u1,*)`, extend height only when `ao(*,v0) == ao(*,v1)`). That
+last condition is what makes the merged quad's interpolated AO field
+bit-identical to the unmerged mesh — identical tuples alone would smooth a
+repeating per-cell AO ramp into one long gradient. The quad-flip rule
+(triangulate along the darker diagonal) is preserved verbatim. In practice
+most merge candidates are fully lit, so merging stays dramatic.
+
+**Tiled-atlas attributes.** The geometry is an attribute **superset** of
+`voxelMesher.js` (materials stay interchangeable): `position`, `normal`,
+`uv`, `color`, `ao` **plus** `tileOrigin` (vec2 — RAW, un-inset atlas rect
+origin of the face's tile) and `tileSpan` (vec2 — quad size in blocks along
+the face's texture axes). In atlas mode `uv` carries LOCAL tile-space coords
+`0..W / 0..H` (one unit per block); the tiled material reconstructs the sample
+per fragment as
+
+```glsl
+sampleUV = tileOrigin + halfTexelInset + fract(localUV) * (tileSizeUV - 2.0 * halfTexelInset)
+```
+
+so one 16×16 tile repeats cleanly across a merged W×H quad and the anti-bleed
+half-texel inset moves from baked UVs into the shader. Pair greedy atlas
+geometry ONLY with `createVoxelMaterial({ tiled: true, map: atlas.texture,
+atlasInfo: atlas })` — a plain material would sample the local UVs across the
+whole atlas.
+
+**Public API.**
+
+```js
+buildGreedyChunkGeometry(volume, { ao = true, atlas = null } = {})
+  -> { solid: THREE.BufferGeometry, transparent: THREE.BufferGeometry | null,
+       stats: { quadsBefore, quadsAfter } }   // face-culled vs merged quad counts
+lastGreedyStats   // module-level { quadsBefore, quadsAfter } mirror of the last build
+selfTest()        // node src/greedyMesher.js — slab/stepped/atlas/AO-formula asserts
+```
+
+**Documented difference vs voxelMesher.** The per-block deterministic
+brightness variation ("vary" tint) is dropped in atlas mode — a unique tint
+per block would forbid all merging. Greedy atlas colour = neutral tint × face
+shade. `demo.toggle('greedy', bool)` A-Bs the two meshers on the live chunk.
+
+### chunkManager.js — `ChunkManager` + `sliceVolume` (Phase 3)
+
+**What it does.** Splits a big voxel world into per-chunk meshes so THREE's
+built-in per-mesh frustum culling applies, adds distance-based LOD swapping
+(lazy-built, cached, with hysteresis so orbiting on a boundary never flaps)
+and a render-distance cutoff. Works with `buildChunkGeometry` AND
+`buildGreedyChunkGeometry` (a bare `BufferGeometry` return is treated as the
+solid pass).
+
+`sliceVolume(world, cx, cz, chunkSize)` wraps a big Volume into a chunk-local
+window whose accessors read ACROSS chunk borders from the parent world
+(out-of-slice coords land in the neighbouring chunk) — that is exactly what
+culls faces on chunk seams instead of emitting hidden interior walls. The
+returned accessors are `this`-free closures, safe for the meshers.
+
+**Public API.**
+
+```js
+new ChunkManager(scene, {
+  chunkSize = 16,
+  mesher = buildChunkGeometry,     // or buildGreedyChunkGeometry
+  material, transparentMaterial,   // e.g. createVoxelMaterial({ tiled: true, ... })
+  lod = [{ dist: 0, ao: true }, { dist: 96, ao: false }],  // per-level mesher opts
+  mesherOpts = {},                 // shared opts merged into every level (e.g. { atlas })
+  maxDistance = Infinity,          // render distance, world units
+  hysteresis = 4, maxBuildsPerFrame = 2,
+})
+cm.addChunk(cx, cz, sliceVolume(world, cx, cz, 16))  // builds LOD 0 immediately
+cm.removeChunk(cx, cz); cm.rebuildChunk(cx, cz, newSlice?)  // chunk edits
+cm.update(dt, ctx)                 // per frame: AABB distance, LOD swap, distance hide
+cm.setRenderDistance(units)        // null / <=0 / Infinity = unlimited
+cm.stats() -> { chunks, visibleEstimate, trianglesTotal }
+cm.object3d; cm.setEnabled(on); cm.enabled; cm.dispose();
+
+sliceVolume(world, cx, cz, chunkSize = 16) -> chunk-local Volume (+ cx/cz/origin metadata)
+```
+
+**Perf notes.** Per-frame cost: one clamped-AABB distance + a compare per
+chunk, zero allocations. Geometry builds happen only when a chunk crosses an
+unbuilt LOD boundary, capped at `maxBuildsPerFrame` (hidden chunks never spend
+builds); once both LODs are cached a swap is a `mesh.geometry` pointer
+assignment. Node self-test covers seam culling, LOD swap, render distance and
+stats (run command in the file header).
+
+### instancedProps.js — `InstancedProps` (Phase 3)
+
+**What it does.** `THREE.InstancedMesh` helper for repeated scene props: one
+InstancedMesh per registered type = **one draw call per type** no matter how
+many placements. `addType` takes a `BufferGeometry` + material, or ANY
+`Object3D` (e.g. `makeTorchMesh()`) — every child mesh is merged into one
+geometry with each part's transform baked into positions/normals and each
+part's material colour baked into a vertex `color` attribute. In the demo the
+~36 scatter-torch props render as ONE draw call (previously ~72 small draws).
+
+**Public API.**
+
+```js
+new InstancedProps(scene)
+props.addType(name, geometryOrObject3D, material = null, maxCount = 256)
+props.place(name, position, { rotationY = 0, scale = 1 } = {}) -> index (-1 when full)
+   // position: Vector3 | {x,y,z} | [x,y,z]; scale: number | {x,y,z}
+props.clear(name); props.clearAll()          // reset placements, keep capacity
+props.getCount(name); props.capacityOf(name); props.stats()
+props.object3d; props.update(dt, ctx); props.setEnabled(on); props.enabled; props.dispose();
+```
+
+**Limitation (single material).** An InstancedMesh draws with one material,
+so per-part materials collapse to one vertex-colored `MeshStandardMaterial`;
+emissive parts (the torch coal head) are approximated by folding
+`emissive × intensity` into the vertex colour — they read bright but do NOT
+feed bloom or emit light. Pass an explicit `material` to override. Per-frame
+cost is zero when static: `place()` writes instance matrices with pooled
+scratch (no allocation); `update()` only refreshes the bounding sphere on
+frames after placements changed (keeps frustum culling correct).
+
+### ssao.js — `SSAOPass` (Phase 3)
+
+**What it does.** Screen-space ambient occlusion from the depth buffer alone —
+no G-buffer: view-space position is reconstructed via
+`camera.projectionMatrixInverse`, the normal comes from screen-space
+derivatives. 8–12 golden-angle spiral disk samples, rotated per pixel by a
+tiny repeating 4×4 cos/sin noise texture (deterministic), each range-checked
+(occluders beyond `radius` contribute nothing, so distant silhouettes never
+bleed AO) and cosine-weighted. One 4-tap box denoise (16-texel box for 4
+bilinear fetches), then the composite pass multiplies the AO term into the
+scene colour before tonemapping. Sky pixels early-out to 1.0. Runs half-res
+by default, full-res at ultra.
+
+The default intensity (0.55) is deliberately modest: the mesher already bakes
+per-vertex corner AO — SSAO only adds contact darkening under overhangs and
+props. It must complement, not double-darken.
+
+**Public API** (owned by PostFX — game code normally only touches
+`post.toggle('ssao', on)` / `post.setSsaoIntensity/Radius`):
+
+```js
+new SSAOPass({ samples, radius, intensity, power, bias, resolutionDiv })
+setSize(w, h); setResolutionDiv(d)   // 2 = half-res (default), 1 = full-res
+setSamples(n)                        // 1..12; recompiles (quality-change time only)
+setRadius(r)  /* default 0.8 */; setIntensity(x) /* default 0.55 */; setPower(p); setBias(b)
+render(pass, depthTexture, camera); texture /* blurred AO, r channel */; dispose()
+```
+
+**Quality gating.** Off at low; 8 samples half-res at medium; 12 half-res at
+high; 12 full-res at ultra. Requires a readable depth texture (WebGL2 or
+`WEBGL_depth_texture`) — PostFX performs that gate and never constructs the
+pass when unavailable.
+
+### godrays.js — `GodRaysPass` (Phase 3)
+
+**What it does.** Crepuscular light shafts (GPU Gems 3 ch. 13-style radial
+blur), everything at QUARTER resolution and **no second scene render**: the
+occlusion mask reuses the main HDR colour buffer gated by depth — sky pixels
+(depth at the far plane) keep their colour, geometry goes black — clamped so
+an HDR sun disc can't blow out, and windowed around the sun's screen position.
+Two 12-tap radial blur iterations ping-pong toward the sun (the second blurs
+the already-blurred image with longer reach ⇒ ~144 effective taps), then the
+composite ADDs `rays × tint × (strength × fade)` before tonemapping.
+
+`updateSun()` runs on the CPU each frame (allocation-free): projects the sun
+to screen UV and combines fade from (a) sun behind camera, (b) sun off screen,
+(c) sun altitude — strongest at sunrise/sunset, subtle at noon, off at night —
+and (d) underwater. It also derives the warm tint from altitude (horizon
+orange → pale warm white). When `fade == 0` PostFX skips the passes entirely,
+so god rays cost nothing at night.
+
+**Public API** (owned by PostFX — game code normally only touches
+`post.toggle('godrays', on)` / `post.setGodRaysStrength`):
+
+```js
+new GodRaysPass({ strength, decay, maskRadius, type })
+setSize(w, h); setStrength(x)        // composite add weight (default 0.55)
+updateSun(camera, sunDir, underwater) -> fade 0..1
+fadeValue; active; tint              // getters
+render(pass, sceneTexture, depthTexture) -> bool (false when faded out)
+texture; dispose()
+```
+
+**Quality gating.** Off at low, on at medium+ (always quarter-res — there is
+no per-tier resolution knob by design). Same depth-texture requirement as SSAO.
+
+### benchmark.js + bench.html — the measurement harness (Phase 3)
+
+`bench.html` runs the suite on load; `benchmark.js` exports
+`runBenchmark(renderer, opts) -> Promise<results>`. Three scenarios over the
+SAME `generateTestWorld` volume and the SAME fixed 8-second camera orbit
+advanced by an accumulated FIXED dt (never wall clock — every run renders the
+identical frame sequence): **naive** (`buildChunkGeometry` per chunk),
+**greedy** (`buildGreedyChunkGeometry` per chunk), **greedy+LOD+culling**
+(`ChunkManager`, greedy mesher, 2 LOD levels, render-distance cap). Measured
+per scenario: meshing ms, meshed triangles, draw calls + rendered triangles
+per frame (`renderer.info` with `autoReset = false`), avg/p95 JS frame ms
+(warmup excluded) and scenario `update()` ms. Each scenario runs in
+try/catch — one failure is reported in `results.scenarios[i].error` without
+killing the suite. See "Performance" below for how to run it and the measured
+table.
+
+### settings/ — graphics settings panel (Phase 3)
+
+**Full embed guide: [`settings/README.md`](./settings/README.md)** (API,
+preset semantics, the settings → graphics-lab hook-mapping table, FPS-cap loop
+snippet, dispatcher skeleton). Summary: a self-contained, dependency-free
+settings drawer (gear button + right-side panel) — pure DOM ES module, no
+three.js import, no network. State persists to `localStorage`
+(`mc2.graphics`); Low/Medium/High/Ultra presets expand per-toggle profiles
+with automatic **Custom** detection; sliders for render distance (2–32
+chunks) and FOV (60–110°), FPS cap and an advisory VSync flag.
+
+```js
+import { createSettingsPanel } from './settings/settings.js';
+const panel = createSettingsPanel({
+  mount: document.body, initial: { fov: 80 },
+  storageKey: 'mc2.graphics',
+  onChange: (d) => applySetting(d.key, d.value, d.settings),
+});
+```
+
+**Event contract.** One `graphics-settings-change` `CustomEvent` on `window`
+per key that actually changed (a preset click can emit several — one per
+flipped toggle, plus `preset` itself). `detail` is
+`{ key, value, settings }`; `detail.settings` is a fresh copy, safe to keep.
+`panel.set(patch, { silent: true })` applies + persists without firing. On
+boot, replay `panel.get()` once so the renderer matches storage:
+
+```js
+window.addEventListener('graphics-settings-change', (e) => {
+  const { key, value, settings } = e.detail;
+  applySetting(key, value, settings);
+});
+const s = panel.get();
+for (const [key, value] of Object.entries(s)) applySetting(key, value, s);
+```
+
+`demo.js` is the reference dispatcher: `preset` → `demo.setQuality`,
+`renderDistance` → (reserved for `chunkManager.setRenderDistance(v * 16)` in
+the game; the single-chunk demo stretches fog instead), `fov` → `demo.setFov`,
+`fpsCap` → `demo.setFpsCap`, and every effect key → the matching
+`demo.toggle(...)` (`ssao` → `'ssao'`, `godRays` → `'godrays'`, `windSway` →
+`'wind'`, `biomeGrading` → `'biome'`, `portalFx` → `'portal'`). The panel does
+nothing per frame — renderer code reads its own copy of the settings.
+
 ## Integration guide for the builder
 
 ### Per-frame update order (what demo.js does)
@@ -795,7 +1068,12 @@ function animate() {
   wind.update(dt, ctx);                        // weather-driven sway (2 uniform writes)
   biomes.update(dt, ctx);                      // no-op (PostFX eases the grade)
 
+  // Phase 3 modules:
+  props.update(dt, ctx);                       // instanced props: bounds refresh when dirty
+  // chunkManager.update(dt, ctx) goes here in a multi-chunk world (LOD + distance)
+
   post.update(dt, ctx);                        // 8. auto night bloom boost
+                                               //    (also drives god-ray sun fade + SSAO)
   post.render(dt);                             // 9. FINAL — replaces renderer.render
 }
 ```
@@ -832,14 +1110,17 @@ the mesh (the build is a pure function; dispose the old geometry).
 ### Quality presets
 
 `demo.setQuality(q)` fans out to exactly three modules — `post.setQuality(q)`,
-`shadows.setQuality(q)` and `torchMgr.setMaxLights(QUALITY_LIGHTS[q])`:
+`shadows.setQuality(q)` and `torchMgr.setMaxLights(QUALITY_LIGHTS[q])`.
+`post.setQuality` also re-gates SSAO/god rays (both OFF at low, ON at
+medium+) — the demo mirrors `post.features` back into its GUI state so the
+checkboxes stay honest:
 
-| tier | shadow map | shadow frustum / PCF | bloom | blur iters | FXAA | torch lights |
-|---|---|---|---|---|---|---|
-| low | 1024² | 80u / 2.0 | off | — | off | 2 |
-| medium | 2048² | 70u / 3.0 | half-res | 2 | on | 6 |
-| high | 4096² | 64u / 3.5 | half-res | 3 | on | 10 |
-| ultra | 4096² | 52u / 4.0 | full-res | 4 | on | 14 |
+| tier | shadow map | shadow frustum / PCF | bloom | blur iters | FXAA | SSAO | god rays | torch lights |
+|---|---|---|---|---|---|---|---|---|
+| low | 1024² | 80u / 2.0 | off | — | off | off | off | 2 |
+| medium | 2048² | 70u / 3.0 | half-res | 2 | on | 8 smp, ½-res | on | 6 |
+| high | 4096² | 64u / 3.5 | half-res | 3 | on | 12 smp, ½-res | on | 10 |
+| ultra | 4096² | 52u / 4.0 | full-res | 4 | on | 12 smp, full-res | on | 14 |
 
 Everything else (sky, water, particles, fog, mesher) is tier-independent by
 design — their costs are already flat and low. Natural extension points for
@@ -848,19 +1129,72 @@ the game: scale `Water` `segments`, `Particles` intensity, and `DynamicSky`
 
 ## Performance
 
+### The Phase 3 chunk pipeline in one paragraph
+
+`buildGreedyChunkGeometry` merges runs of identical coplanar faces into single
+quads under the strict AO rule (identical corner-AO tuples + per-axis
+uniformity ⇒ the merged AO interpolation is bit-identical to the unmerged
+mesh) and emits `tileOrigin`/`tileSpan` + local UVs so the tiled
+`createVoxelMaterial({ tiled: true })` repeats one 16×16 atlas tile across a
+merged W×H quad. `ChunkManager` + `sliceVolume` split the world into
+per-chunk meshes (per-mesh frustum culling, seam faces culled across chunk
+borders), swap distance-based LODs lazily and hide chunks past the render
+distance. `InstancedProps` collapses repeated props into one draw call per
+type (the demo's ~36 torch props: ~72 draws → 1). Full APIs in the module
+catalog above.
+
+### Benchmark: `bench.html`
+
+```bash
+cd graphics-lab
+npm run serve                      # or: python3 -m http.server 8099
+# open http://localhost:8099/bench.html — runs on load, renders the table,
+# results land in window.__benchResults, window.__benchDone === true when done.
+# URL overrides for quick headless runs:
+#   bench.html?frames=120&warmup=5&chunks=4&seed=7&rd=72
+```
+
+Measured 2026-07-11, headless Chromium + SwiftShader, 960×540 canvas, world
+96×40×96 (6×6 chunks of 16, seed 7, worldgen 15.5 ms), 480 frames at fixed dt
+16.67 ms over the same 8 s orbit (10 warmup frames excluded), render distance
+72 for the ChunkManager scenario:
+
+| scenario | meshing ms | meshed tris | draw calls avg (max) | tris/frame avg | frame ms avg | frame ms p95 | update ms avg |
+|---|---|---|---|---|---|---|---|
+| naive (`buildChunkGeometry`/chunk) | 183.3 | 101,338 | 67 (67) | 101,338 | 0.68 | 1.3 | 0 |
+| greedy (`buildGreedyChunkGeometry`/chunk) | 209.0 | 42,154 | 67 (67) | 42,154 | 0.64 | 1.2 | 0 |
+| greedy + LOD + culling (`ChunkManager`, rd 72) | 133.0 | 42,154 | 37.9 (41) | 17,584 | 0.56 | 0.8 | 0.15 |
+
+Takeaways: greedy cuts meshed triangles **2.4×** (101,338 → 42,154) for ~14%
+more meshing time; ChunkManager on top drops draw calls **67 → ~38** and
+rendered triangles to **~17.6k avg** (render-distance hiding + the cheaper
+far LOD; THREE's frustum culling then trims further per frame), and its
+meshing total is *lower* (133 ms) because distant chunks lazily build only
+the LOD they need. **SwiftShader caveat:** frame-ms here is software
+rasterisation — meaningless as absolute GPU numbers. Trust draw calls,
+triangle counts, meshing time and the RELATIVE deltas; the frame-ms ordering
+(naive > greedy > greedy+LOD) is consistent with them.
+
+### Demo-scene budget
+
 Measured on the Phase 1 demo chunk (48×32×48, 1600×900): **~19 draw calls,
 ~62k triangles** for the whole frame — 1 solid chunk mesh + 1 leaves mesh +
 1 water plane + sky (dome, stars, clouds, 2 sprites) + up to 6 particle pools
 + underwater tint + fullscreen post passes.
 
 Phase 2 adds on top of that: 3 draws for the portal (instanced frame, surface,
-motes), ~72 small draws for the 36 scatter-torch props (2 shared-material
-meshes each — cheap state changes, trivially instanceable later), the held
-item/arm overlay (a handful of tiny boxes), and 2–14 pooled point lights whose
-cost is per-light shading on lit materials, not draw calls (that per-light
-cost is exactly why the pool budget exists). Crack decals and the biome grade
-are effectively free (≤ 4 pooled quad groups; a few ALU ops already in the
-composite pass). Wind sway costs two uniform writes per frame.
+motes), the held item/arm overlay (a handful of tiny boxes), and 2–14 pooled
+point lights whose cost is per-light shading on lit materials, not draw calls
+(that per-light cost is exactly why the pool budget exists). Crack decals and
+the biome grade are effectively free (≤ 4 pooled quad groups; a few ALU ops
+already in the composite pass). Wind sway costs two uniform writes per frame.
+
+Phase 3 changes to the same scene: the 36 scatter-torch props now render as
+**one** `InstancedProps` draw call (was ~72 small draws), the chunk itself is
+greedy-meshed by default (fewer triangles, same AO), and the post chain gains
+the SSAO passes (half-res AO + 4-tap denoise at medium/high, full-res at
+ultra) and the god-rays passes (quarter-res mask + 2 radial blurs — skipped
+entirely whenever the sun fade is 0, i.e. all night).
 
 The 60 fps @ `medium` target is what the stack is *designed for on real
 GPUs* — this repo's CI runs headless SwiftShader (software rasterisation), so
@@ -886,6 +1220,12 @@ Lean-shader choices made throughout:
 - Post chain: bloom bright-pass + blur run at half resolution; separable 9-tap
   gaussian done in 5 bilinear fetches; tonemap + vignette folded into the one
   composite pass; FXAA instead of MSAA (HDR MSAA resolve is expensive).
+- SSAO needs no G-buffer (normals from depth derivatives), runs half-res with
+  8–12 static-loop samples and a 4-tap denoise; the AO multiply lives in the
+  existing composite pass.
+- God rays reuse the main HDR buffer as their occlusion mask (no second scene
+  render), run everything at quarter res, and are skipped outright when the
+  sun fade is 0 — night costs nothing.
 - Zero per-frame allocation on the hot path everywhere (shared mutated ctx,
   scratch vectors/colours, fixed particle pools with `DynamicDrawUsage`).
 
@@ -902,16 +1242,21 @@ Lean-shader choices made throughout:
   terrain never whitens over time.
 - **Clouds are a textured layer, not volumetric.** A scrolling fbm alpha plane —
   no raymarched depth, no cloud shadows on the ground.
-- **Face-culled, not greedy, meshing.** Adjacent coplanar faces are not merged;
-  a greedy pass would cut triangle count further (at the cost of the per-vertex
-  AO/tint variation pattern used here).
+- **Greedy atlas mode drops the per-block brightness variation.** A unique
+  tint per block would forbid all merging, so greedy atlas colour is neutral
+  tint × face shade (the classic mesher, kept for A-B via
+  `demo.toggle('greedy', false)`, still has the vary tint).
 - **Single shadow frustum, no cascades.** Tuned for one ~48u chunk; a real
   view-distance world needs CSM (the texel-snap logic carries over directly).
-- **AO is voxel-neighbourhood only.** No SSAO for non-voxel props; torch and
-  portal point lights cast no shadows (deliberate — budget).
-- **Full re-mesh per chunk edit.** `buildChunkGeometry` rebuilds the whole
-  chunk (fast at 48³, but incremental/dirty-region meshing is future work).
-- **No underwater caustics or god rays;** the underwater look is fog + tint.
+- **SSAO normals come from depth derivatives** — 1-pixel halos can appear at
+  hard depth edges (hidden by the denoise + modest intensity); torch and
+  portal point lights still cast no shadows (deliberate — budget).
+- **Full re-mesh per chunk edit.** `ChunkManager.rebuildChunk` limits the blast
+  radius to the dirty chunk (and rebuilds only its active LOD synchronously),
+  but within a chunk the build is still whole-chunk — dirty-region meshing is
+  future work.
+- **No underwater caustics;** god rays fade out underwater by design, so the
+  underwater look is still fog + tint.
 - **Foliage cast shadows don't sway.** Wind sway (Phase 2) displaces vertices
   in the render pass only — the depth material used for the shadow map is not
   patched, so the canopy's cast shadow stays still (invisible at ≤ 0.08u of
