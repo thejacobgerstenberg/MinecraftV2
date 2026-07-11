@@ -23,29 +23,44 @@
 //                  centred on the camera; recycled/wrapped with slight wind.
 //   - snow       : slower white flakes with a sinusoidal sway, recycled the same
 //                  way. Rain and snow are mutually exclusive (weather state).
+//   - splash     : tiny expanding rings at the water surface while raining.
+//
+// Every material carries a per-emitter SCREEN-SPACE size cap (uMaxSize) so a
+// near-camera particle can never balloon into a giant quad: rain <= 24px,
+// snow <= 12px, splash <= 20px, debris <= 28px, flame <= 80px (kept larger on
+// purpose so bloom picks up the halo at night).
 //
 // Blending: ADDITIVE for the flame (glow), NORMAL for smoke / rain / snow /
-// debris. Total live points are kept well under ~4000 (see the capacity table
-// in the constructor). Follows the graphics-lab effect contract:
+// debris / splash. Total live points are kept well under ~4500 (see the
+// capacity table in the constructor). Follows the graphics-lab effect contract:
 //   update(dt, ctx) / setEnabled(bool) / get enabled() / dispose() / .object3d.
 
 import * as THREE from 'three';
 
-const { clamp, smoothstep } = THREE.MathUtils;
+const { clamp } = THREE.MathUtils;
 const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+// GLSL-order smoothstep(edge0, edge1, x). NOTE: THREE.MathUtils.smoothstep
+// takes (x, min, max) — using it with GLSL argument order silently returns 0
+// and turns every sprite into a hard-edged solid square. Never use it here.
+const sstep = (e0, e1, x) => {
+  const t = clamp01((x - e0) / (e1 - e0));
+  return t * t * (3 - 2 * t);
+};
 const rand = Math.random;
 const TAU = Math.PI * 2;
 
 // --- Pool capacities ---------------------------------------------------------
-// Live-point ceiling ≈ max(RAIN, SNOW) + flame + smoke + debris. With a full
-// torch set: 2000 + 48*12 + 48*5 + 360 ≈ 3136 (< 4000). Typical torch counts
-// are far lower, and inactive weather is not drawn (Points.visible = false).
+// Live-point ceiling ≈ max(RAIN + SPLASH, SNOW) + flame + smoke + debris. With
+// a full torch set: 2000 + 200 + 48*12 + 48*5 + 360 ≈ 3376 (< 4500). Typical
+// torch counts are far lower, and inactive weather is not drawn
+// (Points.visible = false).
 const MAX_TORCHES = 48;
 const FLAME_PER   = 12;   // flame points per torch
 const SMOKE_PER   = 5;    // smoke points per torch
 const BB_CAP      = 360;  // block-break debris ring buffer
 const RAIN_CAP    = 2000; // streaks at intensity 1
 const SNOW_CAP    = 1400; // flakes at intensity 1
+const SPLASH_CAP  = 200;  // rain splash rings at the water surface
 
 // --- Shared point shader -----------------------------------------------------
 // ShaderMaterial auto-injects `position`, the standard matrices and
@@ -55,6 +70,7 @@ const VERT = /* glsl */ `
   attribute float aSize;
   attribute float aAlpha;
   uniform float uScale;          // 0.5 * drawingBufferHeight (px), for attenuation
+  uniform float uMaxSize;        // per-emitter screen-space cap (px)
   varying vec3  vColor;
   varying float vAlpha;
   void main() {
@@ -62,9 +78,11 @@ const VERT = /* glsl */ `
     vAlpha = aAlpha;
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
     gl_Position = projectionMatrix * mv;
-    // World-sized attenuation, mirroring three's sizeAttenuation model.
+    // World-sized attenuation, mirroring three's sizeAttenuation model, but
+    // hard-capped per emitter so a near-camera particle can never blow up
+    // into a huge screen-filling quad (rain <= 24px, snow <= 12px, ...).
     float sz = aSize * (uScale / max(-mv.z, 0.001));
-    gl_PointSize = clamp(sz, 0.0, 128.0);   // cap fill when very close
+    gl_PointSize = clamp(sz, 0.0, uMaxSize);
   }
 `;
 
@@ -104,15 +122,24 @@ function makeSpriteTexture(size, shape) {
       const ny = (y - h) / h;
       let a = 0;
       if (shape === 'dot') {
+        // Round dot with a smooth radial falloff — snow / smoke / flame.
         const r = Math.hypot(nx, ny);
-        a = 1 - smoothstep(0.0, 1.0, r);
+        a = 1 - sstep(0.0, 1.0, r);
         a *= a;                                  // soft round falloff
       } else if (shape === 'square') {
+        // Rounded-square chip for block-break debris (still soft-edged).
         const cheb = Math.max(Math.abs(nx), Math.abs(ny));
-        a = 1 - smoothstep(0.55, 1.0, cheb);     // rounded-square debris chip
-      } else { // 'streak' — thin vertical core with faded ends
-        const wx = 1 - smoothstep(0.10, 0.5, Math.abs(nx));
-        const wy = 1 - smoothstep(0.55, 1.0, Math.abs(ny));
+        a = 1 - sstep(0.55, 1.0, cheb);
+      } else if (shape === 'ring') {
+        // Soft circle outline — rain splash rings on the water surface.
+        const r = Math.hypot(nx, ny);
+        a = 1 - sstep(0.0, 0.28, Math.abs(r - 0.62));
+        a *= a;
+      } else {
+        // 'streak' — thin vertical line, ~1:10 core aspect, soft alpha both
+        // across the width and toward the ends (velocity-aligned rain).
+        const wx = 1 - sstep(0.02, 0.10, Math.abs(nx));   // ~0.12 half-width
+        const wy = 1 - sstep(0.55, 0.98, Math.abs(ny));   // long, faded tips
         a = wx * wy;
       }
       const i = (y * size + x) * 4;
@@ -140,11 +167,14 @@ const centreAxis = (v) => (Number.isInteger(v) ? v + 0.5 : v);
 
 // ===========================================================================
 export class Particles {
-  constructor(scene, { camera = null } = {}) {
+  constructor(scene, { camera = null, waterLevel = 10 } = {}) {
     this._scene = scene || null;
     this._camera = camera || null;
     this._enabled = true;
     this._elapsed = 0;
+
+    // Water surface height for rain splash rings (worldgen WATER_LEVEL = 10).
+    this._waterLevel = (typeof waterLevel === 'number') ? waterLevel : 10;
 
     // Weather state (driven by setWeather / synced from ctx.weather).
     this._weather = 'clear';
@@ -164,20 +194,22 @@ export class Particles {
     this.object3d = new THREE.Group();
     this.object3d.name = 'Particles';
 
-    // --- Textures ---
+    // --- Textures (soft procedural sprites; white RGB + shaped alpha) ---
     this._texDot    = makeSpriteTexture(64, 'dot');
     this._texSquare = makeSpriteTexture(48, 'square');
     this._texStreak = makeSpriteTexture(64, 'streak');
-    this._textures = [this._texDot, this._texSquare, this._texStreak];
+    this._texRing   = makeSpriteTexture(64, 'ring');
+    this._textures = [this._texDot, this._texSquare, this._texStreak, this._texRing];
 
-    // --- Materials (one per emitter; shared shader) ---
+    // --- Materials (one per emitter; shared shader; per-emitter px cap) ---
     this._mats = [];
-    const mat = (map, blending) => {
+    const mat = (map, blending, maxSize) => {
       const m = new THREE.ShaderMaterial({
         uniforms: {
           uMap: { value: map },
           uScale: { value: 400 },
           uRotation: { value: 0 },
+          uMaxSize: { value: maxSize },
         },
         vertexShader: VERT,
         fragmentShader: FRAG,
@@ -190,20 +222,24 @@ export class Particles {
       this._mats.push(m);
       return m;
     };
-    this._flameMat = mat(this._texDot, THREE.AdditiveBlending);
-    this._smokeMat = mat(this._texDot, THREE.NormalBlending);
-    this._bbMat    = mat(this._texSquare, THREE.NormalBlending);
-    this._rainMat  = mat(this._texStreak, THREE.NormalBlending);
-    this._snowMat  = mat(this._texDot, THREE.NormalBlending);
+    // Screen-space caps: weather sprites stay small even right at the camera;
+    // the flame cap is generous on purpose so its additive halo feeds bloom.
+    this._flameMat  = mat(this._texDot,    THREE.AdditiveBlending, 80);
+    this._smokeMat  = mat(this._texDot,    THREE.NormalBlending,   56);
+    this._bbMat     = mat(this._texSquare, THREE.NormalBlending,   28);
+    this._rainMat   = mat(this._texStreak, THREE.NormalBlending,   24);
+    this._snowMat   = mat(this._texDot,    THREE.NormalBlending,   12);
+    this._splashMat = mat(this._texRing,   THREE.NormalBlending,   20);
     // Lean the rain streaks into the wind.
     this._rainMat.uniforms.uRotation.value = Math.atan2(this._windX, 30) * 0.7;
 
     // --- Emitter pools ---
-    this._flame = this._makePool(MAX_TORCHES * FLAME_PER, this._flameMat, 'FlameParticles');
-    this._smoke = this._makePool(MAX_TORCHES * SMOKE_PER, this._smokeMat, 'SmokeParticles');
-    this._bb    = this._makePool(BB_CAP, this._bbMat, 'BlockBreakParticles');
-    this._rain  = this._makePool(RAIN_CAP, this._rainMat, 'RainParticles');
-    this._snow  = this._makePool(SNOW_CAP, this._snowMat, 'SnowParticles');
+    this._flame  = this._makePool(MAX_TORCHES * FLAME_PER, this._flameMat, 'FlameParticles');
+    this._smoke  = this._makePool(MAX_TORCHES * SMOKE_PER, this._smokeMat, 'SmokeParticles');
+    this._bb     = this._makePool(BB_CAP, this._bbMat, 'BlockBreakParticles');
+    this._rain   = this._makePool(RAIN_CAP, this._rainMat, 'RainParticles');
+    this._snow   = this._makePool(SNOW_CAP, this._snowMat, 'SnowParticles');
+    this._splash = this._makePool(SPLASH_CAP, this._splashMat, 'SplashParticles');
 
     // Per-particle simulation state (velocity / life / sway). Kept out of the
     // GPU attribute buffers so uploads stay minimal.
@@ -217,6 +253,12 @@ export class Particles {
     this._snowAmp  = new Float32Array(SNOW_CAP);
     this._snowFreq = new Float32Array(SNOW_CAP);
     this._snowPhase = new Float32Array(SNOW_CAP);
+    // Splash rings: life / max-life ring buffer (dead => alpha 0).
+    this._splashLife = new Float32Array(SPLASH_CAP);
+    this._splashMax  = new Float32Array(SPLASH_CAP);
+    this._splashCursor = 0;
+    this._splashAccum = 0;      // fractional spawns carried between frames
+    this._splashWasLive = false;
     this._initWeatherParams();
 
     // Torch registry.
@@ -235,14 +277,20 @@ export class Particles {
     this._bb.aa.needsUpdate = true;
     this._bb.sa.needsUpdate = true;
 
+    // Splash rings draw their whole ring buffer; dead entries are alpha 0.
+    this._splash.geo.setDrawRange(0, SPLASH_CAP);
+    this._splash.aa.needsUpdate = true;
+    this._splash.sa.needsUpdate = true;
+
     // Weather begins hidden (weather 'clear'). Flame/smoke are always live.
     this._rain.pts.visible = false;
     this._snow.pts.visible = false;
+    this._splash.pts.visible = false;
     this._setWeatherActive();
 
     // Assemble the group (order is cosmetic; all depth-tested, no depth write).
     this.object3d.add(this._flame.pts, this._smoke.pts, this._bb.pts,
-                      this._rain.pts, this._snow.pts);
+                      this._rain.pts, this._snow.pts, this._splash.pts);
     if (this._scene) this._scene.add(this.object3d);
   }
 
@@ -288,10 +336,12 @@ export class Particles {
       this._snowPhase[i] = rand() * TAU;
     }
     // Static per-particle colour / size / alpha for the weather sprites.
+    // (Screen size is additionally capped by uMaxSize: rain 24px, snow 12px.)
     const r = this._rain, s = this._snow;
     for (let i = 0; i < RAIN_CAP; i++) {
       const i3 = i * 3;
-      r.color[i3] = 0.62; r.color[i3 + 1] = 0.71; r.color[i3 + 2] = 0.92;
+      // Slight blue-grey tint, translucent.
+      r.color[i3] = 0.64; r.color[i3 + 1] = 0.70; r.color[i3 + 2] = 0.84;
       r.size[i] = 0.7 + rand() * 0.6;   // streak length (world units)
       r.alpha[i] = 0.5;
     }
@@ -373,6 +423,12 @@ export class Particles {
     this._setWeatherActive();
   }
 
+  // Height of the water surface (rain splash rings spawn just above it).
+  // Pass null/undefined to disable splashes entirely.
+  setWaterLevel(y) {
+    this._waterLevel = (typeof y === 'number' && Number.isFinite(y)) ? y : null;
+  }
+
   update(dt, ctx) {
     if (!this._enabled) return;
     dt = Math.min(dt || 0, 0.05);           // clamp after tab-out / hitches
@@ -400,8 +456,12 @@ export class Particles {
     this._updateBlockBreak(dt);
     this._updateFlame(dt, elapsed);
     this._updateSmoke(dt);
-    if (this._weather === 'rain') this._updateRain(dt, cam);
-    else if (this._weather === 'snow') this._updateSnow(dt, elapsed, cam);
+    if (this._weather === 'rain') {
+      this._updateRain(dt, cam);
+      this._updateSplash(dt, cam);
+    } else if (this._weather === 'snow') {
+      this._updateSnow(dt, elapsed, cam);
+    }
   }
 
   setEnabled(on) {
@@ -412,7 +472,8 @@ export class Particles {
 
   dispose() {
     if (this.object3d.parent) this.object3d.parent.remove(this.object3d);
-    const pools = [this._flame, this._smoke, this._bb, this._rain, this._snow];
+    const pools = [this._flame, this._smoke, this._bb, this._rain, this._snow,
+                   this._splash];
     for (const p of pools) p.geo.dispose();
     for (const m of this._mats) m.dispose();
     for (const t of this._textures) if (t) t.dispose();
@@ -438,6 +499,7 @@ export class Particles {
     const snowOn = on && this._weather === 'snow';
     this._rain.pts.visible = rainOn;
     this._snow.pts.visible = snowOn;
+    this._splash.pts.visible = rainOn && this._waterLevel != null;
     const rainN = Math.round(this._intensity * RAIN_CAP);
     const snowN = Math.round(this._intensity * SNOW_CAP);
     this._rainActive = rainOn ? rainN : 0;
@@ -510,11 +572,12 @@ export class Particles {
       const age = 1 - lf;
       const ti = (i / FLAME_PER) | 0;
       const flick = 0.75 + 0.25 * Math.sin(elapsed * 18.0 + ti * 2.1 + i * 0.7);
-      // Warm white/yellow at the base → orange/red at the tip.
+      // Warm white/yellow at the base → orange/red at the tip. Slightly
+      // oversized (soft round sprite + additive) so bloom catches the halo.
       f.color[i3]     = 1.0;
       f.color[i3 + 1] = 0.82 - age * 0.55;
       f.color[i3 + 2] = 0.42 - age * 0.38;
-      f.size[i]  = (0.14 + 0.32 * lf) * flick;
+      f.size[i]  = (0.20 + 0.42 * lf) * flick;
       f.alpha[i] = clamp01(lf * flick);
     }
     f.pa.needsUpdate = f.ca.needsUpdate = f.sa.needsUpdate = f.aa.needsUpdate = true;
@@ -602,6 +665,56 @@ export class Particles {
       this._wrap(s.pos, i3, cam, box);
     }
     s.pa.needsUpdate = true;
+  }
+
+  // --- Rain splashes (soft expanding rings at the water surface) ---
+  _updateSplash(dt, cam) {
+    if (this._waterLevel == null) return;
+    const sp = this._splash;
+    if (!sp.pts.visible) sp.pts.visible = this._enabled;   // rain just started
+
+    // Spawn: a steady trickle scaled by intensity, carried across frames.
+    if (cam) {
+      this._splashAccum += (20 + 100 * this._intensity) * dt;
+      const box = this._rainBox;
+      let n = this._splashAccum | 0;
+      this._splashAccum -= n;
+      const spawned = n > 0;
+      while (n-- > 0) {
+        const i = this._splashCursor;
+        this._splashCursor = (this._splashCursor + 1) % SPLASH_CAP;
+        const i3 = i * 3;
+        // Random column in the rain box; rings inside terrain are simply
+        // occluded by the depth test, so no water lookup is needed.
+        sp.pos[i3]     = cam.x + (rand() * 2 - 1) * box.hx;
+        sp.pos[i3 + 1] = this._waterLevel + 0.06;
+        sp.pos[i3 + 2] = cam.z + (rand() * 2 - 1) * box.hz;
+        sp.color[i3] = 0.72; sp.color[i3 + 1] = 0.79; sp.color[i3 + 2] = 0.88;
+        const life = 0.35 + rand() * 0.25;
+        this._splashLife[i] = life;
+        this._splashMax[i]  = life;
+      }
+      if (spawned) {
+        sp.pa.needsUpdate = true;
+        sp.ca.needsUpdate = true;
+      }
+    }
+
+    // Age: rings expand and fade out.
+    let live = 0;
+    for (let i = 0; i < SPLASH_CAP; i++) {
+      if (this._splashLife[i] <= 0) { if (sp.alpha[i] !== 0) sp.alpha[i] = 0; continue; }
+      live++;
+      this._splashLife[i] -= dt;
+      const age = 1 - Math.max(this._splashLife[i], 0) / this._splashMax[i];
+      sp.size[i]  = 0.10 + age * 0.45;
+      sp.alpha[i] = 0.5 * (1 - age) * (1 - age);
+    }
+    if (live > 0 || this._splashWasLive) {
+      sp.sa.needsUpdate = true;
+      sp.aa.needsUpdate = true;
+    }
+    this._splashWasLive = live > 0;
   }
 
   // Toroidal wrap of one particle back into the camera-centred box. Falling

@@ -7,29 +7,49 @@
 //     the lake/chunk, drawn with a lean custom ShaderMaterial:
 //       * Vertex: a sum of 3 directional Gerstner-style sine waves gives a gentle
 //         rolling surface; the wave height field is differentiated analytically so
-//         per-vertex normals stay correct for lighting.
-//       * Fragment: a Schlick FRESNEL term blends a (depth-faked) deep-water body
-//         colour with a sky-reflection colour (reflected view ray tinted from
-//         sky.getFogColor()); animated value-noise ripples perturb the normal for
-//         normal-map style sparkle; a Blinn specular lobe on ctx.sunDir adds sun
-//         glints; alpha ~0.75 with grazing-angle opacity and a view-angle depth
-//         darkening.
+//         per-vertex normals stay correct for lighting. A radial alpha falloff
+//         (vFade) dissolves the outer ~15% of the plane so the square border and
+//         corners melt into the fog instead of ending in a hard line (this also
+//         kills the edge-on hard seam seen from underwater).
+//       * Fragment: ONE consistent colour source for the whole plane — the
+//         deep/shallow body colour is blended with the live sky/horizon colour
+//         (uSkyColor) via a Schlick fresnel term, so sunrise tints the entire
+//         surface warm with no split zones or colour seams. Everything is scaled
+//         by uSunIntensity (derived from ctx.sunDir.y each update, or forced via
+//         setSunLight): by day the water is lit normally, at night the body drops
+//         to a dark navy and the only highlight is a modest cool moon-specular
+//         streak (the glint direction flips to the moon when the sun sets).
 //     Transparent, depthWrite:false, DoubleSide (visible from below when the
 //     camera dips underwater). Exposes .object3d, update(dt, ctx), setEnabled,
-//     get enabled, dispose, and setSkyReflectionColor(THREE.Color).
+//     get enabled, dispose, setSkyReflectionColor(THREE.Color) and
+//     setSunLight(intensity, color).
+//
+//     Sky-colour priority (checked every update, allocation-free):
+//       1. ctx.skyColor (live THREE.Color supplied by the demo) — always wins;
+//       2. sunRef.getFogColor() pulled on time-of-day changes (unless the host
+//          took manual control via setSkyReflectionColor);
+//       3. whatever setSkyReflectionColor()/the constructor seeded.
 //
 //   class UnderwaterOverlay(scene, camera, { level })
 //     When the camera drops below `level` (or ctx.underwater is set) it applies an
 //     underwater look: a full-screen blue-green tint (a camera-enveloping inward
 //     sphere drawn with depthTest off, so it fills the view within the single
-//     scene render) plus a dense blue-green fog that cuts visibility. The previous
-//     scene.fog and scene.background are snapshotted on the way down and restored
-//     verbatim on the way up, so it cooperates cleanly with a fog module.
+//     scene render) plus a dense blue-green fog that cuts visibility. The fog,
+//     background and tint follow time of day (darker at night, driven off
+//     ctx.sunDir.y / ctx.timeOfDay). The previous scene.fog and scene.background
+//     are snapshotted on the way down and restored verbatim on the way up, so it
+//     cooperates cleanly with a fog module.
 //
 // Follows the graphics-lab effect contract (update/setEnabled/enabled/dispose,
 // .object3d) and is allocation-free per frame (scratch objects are reused).
 
 import * as THREE from 'three';
+
+// Clamped smoothstep on 0..1 (JS mirror of the GLSL builtin's core).
+function smoothstep01(x) {
+  x = x < 0 ? 0 : x > 1 ? 1 : x;
+  return x * x * (3 - 2 * x);
+}
 
 // ---------------------------------------------------------------------------
 // Shared GLSL: a tiny value-noise for the surface ripples (kept to a single
@@ -66,9 +86,11 @@ export class Water {
     waveHeight = 1.0,         // master amplitude scale
     deepColor = 0x0a2634,     // dark body colour (looking straight down)
     shallowColor = 0x1f6f70,  // lighter tint at grazing angles
-    skyColor = 0x9fc4e8,      // reflection colour (overridden from sky.getFogColor)
-    sunColor = 0xfff2d0,      // specular glint tint
+    skyColor = 0x9fc4e8,      // reflection colour (auto-follows ctx.skyColor / sky)
+    sunColor = 0xfff2d0,      // specular glint tint (day)
+    moonColor = 0xbfd3ee,     // specular glint tint (night — cool moon streak)
     opacity = 0.75,
+    fadeStart = 0.85,         // radial alpha falloff begins at 85% of half-size
   } = {}) {
     this._scene = scene || null;
     this._enabled = true;
@@ -76,6 +98,16 @@ export class Water {
     this._elapsed = 0;
     this._manualReflect = false;   // true once setSkyReflectionColor() is called
     this._lastTod = -1;
+
+    // Manual sun override (setSunLight). When inactive, uSunIntensity is derived
+    // from the live sun direction every update.
+    this._manualSun = false;
+    this._manualSunIntensity = 1;
+    this._manualSunHasColor = false;
+    this._manualSunColor = new THREE.Color(1, 1, 1);
+
+    this._sunBaseColor = new THREE.Color(sunColor);  // warm day glints
+    this._moonColor = new THREE.Color(moonColor);    // cool night glints
 
     const cx = center && typeof center.x === 'number' ? center.x : size / 2;
     const cz = center && typeof center.z === 'number' ? center.z : size / 2;
@@ -86,7 +118,8 @@ export class Water {
     geo.rotateX(-Math.PI / 2);
     this._geo = geo;
 
-    this._sunDir = new THREE.Vector3(0.4, 0.85, 0.3).normalize();
+    this._sunDir = new THREE.Vector3(0.4, 0.85, 0.3).normalize(); // raw sun dir
+    this._specDir = this._sunDir.clone();  // active glint dir (sun or moon) — bound to uSunDir
 
     this._material = new THREE.ShaderMaterial({
       transparent: true,
@@ -97,19 +130,26 @@ export class Water {
       uniforms: {
         uTime: { value: 0 },
         uWaveHeight: { value: waveHeight },
-        uSunDir: { value: this._sunDir },
+        uSunDir: { value: this._specDir },        // active glint direction
         uSunColor: { value: new THREE.Color(sunColor) },
+        uSunIntensity: { value: 1.0 },            // 0 night .. 1 full day
+        uSpecBoost: { value: 1.0 },               // glint strength (JS-computed)
         uDeepColor: { value: new THREE.Color(deepColor) },
         uShallowColor: { value: new THREE.Color(shallowColor) },
         uSkyColor: { value: new THREE.Color(skyColor) },
         uOpacity: { value: opacity },
-        uF0: { value: 0.02 },          // water base reflectance (Schlick F0)
+        uF0: { value: 0.02 },                     // water base reflectance (Schlick F0)
+        uFadeStart: { value: fadeStart },         // normalised radius where fade begins
+        uInvHalf: { value: 2 / size },            // 1 / (size/2)
       },
       vertexShader: /* glsl */ `
         uniform float uTime;
         uniform float uWaveHeight;
+        uniform float uFadeStart;
+        uniform float uInvHalf;
         varying vec3 vWorldPos;
         varying vec3 vNormal;
+        varying float vFade;
 
         // One directional sine wave: accumulates height + its x/z derivatives so
         // the surface normal can be reconstructed analytically (no faceting).
@@ -139,6 +179,11 @@ export class Water {
           vec3 n = normalize(vec3(-dhdx * uWaveHeight, 1.0, -dhdz * uWaveHeight));
           vNormal = normalize(mat3(modelMatrix) * n);   // plane has no rotation/scale
 
+          // Radial edge dissolve: 0 at/beyond the border, 1 inside uFadeStart.
+          // Euclidean radius (normalised by half-size) also rounds the corners
+          // away, so no square silhouette survives.
+          vFade = 1.0 - smoothstep(uFadeStart, 1.0, length(xz) * uInvHalf);
+
           vec4 wp = modelMatrix * vec4(p, 1.0);
           vWorldPos = wp.xyz;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
@@ -148,6 +193,8 @@ export class Water {
         uniform float uTime;
         uniform vec3  uSunDir;
         uniform vec3  uSunColor;
+        uniform float uSunIntensity;
+        uniform float uSpecBoost;
         uniform vec3  uDeepColor;
         uniform vec3  uShallowColor;
         uniform vec3  uSkyColor;
@@ -155,6 +202,7 @@ export class Water {
         uniform float uF0;
         varying vec3 vWorldPos;
         varying vec3 vNormal;
+        varying float vFade;
 
         ${NOISE_GLSL}
 
@@ -177,27 +225,36 @@ export class Water {
           // --- Fresnel (Schlick): more reflective at grazing angles. -----------
           float fres = uF0 + (1.0 - uF0) * pow(1.0 - facing, 5.0);
 
-          // --- Sky reflection: tint the flat sky colour by the reflected ray so
-          //     it reads as a subtle gradient rather than a flat wash. ----------
-          vec3 R = reflect(-V, N);
-          float reflGrad = mix(1.18, 0.78, clamp(R.y * 0.5 + 0.5, 0.0, 1.0));
-          vec3 reflColor = uSkyColor * reflGrad;
+          float day = clamp(uSunIntensity, 0.0, 1.0);
 
-          // --- Water body: depth faked by view angle. Straight down (facing~1)
-          //     sees deep/dark water; grazing sees the lighter shallow tint. -----
+          // --- ONE colour source for the whole plane: the deep/shallow body is
+          //     pulled toward the live sky colour, then fresnel blends toward a
+          //     sky reflection built from the SAME uSkyColor. Sunrise therefore
+          //     tints every fragment warm together — no split zones, no seams. --
           vec3 body = mix(uShallowColor, uDeepColor, facing);
+          body = mix(body, uSkyColor, 0.22);
+          // Night: collapse the body to a dark navy (dim overall, keep blue).
+          body *= mix(vec3(0.20, 0.26, 0.52), vec3(1.0), day);
+
+          vec3 R = reflect(-V, N);
+          float reflGrad = mix(1.12, 0.86, clamp(R.y * 0.5 + 0.5, 0.0, 1.0));
+          vec3 reflColor = uSkyColor * reflGrad * mix(0.35, 1.0, day);
 
           vec3 col = mix(body, reflColor, fres);
 
-          // --- Sun glints: tight Blinn-Phong lobe + a broad softer sheen. ------
+          // --- Key-light glints: tight Blinn-Phong lobe + a broad softer sheen.
+          //     uSunDir/uSunColor/uSpecBoost are steered from JS — warm sun by
+          //     day, a modest cool moon streak at night. -----------------------
           vec3 H = normalize(uSunDir + V);
           float ndh = max(dot(N, H), 0.0);
-          float sunUp = clamp(uSunDir.y * 4.0, 0.0, 1.0);
           float spec = pow(ndh, 200.0) * 1.1 + pow(ndh, 32.0) * 0.15;
-          col += uSunColor * spec * sunUp;
+          col += uSunColor * spec * uSpecBoost;
 
-          // --- Alpha: base transparency, but more opaque where deep or grazing. -
+          // --- Alpha: base transparency, more opaque where deep or grazing,
+          //     then the radial edge dissolve so the border melts into fog. ----
           float alpha = clamp(mix(uOpacity, 1.0, facing * 0.35 + fres * 0.5), 0.0, 1.0);
+          alpha *= vFade;
+          if (alpha < 0.004) discard;
 
           gl_FragColor = vec4(col, alpha);
           #include <tonemapping_fragment>
@@ -219,22 +276,44 @@ export class Water {
     return this._enabled;
   }
 
-  // Set the reflected-sky colour (e.g. from sky.getFogColor()). Marks the colour
-  // as manually driven so update() stops auto-pulling it from sunRef.
+  // Seed/override the reflected-sky colour (e.g. from sky.getFogColor()).
+  // NOTE: if the host feeds a live ctx.skyColor through update(), that keeps
+  // winning every frame (it is the true horizon colour and must match the fog to
+  // avoid seams). This call only pins the colour for hosts without ctx.skyColor:
+  // it stops the sunRef.getFogColor() auto-pull.
   setSkyReflectionColor(color) {
     if (!color) return;
     this._manualReflect = true;
     this._material.uniforms.uSkyColor.value.copy(color);
   }
 
-  // dt seconds, ctx = { camera, elapsed, timeOfDay, sunDir, ... }.
+  // Manually drive the water's light response instead of deriving it from
+  // ctx.sunDir.y. intensity: 0 (night) .. 1 (full day); color (optional): glint
+  // tint. Call setSunLight(null) to return to automatic sun-driven mode.
+  setSunLight(intensity, color) {
+    if (intensity === null || intensity === undefined) {
+      this._manualSun = false;
+      this._manualSunHasColor = false;
+      return;
+    }
+    this._manualSun = true;
+    this._manualSunIntensity = Math.max(0, Math.min(1, Number(intensity) || 0));
+    if (color) {
+      this._manualSunHasColor = true;
+      this._manualSunColor.copy(color);
+    }
+  }
+
+  // dt seconds, ctx = { camera, elapsed, timeOfDay, sunDir, skyColor?, ... }.
   update(dt, ctx) {
     if (!this._enabled) return;
+
+    const u = this._material.uniforms;
 
     this._elapsed = ctx && typeof ctx.elapsed === 'number'
       ? ctx.elapsed
       : this._elapsed + (dt || 0);
-    this._material.uniforms.uTime.value = this._elapsed;
+    u.uTime.value = this._elapsed;
 
     // Sun direction: prefer the shared ctx vector, fall back to a sunRef.
     const cd = ctx && ctx.sunDir;
@@ -244,16 +323,49 @@ export class Water {
       this._sunDir.copy(this._sunRef.sunDir).normalize();
     }
 
-    // Sun glint colour from the light rig, if the sunRef exposes one.
-    const sun = this._sunRef && (this._sunRef.sun || (this._sunRef.isLight ? this._sunRef : null));
-    if (sun && sun.color) this._material.uniforms.uSunColor.value.copy(sun.color);
+    // --- Day/night factors from sun altitude. -----------------------------
+    const sy = this._sunDir.y;
+    const dayAmt = smoothstep01((sy + 0.02) / 0.32);   // 0 below horizon -> 1 by ~0.30
+    const nightAmt = smoothstep01((-sy - 0.03) / 0.27);
+    u.uSunIntensity.value = this._manualSun ? this._manualSunIntensity : dayAmt;
 
-    // Auto-pull the reflection colour from the sky on time-of-day changes,
-    // unless the host has taken manual control via setSkyReflectionColor().
+    // --- Glint direction: the sun by day, the moon (mirrored sun) at night. --
+    if (sy > -0.02) {
+      this._specDir.copy(this._sunDir);
+    } else {
+      const md = this._sunRef && this._sunRef.moonDir;
+      if (md) this._specDir.copy(md).normalize();
+      else this._specDir.set(-this._sunDir.x, -this._sunDir.y, 0.35).normalize();
+    }
+
+    // --- Glint strength: full sun sparkle by day, a modest moon streak at
+    //     night; both fade through twilight so there is no pop. --------------
+    u.uSpecBoost.value = this._manualSun
+      ? this._manualSunIntensity
+      : dayAmt + nightAmt * 0.35;
+
+    // --- Glint colour: manual > light rig (sky sets a cool moon colour on its
+    //     key light at night) > warm/cool blend fallback. --------------------
+    const sun = this._sunRef && (this._sunRef.sun || (this._sunRef.isLight ? this._sunRef : null));
+    if (this._manualSun && this._manualSunHasColor) {
+      u.uSunColor.value.copy(this._manualSunColor);
+    } else if (sun && sun.color) {
+      u.uSunColor.value.copy(sun.color);
+    } else {
+      u.uSunColor.value.copy(this._sunBaseColor).lerp(this._moonColor, nightAmt);
+    }
+
+    // --- Sky/horizon colour driving BOTH the body tint and the reflection. --
+    // Priority: live ctx.skyColor (matches the fog exactly, updates every
+    // frame) > sunRef.getFogColor() on tod change > pinned manual colour.
     const tod = ctx && typeof ctx.timeOfDay === 'number' ? ctx.timeOfDay : this._lastTod;
-    if (!this._manualReflect && this._sunRef &&
+    const liveSky = ctx && ctx.skyColor && ctx.skyColor.isColor ? ctx.skyColor : null;
+    if (liveSky) {
+      u.uSkyColor.value.copy(liveSky);
+    } else if (!this._manualReflect && this._sunRef &&
         typeof this._sunRef.getFogColor === 'function' && tod !== this._lastTod) {
-      this._material.uniforms.uSkyColor.value.copy(this._sunRef.getFogColor());
+      // getFogColor() clones, so only pull when time of day actually changed.
+      u.uSkyColor.value.copy(this._sunRef.getFogColor());
     }
     this._lastTod = tod;
   }
@@ -313,6 +425,12 @@ export class UnderwaterOverlay {
     // Preallocated underwater fog + background (reused; never per-frame alloc).
     this._underwaterFog = new THREE.Fog(new THREE.Color(fogColor), fogNear, fogFar);
     this._underwaterBg = new THREE.Color(fogColor);
+
+    // Base (full-day) colours; the live colours above are re-derived from these
+    // as the time of day changes so the underwater murk darkens at night.
+    this._fogBase = new THREE.Color(fogColor);
+    this._tintBase = new THREE.Color(tintColor);
+    this._dayAmt = -1;        // force the first update to apply the scales
   }
 
   get enabled() {
@@ -327,6 +445,24 @@ export class UnderwaterOverlay {
     if (!this._enabled) {
       if (this._active) this._deactivate();
       return;
+    }
+
+    // --- Follow time of day: darker murk at night. Driven off the live sun
+    //     altitude (ctx.sunDir.y) with a timeOfDay fallback. Colours are only
+    //     re-derived when the factor actually changes (allocation-free). ------
+    const sd = ctx && ctx.sunDir;
+    let alt;
+    if (sd && typeof sd.y === 'number') alt = sd.y;
+    else if (ctx && typeof ctx.timeOfDay === 'number') alt = Math.sin((ctx.timeOfDay - 0.25) * Math.PI * 2);
+    else alt = 1;
+    const day = smoothstep01((alt + 0.05) / 0.40);
+    if (day !== this._dayAmt) {
+      this._dayAmt = day;
+      const fogScale = 0.30 + 0.70 * day;   // night fog: deep dark blue-green
+      const tintScale = 0.45 + 0.55 * day;  // keep a hint of tint so it reads
+      this._underwaterFog.color.copy(this._fogBase).multiplyScalar(fogScale);
+      this._underwaterBg.copy(this._fogBase).multiplyScalar(fogScale);
+      this._material.color.copy(this._tintBase).multiplyScalar(tintScale);
     }
 
     const camY = this._camera ? this._camera.position.y : Infinity;

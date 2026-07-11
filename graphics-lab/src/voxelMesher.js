@@ -2,7 +2,7 @@
 //
 // Face-culled voxel mesher with classic per-vertex ambient occlusion.
 //
-// buildChunkGeometry(volume, { ao = true }) -> { solid, transparent }
+// buildChunkGeometry(volume, { ao = true, atlas = null }) -> { solid, transparent }
 //   Produces two THREE.BufferGeometry objects:
 //     - solid       : all opaque blocks (grass/dirt/stone/sand/wood/plank/
 //                     glowstone/snow) merged into one geometry.
@@ -11,9 +11,21 @@
 //   Water is NEVER meshed here (it is its own module), but faces of solid
 //   blocks that border water ARE emitted (water does not occlude).
 //
-// Each geometry carries: position, normal, uv (0..1 per face), color (Float32
-// rgb = BLOCKS face color * face-direction shade), and a custom float attribute
-// 'ao' in [0,1] (1 = fully lit, lower = occluded) consumed by voxelMaterial.js.
+// Each geometry carries: position, normal, uv, color (Float32 rgb), and a
+// custom float attribute 'ao' in [0,1] (1 = fully lit, lower = occluded)
+// consumed by voxelMaterial.js.
+//
+// UV / color modes:
+//   - atlas = null (default): uv is plain 0..1 per face, color = BLOCKS face
+//     color * face-direction shade (flat-color look; fully backward compatible).
+//   - atlas = createBlockAtlas() result (from textures.js): uv addresses that
+//     block face's 16x16 tile inside the atlas (inset by half a texel to stop
+//     bleeding between tiles), and color becomes a NEUTRAL near-white tint =
+//     face-direction shade * a slight deterministic per-block variation, so the
+//     texture supplies the hue while the vertex color keeps the top/side/bottom
+//     shading and breaks up tiling repetition. Attribute layout is identical in
+//     both modes. Side faces are oriented so tile "up" is world +Y on all four
+//     sides (grass fringe stays on top).
 //
 // AO uses the classic "0..3 corner AO" from the 0fps voxel-AO article: for each
 // of a face's 4 corners we look, in the voxel plane one step along the face
@@ -72,6 +84,10 @@ const RAW_FACES = [
 // Expand each face into 4 corner records with baked position offsets, uv, and
 // the three AO neighbour offsets (relative to the voxel being meshed).
 const FACES = RAW_FACES.map((f) => {
+  // Atlas-UV orientation: texture v must track world +Y on side faces so tile
+  // art reads upright (grass fringe on top). On +/-X faces the in-plane axes
+  // are U=y, V=z, so texture (u,v) = (cv, cu); everywhere else (cu, cv).
+  const swapUV = f.d[0] !== 0;
   const corners = f.order.map(([cu, cv]) => {
     const su = cu ? 1 : -1;
     const sv = cv ? 1 : -1;
@@ -83,6 +99,7 @@ const FACES = RAW_FACES.map((f) => {
         f.o[2] + f.U[2] * cu + f.V[2] * cv,
       ],
       uv: [cu, cv],
+      tuv: swapUV ? [cv, cu] : [cu, cv],
       // AO neighbour offsets, all in the plane one step along the normal
       side1: [f.d[0] + f.U[0] * su, f.d[1] + f.U[1] * su, f.d[2] + f.U[2] * su],
       side2: [f.d[0] + f.V[0] * sv, f.d[1] + f.V[1] * sv, f.d[2] + f.V[2] * sv],
@@ -102,6 +119,64 @@ const FACES = RAW_FACES.map((f) => {
 const COLOR_LUT = BLOCKS.map((_, id) =>
   BUCKET_NAMES.map((name) => faceColor(id, name))
 );
+
+// --- Atlas support -------------------------------------------------------------
+
+// Neutral near-white base tint used when an atlas supplies the color; the
+// texture carries the hue, the tint keeps direction shading + variation.
+const ATLAS_TINT = 0.98;
+
+// Deterministic 0..1 hash of a voxel coordinate — cheap per-block brightness
+// variation so the tiled textures don't read as a perfectly repeating wallpaper.
+function blockHash01(x, y, z) {
+  let h = Math.imul(x + 1, 0x27d4eb2f) ^ Math.imul(y + 1, 0x165667b1) ^ Math.imul(z + 1, 0x9e3779b1);
+  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
+  h ^= h >>> 13;
+  return (h >>> 0) / 4294967296;
+}
+
+// Build the per-block-id, per-bucket atlas UV rects (half-texel inset applied)
+// and neutral tint values. Returns null when no usable atlas was passed.
+// UV rect entries are [u0, v0, uSpan, vSpan] so the emit loop stays add+mul only.
+function buildAtlasLUTs(atlas) {
+  if (!atlas || typeof atlas.tileUV !== 'function') return null;
+
+  const texel = atlas.texelSize || (atlas.atlasSizePx ? 1 / atlas.atlasSizePx : 1 / 64);
+  const inset = texel * 0.5; // half-texel inset stops atlas bleeding
+
+  const faceTileOf = typeof atlas.faceTile === 'function'
+    ? (id, face) => atlas.faceTile(id, face)
+    : (id, face) => {
+      const m = atlas.FACE_TILE && atlas.FACE_TILE[id];
+      return m ? (m[face] || m.side || null) : null;
+    };
+
+  const uvLUT = BLOCKS.map((_, id) =>
+    BUCKET_NAMES.map((face) => {
+      const name = faceTileOf(id, face);
+      const t = name ? atlas.tileUV(name) : null;
+      if (!t) return null; // block falls back to the flat-color path
+      return [
+        t.u0 + inset,
+        t.v0 + inset,
+        (t.u1 - t.u0) - 2 * inset,
+        (t.v1 - t.v0) - 2 * inset,
+      ];
+    })
+  );
+
+  const tintLUT = BLOCKS.map((b) =>
+    BUCKET_NAMES.map((face) => {
+      let shade = 1.0;
+      if (face === 'top') shade = b.topShade ?? 1.0;
+      else if (face === 'bottom') shade = b.bottomShade ?? 1.0;
+      else shade = b.sideShade ?? 1.0;
+      return ATLAS_TINT * shade;
+    })
+  );
+
+  return { uvLUT, tintLUT };
+}
 
 // --- Output accumulators (exact-sized typed arrays, filled in one pass) -------
 
@@ -140,14 +215,21 @@ const aoScratch = [0, 0, 0, 0];
 /**
  * Build face-culled solid + transparent geometry for a worldgen Volume.
  * @param {object} volume  as produced by generateDemoChunk()
- * @param {{ao?:boolean}} opts  ao=true bakes corner AO; false writes ao=1 (lit)
+ * @param {{ao?:boolean, atlas?:object|null}} opts
+ *   ao=true bakes corner AO; false writes ao=1 (lit).
+ *   atlas: result of textures.js createBlockAtlas(); when given, uv addresses
+ *   each face's atlas tile (half-texel inset) and color becomes a neutral tint.
  * @returns {{solid: THREE.BufferGeometry, transparent: THREE.BufferGeometry|null}}
  */
-export function buildChunkGeometry(volume, { ao = true } = {}) {
+export function buildChunkGeometry(volume, { ao = true, atlas = null } = {}) {
   const { sx, sy, sz } = volume;
   // Local refs: these are plain closures in worldgen (no `this`), safe to hoist.
   const get = volume.get;
   const isOpaque = volume.isOpaque;
+
+  const atlasLUT = buildAtlasLUTs(atlas);
+  const uvLUT = atlasLUT ? atlasLUT.uvLUT : null;
+  const tintLUT = atlasLUT ? atlasLUT.tintLUT : null;
 
   // --- Pass 1: count emitted faces so buffers can be sized exactly ----------
   let solidFaces = 0;
@@ -181,6 +263,11 @@ export function buildChunkGeometry(volume, { ao = true } = {}) {
 
         const buf = id === LEAVES ? trans : solid;
         const lut = COLOR_LUT[id];
+        const uvRow = uvLUT ? uvLUT[id] : null;
+        const tintRow = tintLUT ? tintLUT[id] : null;
+        // Slight deterministic per-block brightness variation (atlas mode only)
+        // so the repeated 16x16 tiles don't read as wallpaper. 0.93..1.02.
+        const vary = uvRow ? 0.93 + 0.09 * blockHash01(x, y, z) : 1.0;
 
         for (let fi = 0; fi < 6; fi++) {
           const F = FACES[fi];
@@ -202,10 +289,21 @@ export function buildChunkGeometry(volume, { ao = true } = {}) {
             aoScratch[0] = aoScratch[1] = aoScratch[2] = aoScratch[3] = 1.0;
           }
 
-          const col = lut[F.bucket];
-          const cr = col[0];
-          const cg = col[1];
-          const cb = col[2];
+          // Atlas tile rect for this face (null -> flat-color fallback path).
+          const tile = uvRow ? uvRow[F.bucket] : null;
+          let cr;
+          let cg;
+          let cb;
+          if (tile) {
+            // Neutral near-white tint: direction shade * per-block variation.
+            const t = tintRow[F.bucket] * vary;
+            cr = t; cg = t; cb = t;
+          } else {
+            const col = lut[F.bucket];
+            cr = col[0];
+            cg = col[1];
+            cb = col[2];
+          }
           const nx = F.n[0];
           const ny = F.n[1];
           const nz = F.n[2];
@@ -225,7 +323,14 @@ export function buildChunkGeometry(volume, { ao = true } = {}) {
             pos[p] = x + cp[0];     pos[p + 1] = y + cp[1]; pos[p + 2] = z + cp[2];
             nor[p] = nx;            nor[p + 1] = ny;        nor[p + 2] = nz;
             cbuf[p] = cr;           cbuf[p + 1] = cg;       cbuf[p + 2] = cb;
-            uv[u] = c.uv[0];        uv[u + 1] = c.uv[1];
+            if (tile) {
+              // Map the corner into this face's (inset) atlas tile rect.
+              uv[u] = tile[0] + c.tuv[0] * tile[2];
+              uv[u + 1] = tile[1] + c.tuv[1] * tile[3];
+            } else {
+              uv[u] = c.uv[0];
+              uv[u + 1] = c.uv[1];
+            }
             abuf[a] = aoScratch[i];
             p += 3;
             u += 2;

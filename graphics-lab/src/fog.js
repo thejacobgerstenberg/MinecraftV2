@@ -11,15 +11,28 @@
 //                 (the default; fades gracefully with distance, no visible cut-off)
 //   * 'linear' -> THREE.Fog(color, near, far)     classic near/far distance fog
 //
-// The trick that makes pop-in vanish is that every frame the fog colour is eased
-// toward the *current* sky/horizon colour, so terrain silhouettes melt into the
-// sky exactly where the geometry ends. The sky colour is taken from (in order):
+// TUNING PHILOSOPHY (v2 — the v1 fog washed the whole island out):
+//   * The demo camera orbits ~40-80 units from the terrain. At that range the
+//     fog contribution must be near zero so AO, cast shadows and block texture
+//     keep FULL contrast; only the far edges of the chunk (~120+ units) soften.
+//     Defaults are retuned ~60% down from v1 accordingly.
+//   * Readability caps: the base density is clamped (maxBaseDensity) and the
+//     final effective density is clamped again after weather/time scaling
+//     (maxDensity), so no configuration — including legacy callers passing the
+//     old, hot v1 densities — can ever reduce the island to a milky lump.
+//   * Weather may thicken the haze, but the combined weather x time multiplier
+//     is hard-capped at maxHaze (~2x base). Rain/snow read as mood, not soup.
+//   * Time-of-day adds only a whisper of valley haze at dawn/dusk (+6%) and
+//     night (+10%). Sunrise stays crisp with long shadows.
+//
+// COLOUR: the fog colour tracks the CURRENT sky/horizon colour EXACTLY every
+// frame — no easing lag — so at sunrise the fog is the same warm orange as the
+// sky (never a white/grey band against an orange horizon) and at night it is
+// the sky's near-black navy. The sky colour is taken from (in order):
 //   1. ctx.skyColor / ctx.fogColor / ctx.horizonColor (a THREE.Color on ctx), or
 //   2. a `skyRef` exposing getFogColor() (e.g. DynamicSky), pulled on tod change, or
-//   3. the last value handed to setSkyColor(THREE.Color).
-//
-// Fog density scales up in rain/snow and gets a subtle boost at dawn/dusk/night
-// (morning mist), all eased so weather/time changes never snap.
+//   3. the last value handed to setSkyColor(THREE.Color)  (snaps immediately).
+// (Pass colorLerp > 0 to opt back in to eased colour, e.g. for slow-mo cameras.)
 //
 // Cooperates with water.js UnderwaterOverlay: that module snapshots scene.fog on
 // the way down and restores it on the way up. While `this.suspended` is true (or
@@ -36,9 +49,16 @@ const { clamp, lerp, smoothstep } = THREE.MathUtils;
 // Defaults (also reported to the integrator).
 const DEFAULT_COLOR = 0xbcd9f2; // sky-horizon light blue; overwritten by sky sync
 const DEFAULT_MODE = 'exp2';
-const DEFAULT_DENSITY = 0.0065; // FogExp2 density (gentle haze, strong far fade)
-const DEFAULT_NEAR = 45; // linear-mode near plane
-const DEFAULT_FAR = 140; // linear-mode far plane
+// v1 was 0.0065 and drowned the scene; ~60% cut. At 0.0026 the exp2 factor is
+// ~2% at 60u, ~4% at 80u (full terrain contrast), ~16% at the 150u far corner.
+const DEFAULT_DENSITY = 0.0026;
+const DEFAULT_NEAR = 90; // linear-mode near plane (was 45 — fog started on-island)
+const DEFAULT_FAR = 260; // linear-mode far plane  (was 140 — far corner was 100% fogged)
+
+// Readability guards (see TUNING PHILOSOPHY above). Overridable per-instance.
+const MAX_BASE_DENSITY = 0.0035; // clamp for the exp2 base (tames legacy v1 configs)
+const MAX_FOG_DENSITY = 0.0060; // absolute cap AFTER weather/tod scaling
+const MAX_HAZE = 2.0; // combined weather x time-of-day multiplier ceiling
 
 export class DistanceFog {
   constructor(scene, {
@@ -48,11 +68,15 @@ export class DistanceFog {
     density = DEFAULT_DENSITY,
     mode = DEFAULT_MODE, // 'exp2' (density haze) | 'linear' (near/far)
     skyRef = null, // optional { getFogColor(): THREE.Color } (e.g. DynamicSky)
-    weatherScaling = true, // denser fog in rain/snow
-    todScaling = true, // subtle dawn/dusk/night haze
-    colorLerp = 4.0, // per-second rate the fog colour eases toward the sky
-    rainDensity = 2.0, // haze multiplier in rain
-    snowDensity = 2.7, // haze multiplier in snow
+    weatherScaling = true, // denser fog in rain/snow (capped, see maxHaze)
+    todScaling = true, // whisper of dawn/dusk/night haze (capped)
+    colorLerp = 0, // 0 = track the sky colour EXACTLY every frame (default);
+    // > 0 = per-second ease rate toward the sky colour (legacy behaviour)
+    rainDensity = 1.6, // haze multiplier in rain  (v1: 2.0)
+    snowDensity = 1.8, // haze multiplier in snow  (v1: 2.7 — the pastel-mush culprit)
+    maxHaze = MAX_HAZE, // hard cap on the combined haze multiplier
+    maxBaseDensity = MAX_BASE_DENSITY, // clamp applied to the exp2 base density
+    maxDensity = MAX_FOG_DENSITY, // clamp applied to the final exp2 density
   } = {}) {
     this._scene = scene || null;
     this._enabled = true;
@@ -69,8 +93,11 @@ export class DistanceFog {
     this._weatherScaling = !!weatherScaling;
     this._todScaling = !!todScaling;
     this._colorLerp = colorLerp;
-    this._rainDensity = rainDensity;
-    this._snowDensity = snowDensity;
+    this._maxHaze = Math.max(1, maxHaze);
+    this._maxBaseDensity = Math.max(0, maxBaseDensity);
+    this._maxDensity = Math.max(0, maxDensity);
+    this._rainDensity = clamp(rainDensity, 1, this._maxHaze);
+    this._snowDensity = clamp(snowDensity, 1, this._maxHaze);
     this._skyRef = (skyRef && typeof skyRef.getFogColor === 'function') ? skyRef : null;
 
     // Latest desired sky/horizon colour (reused; no per-frame allocation).
@@ -103,6 +130,13 @@ export class DistanceFog {
     return this._mode;
   }
 
+  // Effective exp2 density: readability-clamped base x haze, capped again so
+  // no weather/time combination can wash the island out.
+  _effectiveDensity() {
+    const base = Math.min(this._baseDensity, this._maxBaseDensity);
+    return Math.min(base * this._haze, this._maxDensity);
+  }
+
   // Build a fog object of the current mode, copying `src` as its colour.
   _makeFog(src) {
     const col = new THREE.Color();
@@ -110,7 +144,7 @@ export class DistanceFog {
     else col.set(src);
     const fog = this._mode === 'linear'
       ? new THREE.Fog(col, this._near, this._far)
-      : new THREE.FogExp2(col, this._baseDensity);
+      : new THREE.FogExp2(col, this._effectiveDensity());
     fog.name = 'DistanceFog';
     return fog;
   }
@@ -118,26 +152,38 @@ export class DistanceFog {
   // --- Public setters -------------------------------------------------------
 
   // Sync target: feed the current sky/horizon colour so fog matches the sky.
+  // Snaps the live fog colour immediately — the fog must never lag the sky
+  // (a white fog band against an orange sunrise sky was v1's worst artefact).
   setSkyColor(color) {
     if (!color) return;
     if (color.isColor) this._skyColor.copy(color);
     else this._skyColor.set(color);
-    // Snap immediately if we have never initialised the fog colour.
-    if (!this._colorInit) {
-      this._fog.color.copy(this._skyColor);
-      this._colorInit = true;
-    }
+    if (this._fog) this._fog.color.copy(this._skyColor);
+    this._colorInit = true;
   }
 
   setDensity(x) {
     this._baseDensity = Math.max(0, x);
-    if (this._mode === 'exp2') this._fog.density = this._baseDensity * this._haze;
+    if (this._mode === 'exp2') this._fog.density = this._effectiveDensity();
   }
 
   setRange(near, far) {
     if (typeof near === 'number') this._near = near;
     if (typeof far === 'number') this._far = far;
     if (this._mode === 'linear') this._applyLinear();
+  }
+
+  // Adjust the readability guards at runtime (added in v2).
+  setMaxHaze(x) {
+    this._maxHaze = Math.max(1, x);
+    this._rainDensity = Math.min(this._rainDensity, this._maxHaze);
+    this._snowDensity = Math.min(this._snowDensity, this._maxHaze);
+  }
+
+  setDensityCaps(maxBase, maxEffective) {
+    if (typeof maxBase === 'number') this._maxBaseDensity = Math.max(0, maxBase);
+    if (typeof maxEffective === 'number') this._maxDensity = Math.max(0, maxEffective);
+    if (this._mode === 'exp2') this._fog.density = this._effectiveDensity();
   }
 
   // Switch between 'exp2' (density haze) and 'linear' (near/far) at runtime.
@@ -147,7 +193,7 @@ export class DistanceFog {
     this._mode = m;
     const old = this._fog;
     this._fog = this._makeFog(old.color); // carry the current colour across
-    if (this._mode === 'exp2') this._fog.density = this._baseDensity * this._haze;
+    if (this._mode === 'exp2') this._fog.density = this._effectiveDensity();
     else this._applyLinear();
     this._colorInit = true;
     // If we currently own scene.fog, swap the new object in seamlessly.
@@ -177,7 +223,9 @@ export class DistanceFog {
     this._apply(suspend);
   }
 
-  // Ease the fog colour toward the current sky/horizon colour.
+  // Match the fog colour to the current sky/horizon colour. Default is an
+  // EXACT per-frame copy (colorLerp === 0): warm orange at sunrise, light
+  // blue-grey by day, near-black navy at night — always identical to the sky.
   _refreshColor(dt, ctx) {
     let src = null;
     if (ctx) {
@@ -198,16 +246,17 @@ export class DistanceFog {
       this._lastTod = tod;
     }
 
-    if (!this._colorInit) {
-      this._fog.color.copy(this._skyColor);
+    if (!this._colorInit || !(this._colorLerp > 0)) {
+      this._fog.color.copy(this._skyColor); // exact track — zero lag
       this._colorInit = true;
     } else {
-      const a = this._colorLerp > 0 ? clamp(dt * this._colorLerp, 0, 1) : 1;
+      const a = clamp(dt * this._colorLerp, 0, 1);
       this._fog.color.lerp(this._skyColor, a);
     }
   }
 
   // Ease the haze multiplier toward its weather + time-of-day target and apply.
+  // The target is hard-capped at maxHaze so the island always stays readable.
   _refreshDensity(dt, ctx) {
     let target = 1;
     if (this._weatherScaling && ctx && ctx.weather) {
@@ -217,22 +266,26 @@ export class DistanceFog {
     if (this._todScaling && ctx && typeof ctx.timeOfDay === 'number') {
       target *= this._todHaze(ctx.timeOfDay);
     }
+    target = Math.min(target, this._maxHaze);
 
-    this._haze = dt > 0 ? lerp(this._haze, target, clamp(dt * 2.5, 0, 1)) : target;
+    this._haze = dt > 0 ? lerp(this._haze, target, clamp(dt * 3.0, 0, 1)) : target;
 
-    if (this._mode === 'exp2') this._fog.density = this._baseDensity * this._haze;
+    if (this._mode === 'exp2') this._fog.density = this._effectiveDensity();
     else this._applyLinear();
   }
 
-  // Subtle extra haze at twilight (morning/evening mist) and deep night.
+  // Whisper of extra haze at twilight and deep night. v1 added +30% at dawn
+  // (the sunrise milk); v2 keeps sunrise crisp — just a hint of valley haze.
   _todHaze(t) {
     const dTwilight = Math.min(Math.abs(t - 0.25), Math.abs(t - 0.75));
-    const mist = 1 - smoothstep(dTwilight, 0.0, 0.12); // 1 at dawn/dusk -> 0
-    const night = 1 - smoothstep(Math.min(t, 1 - t), 0.0, 0.20); // 1 at midnight
-    return 1 + 0.30 * mist + 0.15 * night;
+    const mist = 1 - smoothstep(dTwilight, 0.0, 0.10); // 1 at dawn/dusk -> 0
+    const night = 1 - smoothstep(Math.min(t, 1 - t), 0.0, 0.18); // 1 at midnight
+    return 1 + 0.06 * mist + 0.10 * night;
   }
 
-  // Apply the current haze to a linear fog's near/far (far pulls in as haze rises).
+  // Apply the current haze to a linear fog's near/far (far pulls in as haze
+  // rises; haze is already capped at maxHaze so far never collapses onto the
+  // island).
   _applyLinear() {
     const far = this._far / Math.max(this._haze, 1e-4);
     this._fog.far = far;

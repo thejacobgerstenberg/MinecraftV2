@@ -1,6 +1,7 @@
 // graphics-lab/src/voxelMaterial.js
 //
-// createVoxelMaterial({ transparent = false }) -> THREE.MeshStandardMaterial
+// createVoxelMaterial({ transparent = false, map = null, alphaTest = null })
+//   -> THREE.MeshStandardMaterial
 //
 // A standard PBR material tuned for the voxel chunk: rough, non-metallic, driven
 // by the geometry's per-vertex `color` attribute. It is patched via
@@ -10,29 +11,44 @@
 // and fog keep working — the injection only touches diffuseColor right after the
 // vertex color is applied.
 //
+// Texturing: pass `map` = the atlas texture from textures.js createBlockAtlas().
+// The shader multiplies map * vertexColor * AO (map_fragment runs before
+// color_fragment, and our AO line is appended to color_fragment), so with an
+// atlas the vertex color acts as the neutral tint the mesher bakes in atlas
+// mode. With `transparent: true` (leaves) AND a map, the material switches to
+// classic alpha-CUTOUT foliage: alphaTest 0.5 against the tile's transparent
+// holes, fully opaque otherwise, depth-written, double-sided — no sorting
+// artifacts. Untextured behavior is unchanged (backward compatible).
+//
 // Runtime knobs (no re-mesh needed):
 //   material.userData.setAoStrength(s)   // 0..1+, blends AO in/out (default 1)
 //   material.userData.setAoEnabled(bool) // hard on/off (default on)
 //   material.userData.aoUniforms         // { uAoStrength, uAoEnabled } uniforms
+//   material.userData.setMap(tex|null)   // swap/remove the atlas at runtime
 //
-// Both are backed by uniform objects that are re-linked on every (re)compile, so
-// changing them after the shader has been built still takes effect.
+// The AO knobs are backed by uniform objects that are re-linked on every
+// (re)compile, so changing them after the shader has been built still works.
 
 import * as THREE from 'three';
 
-export function createVoxelMaterial({ transparent = false } = {}) {
+export function createVoxelMaterial({ transparent = false, map = null, alphaTest = null } = {}) {
+  // "Cutout" mode: textured leaves render as opaque geometry with alpha-tested
+  // holes (classic Minecraft fancy foliage) — better depth behavior than blending.
+  const cutout = !!map && transparent;
+
   const mat = new THREE.MeshStandardMaterial({
     roughness: 0.95,
     metalness: 0.0,
-    vertexColors: true,   // geometry provides per-vertex face color
+    vertexColors: true,   // geometry provides per-vertex face color / tint
     flatShading: false,   // normals are already per-face; smooth shading is fine
-    transparent,
-    // Leaves: keep an alpha cutout so future cutout-textured foliage works, and
-    // render them slightly see-through. Solid material stays fully opaque.
-    opacity: transparent ? 0.85 : 1.0,
-    alphaTest: transparent ? 0.5 : 0.0,
-    depthWrite: transparent ? false : true,
-    side: THREE.FrontSide,
+    map: map || null,
+    transparent: cutout ? false : transparent,
+    // Leaves: without a map, keep the slightly see-through blended look; with a
+    // map the tile's transparent holes carry the see-through instead.
+    opacity: cutout ? 1.0 : (transparent ? 0.85 : 1.0),
+    alphaTest: alphaTest ?? (transparent ? 0.5 : 0.0),
+    depthWrite: transparent && !cutout ? false : true,
+    side: cutout ? THREE.DoubleSide : THREE.FrontSide,
   });
 
   // Persistent uniform objects. The same references are injected into every
@@ -77,6 +93,10 @@ export function createVoxelMaterial({ transparent = false } = {}) {
   };
   mat.userData.setAoEnabled = (on) => {
     uAoEnabled.value = on ? 1.0 : 0.0;
+  };
+  mat.userData.setMap = (tex) => {
+    mat.map = tex || null;
+    mat.needsUpdate = true; // USE_MAP define changes -> recompile
   };
 
   return mat;

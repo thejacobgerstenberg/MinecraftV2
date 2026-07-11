@@ -3,7 +3,8 @@
 // INTEGRATED SHOWCASE ENTRY.
 //
 // Wires the full effect stack together into one voxel vignette:
-//   worldgen volume -> AO-meshed chunk (voxelMesher + voxelMaterial),
+//   worldgen volume -> AO-meshed chunk (voxelMesher + voxelMaterial) textured
+//   from the procedural block atlas (textures.js),
 //   DynamicSky (sun/hemi light rig + dome/stars/clouds),
 //   ShadowController (soft directional shadows on the shared sun),
 //   Water surface + UnderwaterOverlay at WATER_LEVEL,
@@ -21,6 +22,7 @@ import { OrbitControls } from 'three/addons/OrbitControls.js';
 
 import { generateDemoChunk } from './worldgen.js';
 import { BLOCKS, AIR, WATER, LEAVES } from './blocks.js';
+import { createBlockAtlas } from './textures.js';
 import { buildChunkGeometry } from './voxelMesher.js';
 import { createVoxelMaterial } from './voxelMaterial.js';
 import { DynamicSky } from './sky.js';
@@ -117,12 +119,16 @@ function init() {
   controls.update();
 
   // ==========================================================================
-  // 3. Voxel chunk: AO-meshed solid + transparent(leaves) geometry.
+  // 3. Voxel chunk: AO-meshed solid + transparent(leaves) geometry, textured
+  //    from the procedural 16x16 block atlas (textures.js). The mesher writes
+  //    atlas UVs + neutral tints; the material multiplies map * tint * AO.
   // ==========================================================================
-  const geom = buildChunkGeometry(volume, { ao: true });
+  const atlas = createBlockAtlas();
+  const geom = buildChunkGeometry(volume, { ao: true, atlas });
 
-  const solidMat = createVoxelMaterial({ transparent: false });
-  const leavesMat = createVoxelMaterial({ transparent: true });
+  const solidMat = createVoxelMaterial({ transparent: false, map: atlas.texture });
+  // With a map, transparent:true switches to alpha-cutout foliage (leaf holes).
+  const leavesMat = createVoxelMaterial({ transparent: true, map: atlas.texture });
 
   const solidMesh = new THREE.Mesh(geom.solid, solidMat);
   solidMesh.name = 'ChunkSolid';
@@ -351,11 +357,21 @@ function init() {
 
     // Effect updates (each module self-gates on its own enabled flag).
     sky.update(dt, ctx);
+
+    // Per-frame sky -> fog/water colour sync: copy the CURRENT horizon colour
+    // into the shared ctx.skyColor (allocation-free via the target overload).
+    // DistanceFog and Water both read ctx.skyColor every frame, so fog, water
+    // body/reflection and sky stay seamless through sunrise/sunset.
+    sky.getFogColor(ctxSkyColor);
+
     shadows.update(dt, ctx);
-    water.update(dt, ctx);
+    water.update(dt, ctx);       // sun/moon intensity+colour auto-derived from
+                                 // ctx.sunDir + sunRef (night-correct water)
     underwater.update(dt, ctx);
     fog.update(dt, ctx);
     particles.update(dt, ctx);
+    post.update(dt, ctx);        // auto night boost from sun altitude
+                                 // (wider/stronger bloom as the sun sets)
 
     // Periodic block-break debris so shots always show flying voxels.
     bbTimer += dt;

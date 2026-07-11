@@ -3,13 +3,30 @@
 // DYNAMIC SKY effect module.
 //
 // Provides a full day/night sky for the voxel demo:
-//   - an inward-facing sky DOME with a time-of-day gradient (horizon -> zenith)
-//     plus soft sun-disc and moon glows baked into the shader,
-//   - a THREE.Points STAR field that fades in at night and twinkles,
-//   - a procedural SUN sprite and MOON sprite that track sun/moon direction,
-//   - soft, drifting fbm CLOUDS on a large horizontal plane lit by the sun,
-//   - a key DirectionalLight (this.sun) + HemisphereLight fill (this.hemi)
-//     whose colours/intensity animate warm-low / white-noon / dim-cool-night.
+//   - an inward-facing sky DOME with a time-of-day gradient (horizon -> zenith),
+//     a sun-side warm twilight band, and a VISIBLE sun disc + soft halo and a
+//     moon halo baked into the shader,
+//   - a THREE.Points STAR field (additive, 1.5-3 px, subtle twinkle) that ramps
+//     to ~0.9 opacity when the sun is well below the horizon,
+//   - a procedural SUN sprite (soft radial glow, grows warm + large at the
+//     horizon) and a pale cratered MOON sprite opposite-ish the sun,
+//   - soft drifting fbm CLOUDS on a large horizontal plane, tinted by the sun
+//     colour (white day / pink-orange twilight / faintly lit night),
+//   - a key DirectionalLight (this.sun) + HemisphereLight fill (this.hemi).
+//     Night is NEVER pitch black: cool blue moonlight (~0.14-0.20) plus a hemi
+//     floor keep terrain faintly readable.
+//
+// Robustness: all sky visuals are camera-centred and FAR-PLANE PROOF. The
+// dome / stars / clouds hug the far plane in clip space (z = w * k) so they can
+// never be frustum-culled away, and the whole visuals group additionally
+// rescales to fit inside camera.far so the sun/moon sprites survive short far
+// planes too. (A clipped dome is exactly how a sky turns into a flat colour
+// fill in screenshots.)
+//
+// getFogColor() always returns the CURRENT true horizon colour (light
+// blue-grey by day, warm orange at sunrise/sunset, very dark navy at night) so
+// the fog module can match the sky seamlessly. Pass an optional target Color
+// to avoid the per-call allocation.
 //
 // Follows the graphics-lab effect contract:
 //   constructor(renderer, opts) / update(dt, ctx) / setEnabled(bool) /
@@ -21,7 +38,8 @@
 import * as THREE from 'three';
 
 const TWO_PI = Math.PI * 2;
-const { clamp, smoothstep } = THREE.MathUtils;
+const DEG = Math.PI / 180;
+const { clamp, smoothstep, lerp } = THREE.MathUtils;
 
 // ---------------------------------------------------------------------------
 // Anchor colours. Authored as sRGB hex; THREE (colour-managed) converts them to
@@ -30,29 +48,31 @@ const { clamp, smoothstep } = THREE.MathUtils;
 // ---------------------------------------------------------------------------
 const c = (hex) => new THREE.Color(hex);
 
-const DAY_ZENITH    = c(0x2b6fd6);
-const DAY_HORIZON   = c(0xbcd9f2);
-const DUSK_ZENITH   = c(0x3a3c74);
-const DUSK_HORIZON  = c(0xff7a30);
-const NIGHT_ZENITH  = c(0x05070f);
-const NIGHT_HORIZON = c(0x121d38);
+const DAY_ZENITH    = c(0x2565cc); // rich sky blue straight up
+const DAY_HORIZON   = c(0xb4d0ec); // light blue-grey at the horizon (fog match)
+const DUSK_ZENITH   = c(0x2e4f9e); // twilight zenith stays BLUISH, never orange
+const DUSK_HORIZON  = c(0xff7a30); // warm orange band at the horizon
+const DUSK_GLOW     = c(0xff8c3a); // extra sun-side horizon glow band
+const NIGHT_ZENITH  = c(0x090f24); // deep navy, NOT black
+const NIGHT_HORIZON = c(0x16234a); // dark navy horizon (night fog colour)
 
-const SUN_GLOW_WARM = c(0xffc27a); // dome/sprite sun tint near horizon
-const SUN_GLOW_NOON = c(0xfff6ea); // dome/sprite sun tint high in the sky
-const MOON_GLOW     = c(0xaebede); // cool moon halo
+const SUN_GLOW_WARM = c(0xffb25e); // dome/sprite sun tint near horizon
+const SUN_GLOW_NOON = c(0xfff6e4); // dome/sprite sun tint high in the sky
+const MOON_GLOW     = c(0xb8c6e6); // cool moon halo
 
 const SUN_LIGHT_WARM = c(0xff9a45); // directional light at sunrise/sunset
 const SUN_LIGHT_NOON = c(0xfff4e6); // directional light at noon
-const MOON_LIGHT     = c(0x5f6fa8); // directional light at night (never black)
+const MOON_LIGHT     = c(0x93a7d8); // cool blue moonlight (never black)
 
-const HEMI_GROUND = c(0x3a2f22); // warm bounce fill from the ground
+const HEMI_GROUND    = c(0x3a2f22); // warm bounce fill from the ground
+const HEMI_NIGHT_SKY = c(0x33415f); // hemi sky colour floor at night (readable)
 
-const CLOUD_LIT_DAY    = c(0xffffff);
-const CLOUD_SHADOW_DAY = c(0x9fb0c4);
-const CLOUD_LIT_DUSK   = c(0xffce9c);
-const CLOUD_SHADOW_DUSK= c(0x6b5f78);
-const CLOUD_LIT_NIGHT  = c(0x2a3350);
-const CLOUD_SHADOW_NIGHT = c(0x141a2e);
+const CLOUD_LIT_DAY      = c(0xffffff);
+const CLOUD_SHADOW_DAY   = c(0x9fb0c4);
+const CLOUD_LIT_DUSK     = c(0xffc09a); // pink-orange sunrise clouds
+const CLOUD_SHADOW_DUSK  = c(0x8a5f74);
+const CLOUD_LIT_NIGHT    = c(0x39456b); // faintly moonlit
+const CLOUD_SHADOW_NIGHT = c(0x1c2440);
 
 // ---------------------------------------------------------------------------
 // Small deterministic PRNG so the star field is stable across reloads.
@@ -77,9 +97,10 @@ function makeSunTexture() {
   const ctx = cv.getContext('2d');
   const g = ctx.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
   g.addColorStop(0.0, 'rgba(255,255,255,1.0)');
-  g.addColorStop(0.16, 'rgba(255,246,222,0.95)');
-  g.addColorStop(0.40, 'rgba(255,210,140,0.45)');
-  g.addColorStop(0.75, 'rgba(255,180,110,0.10)');
+  g.addColorStop(0.14, 'rgba(255,248,228,1.0)');
+  g.addColorStop(0.22, 'rgba(255,236,190,0.85)');
+  g.addColorStop(0.45, 'rgba(255,208,140,0.32)');
+  g.addColorStop(0.75, 'rgba(255,180,110,0.08)');
   g.addColorStop(1.0, 'rgba(255,170,100,0.0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, s, s);
@@ -93,20 +114,21 @@ function makeMoonTexture() {
   const cv = document.createElement('canvas');
   cv.width = cv.height = s;
   const ctx = cv.getContext('2d');
-  // faint outer glow
-  const glow = ctx.createRadialGradient(s / 2, s / 2, s * 0.28, s / 2, s / 2, s / 2);
-  glow.addColorStop(0.0, 'rgba(210,222,245,0.35)');
+  // soft outer glow so the moon reads even against a lightening sky
+  const glow = ctx.createRadialGradient(s / 2, s / 2, s * 0.24, s / 2, s / 2, s / 2);
+  glow.addColorStop(0.0, 'rgba(214,226,248,0.5)');
+  glow.addColorStop(0.55, 'rgba(210,222,245,0.14)');
   glow.addColorStop(1.0, 'rgba(210,222,245,0.0)');
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, s, s);
-  // solid disc with a soft limb
+  // solid pale disc with a soft limb
   const disc = ctx.createRadialGradient(
     s * 0.44, s * 0.44, s * 0.05,
     s / 2, s / 2, s * 0.30,
   );
-  disc.addColorStop(0.0, 'rgba(244,247,255,1.0)');
-  disc.addColorStop(0.80, 'rgba(214,224,244,1.0)');
-  disc.addColorStop(1.0, 'rgba(190,202,226,0.0)');
+  disc.addColorStop(0.0, 'rgba(248,250,255,1.0)');
+  disc.addColorStop(0.80, 'rgba(220,229,247,1.0)');
+  disc.addColorStop(1.0, 'rgba(196,208,232,0.0)');
   ctx.beginPath();
   ctx.arc(s / 2, s / 2, s * 0.30, 0, TWO_PI);
   ctx.fillStyle = disc;
@@ -116,7 +138,7 @@ function makeMoonTexture() {
   ctx.beginPath();
   ctx.arc(s / 2, s / 2, s * 0.30, 0, TWO_PI);
   ctx.clip();
-  ctx.fillStyle = 'rgba(150,164,190,0.35)';
+  ctx.fillStyle = 'rgba(158,172,200,0.38)';
   const craters = [
     [0.42, 0.40, 0.055], [0.58, 0.52, 0.075], [0.50, 0.63, 0.045],
     [0.62, 0.38, 0.035], [0.40, 0.56, 0.040],
@@ -133,8 +155,20 @@ function makeMoonTexture() {
 }
 
 // ---------------------------------------------------------------------------
-// Shared GLSL: cheap value-noise fbm for the clouds.
+// Shared GLSL.
 // ---------------------------------------------------------------------------
+// Clip-space far-plane hug: the vertex lands just inside the far plane no
+// matter how big the sky geometry is, so a short camera.far can never clip the
+// dome/stars/clouds into a flat void. Depth is irrelevant (depthTest false).
+const FAR_HUG_GLSL = /* glsl */ `
+  vec4 skyProject(vec3 p) {
+    vec4 clip = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+    clip.z = clip.w * 0.99995;
+    return clip;
+  }
+`;
+
+// Cheap value-noise fbm for the clouds.
 const FBM_GLSL = /* glsl */ `
   float hash21(vec2 p){
     p = fract(p * vec2(123.34, 345.45));
@@ -164,7 +198,7 @@ const FBM_GLSL = /* glsl */ `
 `;
 
 export class DynamicSky {
-  constructor(renderer, { size = 4000, stars = 2500 } = {}) {
+  constructor(renderer, { size = 4000, stars = 2200 } = {}) {
     this._renderer = renderer || null;
     this._enabled = true;
     this._timeOfDay = 0.3;
@@ -173,17 +207,22 @@ export class DynamicSky {
 
     const domeRadius = size * 0.5;
     const starRadius = domeRadius * 0.92;
-    const spriteR = domeRadius * 0.85;
-    const cloudHeight = size * 0.06;
+    const spriteR = domeRadius * 0.82;
+    const cloudHeight = size * 0.055;
     const cloudSize = size * 1.1;
+    this._domeRadius = domeRadius;
     this._spriteR = spriteR;
+    this._sunScaleBase = domeRadius * 0.13;
+    this._moonScaleBase = domeRadius * 0.10;
     this._lightDist = 120;
+    this._lastFar = -1;
 
-    // Direction vectors (owned by this module; shared into uniforms by reference
-    // so mutating them updates the shaders for free). sunDir points *toward* the
-    // sun; moonDir is the antipode.
+    // Direction vectors (owned by this module; shared into uniforms by
+    // reference so mutating them updates the shaders for free). sunDir points
+    // *toward* the sun; moonDir is opposite-ish (mirrored + slight tilt).
     this.sunDir = new THREE.Vector3(0, 1, 0);
     this.moonDir = new THREE.Vector3(0, -1, 0);
+    this._sunDirFlat = new THREE.Vector3(1, 0, 0);
     this._keyDir = new THREE.Vector3();
 
     // Reused scratch colours (no per-call allocation in setTimeOfDay).
@@ -208,7 +247,8 @@ export class DynamicSky {
     this.object3d.add(this._visuals);
 
     // -----------------------------------------------------------------------
-    // Sky dome.
+    // Sky dome: vertical gradient + sun-side twilight band + sun disc/halo +
+    // moon halo, all in one lean shader.
     // -----------------------------------------------------------------------
     const domeGeo = new THREE.SphereGeometry(domeRadius, 32, 16);
     this._disposables.push(domeGeo);
@@ -220,45 +260,67 @@ export class DynamicSky {
       uniforms: {
         uHorizonColor: { value: this._horizonColor },
         uZenithColor: { value: this._zenithColor },
+        uGlowColor: { value: DUSK_GLOW.clone() },
+        uGlowStrength: { value: 0 },
         uSunDir: { value: this.sunDir },
+        uSunDirFlat: { value: this._sunDirFlat },
         uMoonDir: { value: this.moonDir },
         uSunColor: { value: this._sunGlowColor },
         uMoonColor: { value: MOON_GLOW.clone() },
         uSunGlow: { value: 0 },
         uMoonGlow: { value: 0 },
+        uSunDiscCos: { value: Math.cos(3 * DEG) },
+        uSunDiscSoft: { value: 0.0012 },
+        uSunDiscIntensity: { value: 0 },
       },
       vertexShader: /* glsl */ `
+        ${FAR_HUG_GLSL}
         varying vec3 vDir;
         void main() {
           vDir = normalize(position);
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          gl_Position = skyProject(position);
         }
       `,
       fragmentShader: /* glsl */ `
         uniform vec3 uHorizonColor;
         uniform vec3 uZenithColor;
+        uniform vec3 uGlowColor;
+        uniform float uGlowStrength;
         uniform vec3 uSunDir;
+        uniform vec3 uSunDirFlat;
         uniform vec3 uMoonDir;
         uniform vec3 uSunColor;
         uniform vec3 uMoonColor;
         uniform float uSunGlow;
         uniform float uMoonGlow;
+        uniform float uSunDiscCos;
+        uniform float uSunDiscSoft;
+        uniform float uSunDiscIntensity;
         varying vec3 vDir;
         void main() {
           vec3 dir = normalize(vDir);
           float up = clamp(dir.y, 0.0, 1.0);
-          float g = pow(up, 0.45);
-          vec3 col = mix(uHorizonColor, uZenithColor, g);
 
-          // Sun: broad warm halo + a soft bright core.
-          float sd = max(dot(dir, uSunDir), 0.0);
-          float sHalo = pow(sd, 6.0) * 0.55 + pow(sd, 2.0) * 0.12;
-          float sDisc = smoothstep(0.9965, 0.9992, sd) * 0.9;
-          col += uSunColor * (sHalo + sDisc) * uSunGlow;
+          // Base vertical gradient: horizon colour low, zenith colour high.
+          vec3 col = mix(uHorizonColor, uZenithColor, pow(up, 0.55));
 
-          // Moon: tighter, cooler, subtler glow.
+          // Twilight band: warm glow hugging the horizon, strongest toward
+          // the sun's azimuth so the opposite sky stays bluish (never a flat
+          // orange fill).
+          float sunSide = 0.55 + 0.45 * dot(dir, uSunDirFlat);
+          col = mix(col, uGlowColor, uGlowStrength * pow(1.0 - up, 3.0) * sunSide);
+
+          // Sun: bright soft-edged disc + broad warm halo.
+          float sd = dot(dir, uSunDir);
+          float sdp = max(sd, 0.0);
+          float halo = pow(sdp, 8.0) * 0.5 + pow(sdp, 2.0) * 0.10;
+          float disc = smoothstep(uSunDiscCos - uSunDiscSoft,
+                                  uSunDiscCos + uSunDiscSoft * 0.5, sd);
+          col += uSunColor * (halo * uSunGlow + disc * uSunDiscIntensity);
+
+          // Moon: tighter, cooler, subtler glow (the sprite draws the disc).
           float md = max(dot(dir, uMoonDir), 0.0);
-          float mHalo = pow(md, 42.0) * 0.5 + pow(md, 8.0) * 0.06;
+          float mHalo = pow(md, 24.0) * 0.45 + pow(md, 6.0) * 0.05;
           col += uMoonColor * mHalo * uMoonGlow;
 
           gl_FragColor = vec4(col, 1.0);
@@ -274,7 +336,8 @@ export class DynamicSky {
     this._visuals.add(this._dome);
 
     // -----------------------------------------------------------------------
-    // Stars.
+    // Stars: guaranteed 1.5-3 px points, additive, twinkle in brightness (not
+    // size, so no star ever shrinks below visibility).
     // -----------------------------------------------------------------------
     const rng = mulberry32(0x5eed);
     const starPos = new Float32Array(stars * 3);
@@ -286,12 +349,10 @@ export class DynamicSky {
       y = Math.max(-1, Math.min(1, y));
       const theta = rng() * TWO_PI;
       const r = Math.sqrt(Math.max(0, 1 - y * y));
-      const x = Math.cos(theta) * r;
-      const z = Math.sin(theta) * r;
-      starPos[i * 3 + 0] = x * starRadius;
+      starPos[i * 3 + 0] = Math.cos(theta) * r * starRadius;
       starPos[i * 3 + 1] = y * starRadius;
-      starPos[i * 3 + 2] = z * starRadius;
-      starSize[i] = 1.0 + rng() * 2.2;
+      starPos[i * 3 + 2] = Math.sin(theta) * r * starRadius;
+      starSize[i] = 1.5 + rng() * 1.5; // 1.5 .. 3.0 px
       starPhase[i] = rng();
     }
     const starGeo = new THREE.BufferGeometry();
@@ -311,16 +372,17 @@ export class DynamicSky {
         uPixelRatio: { value: renderer ? renderer.getPixelRatio() : 1 },
       },
       vertexShader: /* glsl */ `
+        ${FAR_HUG_GLSL}
         attribute float aSize;
         attribute float aPhase;
         uniform float uTime;
         uniform float uPixelRatio;
         varying float vTw;
         void main() {
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-          float tw = 0.55 + 0.45 * sin(uTime * 3.0 + aPhase * 6.2831853);
-          vTw = tw;
-          gl_PointSize = aSize * (0.6 + 0.4 * tw) * uPixelRatio;
+          gl_Position = skyProject(position);
+          // Subtle twinkle: brightness only; size stays fully visible.
+          vTw = 0.72 + 0.28 * sin(uTime * 2.4 + aPhase * 6.2831853);
+          gl_PointSize = aSize * uPixelRatio;
         }
       `,
       fragmentShader: /* glsl */ `
@@ -329,9 +391,9 @@ export class DynamicSky {
         void main() {
           vec2 pc = gl_PointCoord - 0.5;
           float d = length(pc);
-          float a = smoothstep(0.5, 0.05, d);
-          vec3 col = vec3(0.95, 0.97, 1.0);
-          gl_FragColor = vec4(col, a * uOpacity * (0.5 + 0.5 * vTw));
+          float a = smoothstep(0.5, 0.12, d);
+          vec3 col = vec3(0.92, 0.96, 1.0) * 1.25; // slight HDR pop
+          gl_FragColor = vec4(col, a * uOpacity * vTw);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
         }
@@ -344,7 +406,7 @@ export class DynamicSky {
     this._visuals.add(this._stars);
 
     // -----------------------------------------------------------------------
-    // Sun + moon sprites.
+    // Sun + moon sprites (glow layers over the dome's disc/halo).
     // -----------------------------------------------------------------------
     this._sunTex = makeSunTexture();
     this._moonTex = makeMoonTexture();
@@ -361,8 +423,7 @@ export class DynamicSky {
     });
     this._disposables.push(this._sunSpriteMat);
     this._sunSprite = new THREE.Sprite(this._sunSpriteMat);
-    const sunScale = domeRadius * 0.14;
-    this._sunSprite.scale.set(sunScale, sunScale, 1);
+    this._sunSprite.scale.set(this._sunScaleBase, this._sunScaleBase, 1);
     this._sunSprite.renderOrder = -990;
     this._sunSprite.frustumCulled = false;
     this._visuals.add(this._sunSprite);
@@ -377,14 +438,14 @@ export class DynamicSky {
     });
     this._disposables.push(this._moonSpriteMat);
     this._moonSprite = new THREE.Sprite(this._moonSpriteMat);
-    const moonScale = domeRadius * 0.11;
-    this._moonSprite.scale.set(moonScale, moonScale, 1);
+    this._moonSprite.scale.set(this._moonScaleBase, this._moonScaleBase, 1);
     this._moonSprite.renderOrder = -990;
     this._moonSprite.frustumCulled = false;
     this._visuals.add(this._moonSprite);
 
     // -----------------------------------------------------------------------
-    // Clouds: a big horizontal plane with a scrolling fbm shader.
+    // Clouds: a big horizontal plane with a scrolling fbm shader, tinted by
+    // the sun (white day, pink twilight, faintly lit night).
     // -----------------------------------------------------------------------
     const cloudGeo = new THREE.PlaneGeometry(cloudSize, cloudSize, 1, 1);
     this._disposables.push(cloudGeo);
@@ -396,17 +457,18 @@ export class DynamicSky {
       fog: false,
       uniforms: {
         uTime: { value: 0 },
-        uWind: { value: new THREE.Vector2(0.006, 0.0022) },
+        uWind: { value: new THREE.Vector2(0.007, 0.0026) },
         uCloudLit: { value: this._cloudLit },
         uCloudShadow: { value: this._cloudShadow },
-        uCoverage: { value: 0.48 },
-        uOpacity: { value: 0.9 },
+        uCoverage: { value: 0.46 },
+        uOpacity: { value: 0.94 },
       },
       vertexShader: /* glsl */ `
+        ${FAR_HUG_GLSL}
         varying vec2 vUv;
         void main() {
           vUv = uv;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          gl_Position = skyProject(position);
         }
       `,
       fragmentShader: /* glsl */ `
@@ -423,7 +485,7 @@ export class DynamicSky {
           float edge = smoothstep(0.5, 0.28, length(uvc));
           vec2 p = vUv * 5.0 + uWind * uTime;
           float n = fbm(p);
-          float density = smoothstep(uCoverage, uCoverage + 0.28, n);
+          float density = smoothstep(uCoverage, uCoverage + 0.24, n);
           float shade = smoothstep(0.25, 0.85, n);
           vec3 col = mix(uCloudShadow, uCloudLit, shade);
           float alpha = density * edge * uOpacity;
@@ -463,9 +525,13 @@ export class DynamicSky {
     return this._enabled;
   }
 
-  // Horizon colour for the current time of day (so the fog module can tint to
-  // the sky and hide distance pop-in). Returns a fresh Color the caller owns.
-  getFogColor() {
+  // True horizon colour for the current time of day, so the fog module can
+  // tint to the sky and hide distance pop-in: light blue-grey by day, warm
+  // orange at sunrise/sunset, very dark navy at night.
+  // Pass a THREE.Color `target` to avoid allocating; without one a fresh
+  // Color is returned (backward compatible).
+  getFogColor(target) {
+    if (target && target.isColor) return target.copy(this._horizonColor);
     return this._horizonColor.clone();
   }
 
@@ -479,71 +545,94 @@ export class DynamicSky {
     // tilted zenith, sets in the west (-X). theta=0 at sunrise, PI/2 at noon.
     const theta = (t - 0.25) * TWO_PI;
     this.sunDir.set(Math.cos(theta), Math.sin(theta), 0.2).normalize();
-    this.moonDir.copy(this.sunDir).negate();
+    // Moon: opposite-ish (mirrored with a slightly different tilt so it never
+    // sits exactly antipodal).
+    this.moonDir.set(-this.sunDir.x, -this.sunDir.y, 0.35).normalize();
+    // Horizontal sun direction for the shader's sun-side twilight band.
+    this._sunDirFlat.set(this.sunDir.x, 0, this.sunDir.z);
+    if (this._sunDirFlat.lengthSq() < 1e-6) this._sunDirFlat.set(1, 0, 0);
+    else this._sunDirFlat.normalize();
 
     const a = this.sunDir.y; // sun altitude, -1..1
 
     // ---- Blend weights.
-    const dayAmt = smoothstep(a, -0.10, 0.22); // 0 night -> 1 day
-    let tw = clamp(1 - Math.abs(a) / 0.24, 0, 1); // twilight bell at the horizon
+    const dayAmt = smoothstep(a, -0.08, 0.25); // 0 night -> 1 day
+    let tw = clamp(1 - Math.abs(a) / 0.33, 0, 1); // twilight bell at the horizon
     tw = tw * tw * (3 - 2 * tw);
 
-    // ---- Sky gradient.
+    // ---- Sky gradient. The horizon warms up at twilight while the zenith
+    // stays bluish, so sunrise/sunset reads as a vertical gradient, never a
+    // flat orange fill.
     this._horizonColor.copy(NIGHT_HORIZON).lerp(DAY_HORIZON, dayAmt);
-    this._horizonColor.lerp(DUSK_HORIZON, tw * 0.8);
+    this._horizonColor.lerp(DUSK_HORIZON, tw * 0.75);
     this._zenithColor.copy(NIGHT_ZENITH).lerp(DAY_ZENITH, dayAmt);
-    this._zenithColor.lerp(DUSK_ZENITH, tw * 0.35);
+    this._zenithColor.lerp(DUSK_ZENITH, tw * 0.4);
+    this._domeMat.uniforms.uGlowStrength.value = tw * 0.85;
 
-    // ---- Sun glow (dome + sprite tint).
-    const sunHi = smoothstep(a, 0.04, 0.4);
+    // ---- Sun glow + disc (dome shader).
+    const sunHi = smoothstep(a, 0.05, 0.45); // 0 at horizon -> 1 high sun
     this._sunGlowColor.copy(SUN_GLOW_WARM).lerp(SUN_GLOW_NOON, sunHi);
-    const sunGlow = clamp(Math.max(dayAmt, tw * 0.9), 0, 1);
-    this._domeMat.uniforms.uSunGlow.value = sunGlow;
+    this._domeMat.uniforms.uSunGlow.value = Math.max(dayAmt * 0.85, tw);
+    // Disc grows and warms near the horizon (big orange rising sun), shrinks
+    // and whitens overhead. Fades out once the sun is genuinely below.
+    const discAng = lerp(4.4, 2.4, sunHi) * DEG;
+    this._domeMat.uniforms.uSunDiscCos.value = Math.cos(discAng);
+    this._domeMat.uniforms.uSunDiscSoft.value = lerp(0.0018, 0.0008, sunHi);
+    this._domeMat.uniforms.uSunDiscIntensity.value =
+      2.2 * smoothstep(a, -0.06, 0.0);
 
     // ---- Moon glow (dome).
     const nightF = 1 - dayAmt;
     const moonUp = smoothstep(this.moonDir.y, -0.05, 0.2);
     this._domeMat.uniforms.uMoonGlow.value = nightF * moonUp * 0.9;
 
-    // ---- Star opacity: fade in as the sun drops below the horizon.
-    this._starMat.uniforms.uOpacity.value = 1 - smoothstep(a, -0.12, 0.06);
+    // ---- Star opacity: ramps to ~0.9 once the sun is well below the horizon.
+    this._starMat.uniforms.uOpacity.value =
+      0.9 * (1 - smoothstep(a, -0.16, 0.0));
 
-    // ---- Sun sprite.
+    // ---- Sun sprite: warm + oversized at the horizon, tighter at noon.
     this._sunSprite.position.copy(this.sunDir).multiplyScalar(this._spriteR);
     this._sunSpriteMat.color.copy(this._sunGlowColor);
-    this._sunSpriteMat.opacity = smoothstep(a, -0.05, 0.06);
+    this._sunSpriteMat.opacity = smoothstep(a, -0.08, 0.0);
+    const ss = this._sunScaleBase * (1 + 0.7 * (1 - sunHi));
+    this._sunSprite.scale.set(ss, ss, 1);
     this._sunSprite.visible = this._sunSpriteMat.opacity > 0.001;
 
-    // ---- Moon sprite (only up at night, since moonDir = -sunDir).
+    // ---- Moon sprite (up at night since moonDir mirrors sunDir).
     this._moonSprite.position.copy(this.moonDir).multiplyScalar(this._spriteR);
-    this._moonSpriteMat.opacity = smoothstep(this.moonDir.y, -0.04, 0.08) * 0.95;
+    this._moonSpriteMat.opacity =
+      smoothstep(this.moonDir.y, -0.03, 0.1) * (0.25 + 0.75 * nightF);
     this._moonSprite.visible = this._moonSpriteMat.opacity > 0.001;
 
-    // ---- Cloud colours + opacity.
+    // ---- Cloud colours + opacity (sun-tinted).
     this._cloudLit.copy(CLOUD_LIT_NIGHT).lerp(CLOUD_LIT_DAY, dayAmt);
-    this._cloudLit.lerp(CLOUD_LIT_DUSK, tw * 0.7);
+    this._cloudLit.lerp(CLOUD_LIT_DUSK, tw * 0.75);
     this._cloudShadow.copy(CLOUD_SHADOW_NIGHT).lerp(CLOUD_SHADOW_DAY, dayAmt);
     this._cloudShadow.lerp(CLOUD_SHADOW_DUSK, tw * 0.6);
-    this._cloudMat.uniforms.uOpacity.value = 0.9 * clamp(0.32 + 0.68 * dayAmt, 0, 1);
+    this._cloudMat.uniforms.uOpacity.value = 0.94 * (0.35 + 0.65 * dayAmt);
 
     // ---- Directional key light: sun while it is up, moon (opposite, high at
-    // midnight) while it is down. Colour/intensity: warm-low, white-noon,
-    // dim-cool-night — never fully black.
+    // midnight) while it is down. Warm-low, white-noon; at night a cool blue
+    // ~0.14-0.20 moonlight — never pitch black.
     if (a >= 0.0) {
       this._keyDir.copy(this.sunDir);
-      this._sunLightColor.copy(SUN_LIGHT_WARM).lerp(SUN_LIGHT_NOON, smoothstep(a, 0.02, 0.42));
+      this._sunLightColor.copy(SUN_LIGHT_WARM)
+        .lerp(SUN_LIGHT_NOON, smoothstep(a, 0.02, 0.42));
       this.sun.color.copy(this._sunLightColor);
       this.sun.intensity = 0.15 + 1.15 * smoothstep(a, 0.0, 0.42);
     } else {
       this._keyDir.copy(this.moonDir);
       this.sun.color.copy(MOON_LIGHT);
-      this.sun.intensity = 0.10 + 0.06 * clamp(this.moonDir.y, 0, 1);
+      this.sun.intensity = 0.14 + 0.06 * clamp(this.moonDir.y, 0, 1);
     }
     this.sun.position.copy(this._keyDir).multiplyScalar(this._lightDist);
 
-    // ---- Hemisphere fill: sky-tinted, warm ground bounce, dim (never 0) night.
-    this.hemi.color.copy(this._horizonColor).lerp(this._zenithColor, 0.35);
-    this.hemi.intensity = 0.2 + 0.7 * dayAmt;
+    // ---- Hemisphere fill. The night floor uses a NON-dark sky colour (a
+    // near-black hemi colour would contribute nothing and leave terrain a
+    // silhouette) and a minimum intensity so night terrain stays readable.
+    this._scratchColor.copy(this._horizonColor).lerp(this._zenithColor, 0.35);
+    this.hemi.color.copy(HEMI_NIGHT_SKY).lerp(this._scratchColor, dayAmt);
+    this.hemi.intensity = 0.25 + 0.6 * dayAmt;
   }
 
   // dt seconds, ctx = { camera, renderer, elapsed, timeOfDay, ... }.
@@ -552,9 +641,12 @@ export class DynamicSky {
       ? ctx.elapsed
       : this._elapsed + (dt || 0);
 
-    // Re-evaluate the day/night cycle when the host drives time of day.
-    if (ctx && typeof ctx.timeOfDay === 'number' && ctx.timeOfDay !== this._timeOfDay) {
-      this.setTimeOfDay(ctx.timeOfDay);
+    // Re-evaluate the day/night cycle when the host drives time of day
+    // (accept either a number or a getter function per the contract).
+    if (ctx) {
+      let t = ctx.timeOfDay;
+      if (typeof t === 'function') t = t.call(ctx);
+      if (typeof t === 'number' && t !== this._timeOfDay) this.setTimeOfDay(t);
     }
 
     // Animated uniforms (twinkle + cloud drift).
@@ -565,9 +657,20 @@ export class DynamicSky {
     const r = (ctx && ctx.renderer) || this._renderer;
     if (r) this._starMat.uniforms.uPixelRatio.value = r.getPixelRatio();
 
-    // Infinite-skybox behaviour: keep the visuals centred on the camera. The
-    // lights stay in world space so shadows/lighting are unaffected.
-    if (ctx && ctx.camera) this._visuals.position.copy(ctx.camera.position);
+    // Infinite-skybox behaviour: keep the visuals centred on the camera, and
+    // shrink the whole rig to fit inside the camera's far plane so the
+    // sun/moon sprites (which cannot use the clip-space far hug) are never
+    // frustum-clipped into invisibility.
+    const cam = ctx && ctx.camera;
+    if (cam) {
+      this._visuals.position.copy(cam.position);
+      const far = cam.far;
+      if (typeof far === 'number' && far > 0 && far !== this._lastFar) {
+        this._lastFar = far;
+        const s = Math.min(1, (far * 0.9) / this._domeRadius);
+        this._visuals.scale.setScalar(s);
+      }
+    }
   }
 
   // Toggle only the visual sky. this.sun / this.hemi keep lighting the scene so

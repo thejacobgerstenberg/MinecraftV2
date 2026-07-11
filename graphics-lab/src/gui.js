@@ -15,9 +15,22 @@
 //   { effects:{ao,sky,shadows,water,post,particles,fog}, quality, timeOfDay,
 //     weather, underwater }
 //
-// Returns { root, dispose() }. A live FPS counter is driven internally.
+// The same `state` object is treated as LIVE: demo.js mutates it in place when
+// window.demo.* is called, and the panel polls it (every 250ms) so readouts
+// stay in sync even when the demo is driven programmatically.
+//
+// Returns { root, refresh(state?), hide(), show(), dispose(), fps }.
+//  - refresh(state?)  re-reads the (optionally new) state object and syncs
+//                     every control immediately.
+//  - hide()/show()    toggle the whole panel (also exposed as window.__gui
+//                     for screenshot scripts).
+//
+// Beauty-shot mode: if the URL contains ?nogui=1 the panel is built but never
+// mounted, so nothing renders; window.__gui.show() can still bring it back.
+// The FPS counter keeps measuring in that mode (read it via gui.fps).
 
 const STYLE_ID = 'graphics-lab-gui-style';
+const POLL_MS = 250; // light self-sync cadence
 
 const CSS = `
 #gui .glab-panel {
@@ -100,6 +113,15 @@ function ensureStyle() {
   document.head.appendChild(s);
 }
 
+// True when the page was loaded with ?nogui=1 (clean beauty screenshots).
+function noGuiRequested() {
+  try {
+    return new URLSearchParams(window.location.search).get('nogui') === '1';
+  } catch (e) {
+    return false;
+  }
+}
+
 // Format the 0..1 time-of-day as a friendly clock string.
 function timeLabel(t) {
   const totalMin = Math.round(t * 24 * 60) % (24 * 60);
@@ -114,14 +136,20 @@ export function createGUI(demo, state = {}) {
   ensureStyle();
 
   const mount = document.getElementById('gui') || document.body;
+  const noGui = noGuiRequested();
+
+  // Live state reference: demo.js mutates this object in place, so re-reading
+  // it later (refresh / polling) picks up programmatic changes for free.
+  let liveState = state && typeof state === 'object' ? state : {};
+
   const effects = Object.assign(
     { ao: true, sky: true, shadows: true, water: true, post: true, particles: true, fog: true },
-    state.effects || {},
+    liveState.effects || {},
   );
-  const quality0 = state.quality || 'medium';
-  const time0 = state.timeOfDay != null ? state.timeOfDay : 0.35;
-  const weather0 = state.weather || 'clear';
-  const underwater0 = !!state.underwater;
+  const quality0 = liveState.quality || 'medium';
+  const time0 = liveState.timeOfDay != null ? liveState.timeOfDay : 0.35;
+  const weather0 = liveState.weather || 'clear';
+  const underwater0 = !!liveState.underwater;
 
   const call = (method, ...args) => {
     const d = window.demo || demo;
@@ -140,6 +168,7 @@ export function createGUI(demo, state = {}) {
   panel.appendChild(header);
 
   // --- Effects toggles -------------------------------------------------------
+  const fxBoxes = {}; // name -> checkbox input, for refresh()
   const fxSection = el('div', 'glab-section');
   fxSection.appendChild(el('span', 'glab-label', 'Effects'));
   const grid = el('div', 'glab-toggles');
@@ -149,6 +178,7 @@ export function createGUI(demo, state = {}) {
     box.type = 'checkbox';
     box.checked = !!effects[name];
     box.addEventListener('change', () => call('toggle', name, box.checked));
+    fxBoxes[name] = box;
     label.appendChild(box);
     label.appendChild(el('span', null, name));
     grid.appendChild(label);
@@ -183,6 +213,11 @@ export function createGUI(demo, state = {}) {
   tSlider.max = '1';
   tSlider.step = '0.005';
   tSlider.value = String(time0);
+  // While the user drags, the poll must not fight the thumb.
+  let tDragging = false;
+  tSlider.addEventListener('pointerdown', () => { tDragging = true; });
+  tSlider.addEventListener('pointerup', () => { tDragging = false; });
+  tSlider.addEventListener('pointercancel', () => { tDragging = false; });
   tSlider.addEventListener('input', () => {
     const v = parseFloat(tSlider.value);
     tVal.textContent = timeLabel(v);
@@ -217,19 +252,82 @@ export function createGUI(demo, state = {}) {
   uSection.appendChild(uLabel);
   panel.appendChild(uSection);
 
-  mount.appendChild(panel);
+  // In ?nogui=1 mode the panel is never mounted (nothing renders); otherwise
+  // attach it now. show() can mount it later either way.
+  if (!noGui) mount.appendChild(panel);
+
+  // --- refresh: sync every control from the state object ---------------------
+  // Cheap and idempotent: only touches the DOM when a value actually changed,
+  // so the 250ms poll costs nothing when the state is stable.
+  function refresh(next) {
+    if (next && typeof next === 'object') liveState = next; // adopt new state ref
+    const s = liveState;
+    if (!s || typeof s !== 'object') return;
+
+    // Effect checkboxes.
+    const fx = s.effects;
+    if (fx && typeof fx === 'object') {
+      for (const name of EFFECTS) {
+        if (fx[name] == null) continue;
+        const b = !!fx[name];
+        if (fxBoxes[name].checked !== b) fxBoxes[name].checked = b;
+      }
+    }
+
+    // Quality dropdown.
+    if (s.quality != null && QUALITIES.indexOf(s.quality) !== -1 && qSel.value !== s.quality) {
+      qSel.value = s.quality;
+    }
+
+    // Time-of-day slider + clock label (skipped mid-drag so the thumb is stable).
+    if (s.timeOfDay != null && !tDragging) {
+      const t = Math.max(0, Math.min(1, Number(s.timeOfDay)));
+      if (!Number.isNaN(t) && Math.abs(parseFloat(tSlider.value) - t) > 1e-4) {
+        tSlider.value = String(t);
+        tVal.textContent = timeLabel(t);
+      }
+    }
+
+    // Weather dropdown.
+    if (s.weather != null && WEATHERS.indexOf(s.weather) !== -1 && wSel.value !== s.weather) {
+      wSel.value = s.weather;
+    }
+
+    // Underwater checkbox.
+    if (s.underwater != null) {
+      const b = !!s.underwater;
+      if (uBox.checked !== b) uBox.checked = b;
+    }
+  }
+
+  // Light polling so the panel self-syncs when window.demo.* mutates the state
+  // object directly (no demo.js changes needed).
+  const pollId = setInterval(refresh, POLL_MS);
+
+  // --- hide / show ------------------------------------------------------------
+  function hide() {
+    panel.style.display = 'none';
+  }
+  function show() {
+    if (!panel.parentNode) mount.appendChild(panel); // first show() in nogui mode
+    panel.style.display = '';
+    refresh();
+  }
 
   // --- Live FPS counter ------------------------------------------------------
+  // Keeps measuring even in nogui mode (panel unmounted): the number stays
+  // available via gui.fps / window.__gui.fps, it just isn't rendered.
   let frames = 0;
   let last = performance.now();
   let raf = 0;
   let running = true;
+  let lastFps = 0;
   const tick = (now) => {
     if (!running) return;
     frames++;
     if (now - last >= 500) {
-      const fps = Math.round((frames * 1000) / (now - last));
-      fpsEl.textContent = `${fps} fps`;
+      lastFps = Math.round((frames * 1000) / (now - last));
+      fpsEl.textContent = `${lastFps} fps`;
       frames = 0;
       last = now;
     }
@@ -237,14 +335,33 @@ export function createGUI(demo, state = {}) {
   };
   raf = requestAnimationFrame(tick);
 
-  return {
+  const gui = {
     root: panel,
+    refresh,
+    hide,
+    show,
+    get fps() { return lastFps; },
     dispose() {
       running = false;
       if (raf) cancelAnimationFrame(raf);
+      clearInterval(pollId);
       if (panel.parentNode) panel.parentNode.removeChild(panel);
+      if (window.__gui === guiGlobal) {
+        try { delete window.__gui; } catch (e) { window.__gui = undefined; }
+      }
     },
   };
+
+  // Global handle for screenshot / automation scripts.
+  const guiGlobal = {
+    hide,
+    show,
+    refresh,
+    get fps() { return lastFps; },
+  };
+  window.__gui = guiGlobal;
+
+  return gui;
 }
 
 export default createGUI;

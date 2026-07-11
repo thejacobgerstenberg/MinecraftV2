@@ -30,9 +30,22 @@
 // Public API:
 //   new PostFX(renderer, scene, camera, { quality })
 //   render(dt)                 // call INSTEAD of renderer.render(scene, camera)
+//   update(dt, ctx)            // OPTIONAL pre-render hook (effects contract):
+//                              // auto-derives nightBoost from ctx.sunDir.y /
+//                              // ctx.timeOfDay unless setNightBoost was called
 //   setSize(w, h)              // resize targets (device px; auto-detected too)
 //   setQuality('low'|'medium'|'high'|'ultra')
 //   toggle('bloom'|'tonemap'|'vignette'|'fxaa', bool)
+//   setExposure(x)             // linear pre-tonemap exposure (default 1.1)
+//   setBloomStrength(x)        // bloom additive weight (default 0.8)
+//   setBloomThreshold(x)       // bright-pass threshold (default 0.75)
+//   setBloomRadius(x)          // gaussian spread multiplier (default 1.3)
+//   setNightBoost(f)           // 0..1: raises bloom strength/radius, lowers
+//                              // threshold and lifts exposure slightly so
+//                              // torch/glowstone halos read at night while the
+//                              // day image stays clean. Calling this disables
+//                              // the update(dt,ctx) auto-drive (manual wins).
+//   setAutoNightBoost(bool)    // re-enable/disable the update() auto-drive
 //   setEnabled(bool)           // false => straight renderer.render (bypass)
 //   get enabled()
 //   dispose()
@@ -48,11 +61,15 @@ import * as THREE from 'three';
 // Tonemap + vignette live in the single composite pass, so they are ~free and
 // stay ON at every tier (still individually toggleable).
 // ---------------------------------------------------------------------------
+// NOTE: every blur iteration runs on the DOWNSAMPLED bloom buffer (bloomDiv),
+// so the extra iteration at medium/high costs a fraction of a full-res pass.
+// Iterations also escalate their tap radius (see render()), so each one widens
+// the halo more than the last — emissives get a real glow, not a 2px dot.
 const QUALITY = {
   low:    { bloom: false, bloomDiv: 2, iterations: 1, fxaa: false },
-  medium: { bloom: true,  bloomDiv: 2, iterations: 1, fxaa: true  },
-  high:   { bloom: true,  bloomDiv: 2, iterations: 2, fxaa: true  },
-  ultra:  { bloom: true,  bloomDiv: 1, iterations: 3, fxaa: true  },
+  medium: { bloom: true,  bloomDiv: 2, iterations: 2, fxaa: true  },
+  high:   { bloom: true,  bloomDiv: 2, iterations: 3, fxaa: true  },
+  ultra:  { bloom: true,  bloomDiv: 1, iterations: 4, fxaa: true  },
 };
 
 // Shared vertex shader: a fullscreen triangle whose clip-space positions are
@@ -86,14 +103,16 @@ void main() {
 
 // Separable 9-tap gaussian using hardware bilinear taps (5 fetches). `direction`
 // carries the per-axis texel step (already in UV units), so the same shader does
-// both the horizontal and vertical halves.
+// both the horizontal and vertical halves. `radius` scales the tap offsets so
+// the spread is tunable (and grows per ping-pong iteration) without extra taps.
 const BLUR_FRAG = /* glsl */ `
 uniform sampler2D tDiffuse;
 uniform vec2 direction;
+uniform float radius;
 varying vec2 vUv;
 void main() {
-  vec2 o1 = direction * 1.3846153846;
-  vec2 o2 = direction * 3.2307692308;
+  vec2 o1 = direction * (1.3846153846 * radius);
+  vec2 o2 = direction * (3.2307692308 * radius);
   vec3 sum = texture2D(tDiffuse, vUv).rgb * 0.2270270270;
   sum += texture2D(tDiffuse, vUv + o1).rgb * 0.3162162162;
   sum += texture2D(tDiffuse, vUv - o1).rgb * 0.3162162162;
@@ -204,13 +223,27 @@ export class PostFX {
     this._dbSize = new THREE.Vector2();
 
     // Tunable look (public — safe to poke from the integrator/GUI).
-    this.exposure = 1.0;
-    this.bloomStrength = 0.85;
-    this.bloomThreshold = 0.85;
-    this.bloomKnee = 0.4;
+    // exposure 1.1 gives a punchier day image; ACES' shoulder keeps the sky
+    // gradient from clipping. Threshold 0.75 (down from 0.85) lets glowstone /
+    // torches / water speculars feed the bloom without the day sky blooming
+    // wholesale (the soft knee ramps contribution in gradually).
+    this.exposure = 1.1;
+    this.bloomStrength = 0.8;
+    this.bloomThreshold = 0.75;
+    this.bloomKnee = 0.45;
+    this.bloomRadius = 1.3;          // gaussian tap-offset multiplier
     this.vignetteRadius = 0.75;
     this.vignetteSoftness = 0.45;
     this.vignetteDarkness = 0.5;
+
+    // Night boost (0 = day look untouched, 1 = full night). Raises bloom
+    // strength + radius, lowers the bright-pass threshold and lifts exposure
+    // slightly so emissive halos read clearly in the dark. Driven manually via
+    // setNightBoost() (e.g. from sun altitude in the demo) or auto-derived in
+    // update(dt, ctx) from ctx.sunDir / ctx.timeOfDay.
+    this.nightBoost = 0;
+    this._autoNight = true;          // update() drives nightBoost until
+                                     // setNightBoost() takes manual control
 
     // Feature flags (live state). setQuality resets them; toggle() mutates one.
     this.features = { bloom: true, tonemap: true, vignette: true, fxaa: true };
@@ -290,6 +323,7 @@ export class PostFX {
     this.blurMat = mk(BLUR_FRAG, {
       tDiffuse: { value: null },
       direction: { value: new THREE.Vector2() },
+      radius: { value: this.bloomRadius },
     });
     this.compositeMat = mk(COMPOSITE_FRAG, {
       tScene: { value: null },
@@ -323,6 +357,57 @@ export class PostFX {
   // Individually override a feature. Names: 'bloom','tonemap','vignette','fxaa'.
   toggle(name, on) {
     if (name in this.features) this.features[name] = !!on;
+  }
+
+  // ---- Runtime look setters (all values are the DAY baseline; nightBoost
+  // ---- modulates them per-frame in render() without mutating these). --------
+
+  setExposure(x) {
+    this.exposure = Math.max(0, +x || 0);
+  }
+
+  setBloomStrength(x) {
+    this.bloomStrength = Math.max(0, +x || 0);
+  }
+
+  setBloomThreshold(x) {
+    this.bloomThreshold = Math.max(0, +x || 0);
+  }
+
+  setBloomRadius(x) {
+    this.bloomRadius = Math.max(0.1, +x || 0.1);
+  }
+
+  // f in 0..1. 0 = clean day grade; 1 = full night: bloom strength ×2.2,
+  // threshold ×0.5, radius ×1.45, exposure ×1.25 (a slight lift so the night
+  // terrain isn't a pure silhouette while torch halos bloom wide).
+  // Taking manual control here disables the update(dt, ctx) auto-drive.
+  setNightBoost(f) {
+    this.nightBoost = Math.min(1, Math.max(0, +f || 0));
+    this._autoNight = false;
+  }
+
+  // Re-enable (or disable) auto-deriving nightBoost inside update(dt, ctx).
+  setAutoNightBoost(on) {
+    this._autoNight = !!on;
+  }
+
+  // Effects-contract hook (optional — render() alone still works). When auto
+  // night boost is active, derives nightBoost from the sun altitude:
+  // 0 while the sun is above ~0.12, ramping to 1 once it dips below ~-0.15.
+  update(dt, ctx) {
+    if (!this._autoNight || !ctx) return;
+    let alt = null;
+    if (ctx.sunDir && typeof ctx.sunDir.y === 'number') {
+      alt = ctx.sunDir.y; // sunDir points toward the sun => y is sun altitude
+    } else if (typeof ctx.timeOfDay === 'number') {
+      // 0 = midnight, 0.25 = sunrise, 0.5 = noon.
+      alt = Math.sin((ctx.timeOfDay - 0.25) * Math.PI * 2);
+    }
+    if (alt === null) return;
+    // smoothstep from alt=0.12 (day, boost 0) down to alt=-0.15 (night, boost 1)
+    const t = Math.min(1, Math.max(0, (0.12 - alt) / 0.27));
+    this.nightBoost = t * t * (3 - 2 * t);
   }
 
   setQuality(q) {
@@ -400,20 +485,34 @@ export class PostFX {
     r.setRenderTarget(this.sceneRT);
     r.render(this.scene, this.camera);
 
+    // Night-boosted effective grade (baselines untouched; nb=0 => exact day
+    // look). Wider + stronger + lower-threshold bloom and a slight exposure
+    // lift as the sun goes down, so torch/glowstone halos read in the dark.
+    const nb = this.nightBoost;
+    const effThreshold = this.bloomThreshold * (1 - 0.5 * nb);
+    const effStrength = this.bloomStrength * (1 + 1.2 * nb);
+    const effRadius = this.bloomRadius * (1 + 0.45 * nb);
+    const effExposure = this.exposure * (1 + 0.25 * nb);
+
     // 2) Bloom branch.
     const bloomOn = this.features.bloom;
     if (bloomOn) {
       // Bright-pass extracts highlights straight into the (downsampled) bloomA.
       this.brightMat.uniforms.tDiffuse.value = this.sceneRT.texture;
-      this.brightMat.uniforms.threshold.value = this.bloomThreshold;
+      this.brightMat.uniforms.threshold.value = effThreshold;
       this.brightMat.uniforms.knee.value = this.bloomKnee;
       this._pass(this.brightMat, this.bloomA);
 
-      // Separable gaussian ping-pong; each iteration widens the glow.
+      // Separable gaussian ping-pong. Each iteration's tap radius escalates
+      // (×1, ×2, ×3, …) so the accumulated kernel spreads far wider than
+      // repeated same-width blurs — a broad soft halo from the same tap count.
+      // All iterations run on the downsampled buffer, so this stays cheap.
       const dir = this.blurMat.uniforms.direction.value;
       const tx = 1 / this._bw;
       const ty = 1 / this._bh;
       for (let i = 0; i < this._iterations; i++) {
+        const rad = effRadius * (i + 1);
+        this.blurMat.uniforms.radius.value = rad;
         // Horizontal: bloomA -> bloomB
         this.blurMat.uniforms.tDiffuse.value = this.bloomA.texture;
         dir.set(tx, 0);
@@ -429,8 +528,8 @@ export class PostFX {
     const cu = this.compositeMat.uniforms;
     cu.tScene.value = this.sceneRT.texture;
     cu.tBloom.value = bloomOn ? this.bloomA.texture : this._blackTex;
-    cu.exposure.value = this.exposure;
-    cu.bloomStrength.value = this.bloomStrength;
+    cu.exposure.value = effExposure;
+    cu.bloomStrength.value = effStrength;
     cu.uBloom.value = bloomOn ? 1 : 0;
     cu.uTonemap.value = this.features.tonemap ? 1 : 0;
     cu.uVignette.value = this.features.vignette ? 1 : 0;
