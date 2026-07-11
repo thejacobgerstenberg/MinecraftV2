@@ -116,6 +116,33 @@ export class TerrainGenerator {
     // End noises.
     this.nOuter = makeNoise2D(s + '/end-outer');
     this.nEnd3 = makeNoise3D(s + '/end-shape');
+
+    /** Small FIFO chunk cache backing blockAt() point queries. */
+    this._blockAtCache = new Map();
+  }
+
+  /**
+   * Generated block id at a single WORLD coordinate — deterministic, so this
+   * is the EXACT pre-edit terrain (used e.g. to roll back a rejected edit on
+   * a cell the server never stored an override for). Follows the World.js
+   * out-of-range convention: y < 0 -> bedrock, y >= CHUNK_SY -> air. Chunks
+   * are generated on demand and kept in a small FIFO cache.
+   */
+  blockAt(wx, wy, wz) {
+    if (wy < 0) return B.bedrock;
+    if (wy >= CHUNK_SY) return B.air ?? 0;
+    const cx = Math.floor(wx / CHUNK_SX);
+    const cz = Math.floor(wz / CHUNK_SZ);
+    const key = `${cx},${cz}`;
+    let data = this._blockAtCache.get(key);
+    if (!data) {
+      data = this.generateChunk(cx, cz);
+      this._blockAtCache.set(key, data);
+      if (this._blockAtCache.size > 32) {
+        this._blockAtCache.delete(this._blockAtCache.keys().next().value);
+      }
+    }
+    return data[blockIndex(wx - cx * CHUNK_SX, wy, wz - cz * CHUNK_SZ)];
   }
 
   /**

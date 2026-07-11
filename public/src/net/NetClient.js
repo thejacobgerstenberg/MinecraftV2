@@ -24,7 +24,7 @@ export class NetClient {
     // Single callback per event; registering again replaces the previous one.
     this._cb = {
       state: null, peerJoin: null, peerLeave: null, peerMove: null,
-      edit: null, chat: null, disconnect: null,
+      edit: null, editReject: null, chat: null, disconnect: null,
     };
   }
 
@@ -111,6 +111,7 @@ export class NetClient {
       case 'peer-leave': if (this._cb.peerLeave) this._cb.peerLeave(msg); break;
       case 'move': if (this._cb.peerMove) this._cb.peerMove(msg); break;
       case 'edit': if (this._cb.edit) this._cb.edit(msg); break;
+      case 'editReject': if (this._cb.editReject) this._cb.editReject(msg); break;
       case 'chat': if (this._cb.chat) this._cb.chat(msg); break;
       case 'error': console.warn('[net] server error:', msg.code, msg.message); break;
       default: break;
@@ -123,6 +124,10 @@ export class NetClient {
   onPeerLeave(cb) { this._cb.peerLeave = cb; return this; }
   onPeerMove(cb) { this._cb.peerMove = cb; return this; }
   onEdit(cb) { this._cb.edit = cb; return this; }
+  /** Server rejected one of OUR edits: {x,y,z,block,dim,reason}. `block` is
+   * the authoritative block at the cell (stored edit), or -1 meaning
+   * "generated terrain — restore from the local deterministic generator". */
+  onEditReject(cb) { this._cb.editReject = cb; return this; }
   onChat(cb) { this._cb.chat = cb; return this; }
   onDisconnect(cb) { this._cb.disconnect = cb; return this; }
 

@@ -207,7 +207,14 @@ pings automatically; no client action is needed.
   feet to feet+1.8, to the block center). Client-side reach is 6; the +1
   covers eye-height and latency slack.
 - **Rate:** at most **20 edits/s** per connection (token bucket, burst 20);
-  excess edits are dropped without an error frame.
+  excess edits are dropped (no `error` frame, but the sender does receive an
+  `editReject` rollback frame — see §5).
+- **Rejection feedback:** every rejected edit — for ANY reason (rate, reach,
+  bounds, protected bedrock, dimension mismatch, invalid shape) — answers the
+  **sender** with an `editReject` frame (§5) carrying the authoritative block
+  for the cell, so an optimistic client can roll its local change back
+  instead of desyncing until rejoin. At most one `editReject` per inbound
+  edit (no amplification).
 - Accepted edits are applied to `world.edits[dim]["x,y,z"]`, marked for
   debounced persistence, and broadcast (with the sender's `id` added) to
   same-world **same-dim** peers. The sender does not receive its own edit
@@ -276,6 +283,32 @@ A peer's movement; only delivered to clients in the same dimension.
 A peer's block change; only delivered to clients in the same dimension.
 Apply it to the local world and remesh the affected chunk.
 
+### `editReject`
+```json
+{ "t": "editReject", "x": 5, "y": 64, "z": -2, "block": -1,
+  "dim": "overworld", "reason": "rate" }
+```
+Sent **only to the sender** whenever one of its `edit` frames is rejected,
+for any reason. Fields:
+
+- `x,y,z` — the rejected edit's coordinates, echoed back when they were
+  integers (`null` otherwise — never reflects junk).
+- `block` — the **authoritative** current block at that cell: the stored
+  edit at that key if one exists, else **-1** meaning "untouched generated
+  terrain — restore the value from your local deterministic generator copy"
+  (terrain generation is seed-deterministic, so the client can recompute the
+  exact block).
+- `dim` — the sender's server-tracked dimension the edit was bound to.
+- `reason` — one of `rate` | `reach` | `bounds` | `protected` | `dim` |
+  `invalid`.
+
+Clients that apply edits optimistically MUST roll the cell back on receipt:
+set the block to `block` when `block >= 0`, otherwise recompute the
+generated block and drop any local edit-record override for the key
+(see `NetClient.onEditReject` and the main.js handler). Rejections that
+also produce an `error: bad_edit` frame keep doing so (the `editReject` is
+additive); rate-capped edits send `editReject` only.
+
 ### `chat`
 ```json
 { "t": "chat", "id": "p2", "name": "Alex-ish", "text": "hello world" }
@@ -288,10 +321,12 @@ Delivered to the whole room including the original sender.
 ```
 Advisory only; the connection stays open. Codes currently used:
 `bad_join`, `already_joined`, `bad_edit`, `bad_world`, `chat_rate`,
-`move_rejected`. (Malformed `move` frames and rate-capped edits are dropped
-**silently**; speed-budget violations answer with `move_rejected` at most
-**once per second** per connection — so a flood cannot use the server as an
-amplifier, but a desynced client can see why its position froze.)
+`move_rejected`. (Malformed `move` frames are dropped **silently**;
+rate-capped edits get no `error` frame but DO get an `editReject` rollback
+frame — one per inbound edit, so no amplification; speed-budget violations
+answer with `move_rejected` at most **once per second** per connection — so
+a flood cannot use the server as an amplifier, but a desynced client can see
+why its position froze.)
 
 ---
 
@@ -305,7 +340,9 @@ amplifier, but a desynced client can see why its position froze.)
 - Callback registration (each takes one function, replacing any previous):
   `onState(cb)` — fired with the `welcome` payload;
   `onPeerJoin(cb)`, `onPeerLeave(cb)`, `onPeerMove(cb)`, `onEdit(cb)`,
-  `onChat(cb)`, `onDisconnect(cb)` (receives `{code, reason, intentional}`).
+  `onEditReject(cb)` (one of OUR edits was rejected — roll the cell back,
+  see the `editReject` message in §5), `onChat(cb)`, `onDisconnect(cb)`
+  (receives `{code, reason, intentional}`).
 - `sendMove(pos, yaw, pitch)` — throttled to **20 Hz**, latest-wins: calls
   during the 50 ms window overwrite the pending frame; nothing is sent when
   idle.
@@ -342,7 +379,7 @@ regression test in `tests/security.test.mjs`, run via `npm test`):
 | 8 | Bedrock | **no edit at `y === 0`** (bedrock layer is always y=0 in every dimension; the server does not run worldgen, so the whole layer is protected) | `error: bad_edit` |
 | 9 | Edit dimension | bound to the **server-tracked** dimension; a `dim` field must match it | `error: bad_edit` |
 | 10 | Edit reach | <= **7** blocks from the server-tracked player column (client reach is 6) | `error: bad_edit` |
-| 11 | Edit rate | **20 edits/s** per connection (token bucket, burst 20) | excess dropped silently |
+| 11 | Edit rate | **20 edits/s** per connection (token bucket, burst 20) | excess dropped; sender gets an `editReject` rollback frame (no `error` frame) |
 | 12 | Names | strip control chars + `<>&"'`, cap 24, fallback `Wanderer-xxxx`, dedup per room with numeral suffix | sanitized transparently at join |
 | 13 | Chat | strip control chars, cap 256, HTML-escape `&<>"'` on broadcast (name too); **3 msgs / 2 s** | over-limit dropped + `error: chat_rate` to sender |
 | 14 | Consistency | same-cell edits resolve **last-writer-wins**; all observers converge | n/a (locked by tests) |

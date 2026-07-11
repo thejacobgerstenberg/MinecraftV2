@@ -555,6 +555,31 @@ function handleMove(ws, msg) {
 }
 
 /**
+ * Every rejected edit answers the SENDER with an `editReject` frame so an
+ * optimistic client can roll its local world back (audit finding: silent
+ * drops left ghost blocks until rejoin). The frame carries the authoritative
+ * block for the cell: the stored edit at that key if any, else -1 meaning
+ * "generated terrain — restore from your deterministic generator copy".
+ * `reason` is one of rate|reach|bounds|protected|dim|invalid.
+ * Coordinates are echoed only when integers (never reflect junk), and each
+ * inbound edit produces at most one editReject (no amplification).
+ */
+function rejectEdit(ws, msg, reason) {
+  const { player, room } = ws;
+  const x = Number.isInteger(msg.x) ? msg.x : null;
+  const y = Number.isInteger(msg.y) ? msg.y : null;
+  const z = Number.isInteger(msg.z) ? msg.z : null;
+  let block = -1;
+  if (x !== null && y !== null && z !== null &&
+      Math.abs(x) <= MAX_COORD_XZ && Math.abs(z) <= MAX_COORD_XZ &&
+      y >= 0 && y < WORLD_HEIGHT) {
+    const stored = room.world.edits[player.dim][`${x},${y},${z}`];
+    if (Number.isInteger(stored)) block = stored;
+  }
+  send(ws, { t: 'editReject', x, y, z, block, dim: player.dim, reason });
+}
+
+/**
  * Edit validation (server-authoritative world state):
  *  - integer coords, block id 0..40, |x|,|z| <= 30,000,000, 0 <= y < 128;
  *  - y === 0 is the bedrock floor: NO edit (break or place) is accepted there;
@@ -563,29 +588,41 @@ function handleMove(ws, msg) {
  *  - reach: distance from the player's collision column (server-tracked feet
  *    position, height 1.8) to the block center must be <= 7 (client reach 6);
  *  - rate: 20 edits/s per connection (token bucket); excess edits are dropped.
+ * EVERY rejection (including rate) also answers the sender with an
+ * `editReject` rollback frame — see rejectEdit above and docs/PROTOCOL.md.
  */
 function handleEdit(ws, msg) {
   const { player, room } = ws;
   const { x, y, z, block } = msg;
   if (!Number.isInteger(x) || !Number.isInteger(y) || !Number.isInteger(z) || !validBlockId(block)) {
+    rejectEdit(ws, msg, 'invalid');
     return send(ws, { t: 'error', code: 'bad_edit', message: 'invalid edit (integer coords, block 0..40)' });
   }
   if (Math.abs(x) > MAX_COORD_XZ || Math.abs(z) > MAX_COORD_XZ || y < 0 || y >= WORLD_HEIGHT) {
+    rejectEdit(ws, msg, 'bounds');
     return send(ws, { t: 'error', code: 'bad_edit', message: 'edit out of world bounds' });
   }
   if (y === 0) {
+    rejectEdit(ws, msg, 'protected');
     return send(ws, { t: 'error', code: 'bad_edit', message: 'y=0 is unbreakable bedrock' });
   }
   if (msg.dim !== undefined && msg.dim !== player.dim) {
+    rejectEdit(ws, msg, 'dim');
     return send(ws, { t: 'error', code: 'bad_edit', message: 'edit dim does not match your dimension' });
   }
   const dim = player.dim;
   const cy = y + 0.5 - clamp(y + 0.5, player.y, player.y + PLAYER_HEIGHT);
   const dist = Math.hypot(x + 0.5 - player.x, cy, z + 0.5 - player.z);
   if (dist > MAX_REACH) {
+    rejectEdit(ws, msg, 'reach');
     return send(ws, { t: 'error', code: 'bad_edit', message: `edit out of reach (max ${MAX_REACH})` });
   }
-  if (!takeTokens(player.editBucket)) return; // over 20 edits/s: dropped
+  if (!takeTokens(player.editBucket)) {
+    // Over 20 edits/s: dropped, but the sender still gets the rollback frame
+    // (no error frame — one small editReject per inbound edit, bounded by
+    // the global message rate, so this cannot amplify).
+    return rejectEdit(ws, msg, 'rate');
+  }
   room.world.edits[dim][`${x},${y},${z}`] = block;
   markDirty(room);
   broadcast(room, { t: 'edit', id: player.id, x, y, z, block, dim },

@@ -776,6 +776,40 @@ async function bootSession(worldMeta) {
     recordEdit(msg.dim, msg.x, msg.y, msg.z, msg.block);
     if (msg.dim === S.dim) S.world.setBlock(msg.x, msg.y, msg.z, msg.block);
   });
+  // One of OUR edits was rejected (rate cap, reach, bounds, protected cell,
+  // dim mismatch, invalid): roll the optimistic local change back to the
+  // authoritative state. block >= 0 is the server-stored edit; -1 means the
+  // cell is untouched generated terrain — recompute it from the local
+  // deterministic generator (exact same output as the chunk pass).
+  let lastRejectHintAt = -Infinity;
+  net.onEditReject((msg) => {
+    const { x, y, z, reason } = msg;
+    if (!Number.isInteger(x) || !Number.isInteger(y) || !Number.isInteger(z)) return;
+    const dim = S.editsByDim[msg.dim] ? msg.dim : S.dim;
+    const key = `${x},${y},${z}`;
+    let authoritative = null;
+    if (Number.isInteger(msg.block) && msg.block >= 0) {
+      S.editsByDim[dim][key] = msg.block;
+      authoritative = msg.block;
+    } else {
+      delete S.editsByDim[dim][key]; // back to generated terrain
+      if (dim === S.dim) authoritative = S.generator.blockAt(x, y, z);
+    }
+    if (dim === S.dim && authoritative != null) {
+      S.world.setBlock(x, y, z, authoritative);
+    }
+    // Subtle hint, at most once per 3 s.
+    const now = performance.now();
+    if (now - lastRejectHintAt >= 3000) {
+      lastRejectHintAt = now;
+      ui.chat.addMessage({
+        system: true,
+        text: reason === 'rate'
+          ? 'Some changes were too fast and were undone.'
+          : 'A block change was not allowed and was undone.',
+      });
+    }
+  });
   net.onChat((msg) => ui.chat.addMessage({ name: msg.name, text: msg.text }));
   net.onDisconnect((info) => {
     if (S.active && !info.intentional) {
