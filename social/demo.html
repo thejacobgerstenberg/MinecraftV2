@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Loomfall — Social &amp; Presence Demo</title>
+<link rel="icon" href="data:," />
+
+<!-- Resolve all relative URLs (importmap, module imports, css links) against the
+     package dir so this works both at "/" and "/social/demo.html". -->
+<base href="/social/" />
+
+<!-- Vendored lf-* UI kit: design tokens + base, then each component used here. -->
+<link rel="stylesheet" href="./vendor/ui-kit/tokens.css" />
+<link rel="stylesheet" href="./vendor/ui-kit/base.css" />
+<link rel="stylesheet" href="./vendor/ui-kit/components/button.css" />
+<link rel="stylesheet" href="./vendor/ui-kit/components/input.css" />
+<link rel="stylesheet" href="./vendor/ui-kit/components/chat.css" />
+<link rel="stylesheet" href="./vendor/ui-kit/components/toast.css" />
+<link rel="stylesheet" href="./vendor/ui-kit/components/modal.css" />
+<link rel="stylesheet" href="./vendor/ui-kit/components/dropdown.css" />
+<link rel="stylesheet" href="./vendor/ui-kit/components/tabs.css" />
+<link rel="stylesheet" href="./vendor/ui-kit/components/tooltip.css" />
+<link rel="stylesheet" href="./vendor/ui-kit/components/progress.css" />
+
+<style>
+  /* Demo chrome only (not an lf-* element) — leans on --lf-* tokens for cohesion. */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--lf-color-bg-root, #14101f);
+    color: var(--lf-color-text-body, #EDE7DA);
+    font: 13px/1.5 var(--lf-font-ui, system-ui, sans-serif);
+    overflow: hidden;
+  }
+  #app { position: fixed; inset: 0; }
+  canvas { display: block; }
+
+  #hud {
+    position: fixed;
+    top: var(--lf-space-3, 12px); left: var(--lf-space-3, 12px);
+    width: 264px;
+    background: var(--lf-color-bg-panel, #221B33);
+    border: var(--lf-border-hem, 1px solid #6A5F8C);
+    border-radius: var(--lf-radius-lg, 8px);
+    padding: var(--lf-space-4, 16px);
+    z-index: var(--lf-z-hud, 10);
+  }
+  #hud h1 {
+    margin: 0 0 2px; font-size: 16px; letter-spacing: 0.02em;
+    color: var(--lf-brand-primary, #F2C14E);
+    font-family: var(--lf-font-display, inherit);
+  }
+  #hud .sub { color: var(--lf-color-text-dim, #B4AAC9); margin: 0 0 var(--lf-space-3, 12px); font-size: 11px; }
+  .hud-row { display: flex; gap: var(--lf-space-2, 8px); flex-wrap: wrap; margin-bottom: var(--lf-space-2, 8px); }
+  .stat {
+    display: flex; justify-content: space-between;
+    border-top: 1px solid var(--lf-color-border-hem, #6A5F8C);
+    padding: 5px 0; color: var(--lf-color-text-dim, #B4AAC9);
+  }
+  .stat b { color: var(--lf-color-text-heading, #F7F2E4); font-weight: 600; }
+
+  /* Session feed panel (SessionFeed renders its DOM feed here). */
+  #feedMount {
+    position: fixed;
+    top: var(--lf-space-3, 12px); right: var(--lf-space-3, 12px);
+    width: 240px; max-height: 40vh; overflow: hidden auto;
+    z-index: var(--lf-z-hud, 10);
+  }
+
+  /* Chat dock (lf-chat lives here, bottom-left). */
+  #chatDock {
+    position: fixed;
+    bottom: var(--lf-space-3, 12px); left: var(--lf-space-3, 12px);
+    width: min(420px, 46vw);
+    z-index: var(--lf-z-hud, 10);
+  }
+  lf-chat {
+    display: block;
+    background: var(--lf-color-bg-panel, #221B33);
+    border: var(--lf-border-hem, 1px solid #6A5F8C);
+    border-radius: var(--lf-radius-lg, 8px);
+    padding: var(--lf-space-2, 8px);
+  }
+
+  #hint {
+    position: fixed; bottom: var(--lf-space-3, 12px); right: var(--lf-space-3, 12px);
+    color: var(--lf-color-text-dim, #B4AAC9); font-size: 11px;
+    background: var(--lf-color-bg-panel, #221B33);
+    border: var(--lf-border-hem, 1px solid #6A5F8C);
+    border-radius: var(--lf-radius-md, 6px); padding: 6px 10px;
+    z-index: var(--lf-z-hud, 10);
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<div id="hud">
+  <h1>Loomfall · Social</h1>
+  <p class="sub">Presence · Player list · Whisper · Spectator</p>
+
+  <div class="hud-row">
+    <lf-button id="btnSpectate" variant="secondary">Spectate</lf-button>
+    <lf-button id="btnPlayers" variant="secondary">Players</lf-button>
+  </div>
+
+  <div class="stat"><span>FPS</span><b id="statFps">—</b></div>
+  <div class="stat"><span>Players</span><b id="statPeers">0</b></div>
+  <div class="stat"><span>Spectating</span><b id="statSpec">no</b></div>
+  <div class="stat"><span>Last whisper</span><b id="statWhisper">—</b></div>
+</div>
+
+<div id="feedMount"></div>
+
+<div id="chatDock">
+  <lf-chat id="chat" open scrollback="60">
+    <p data-system>Social layer online — try /w Sona hey</p>
+  </lf-chat>
+</div>
+
+<div id="hint">Hold Tab: players · /w name msg · Spectate button</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "../avatars/vendor/three.module.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from "three";
+import { SocialLayer } from "./social.js";
+import { defaultDescriptor } from "../avatars-plus/skin-descriptor.js";
+// Side-effect: register the lf-* elements the harness itself instantiates.
+import "./vendor/ui-kit/components/chat.js";
+import "./vendor/ui-kit/components/button.js";
+import "./vendor/ui-kit/components/input.js";
+import "./vendor/ui-kit/components/modal.js";
+import "./vendor/ui-kit/components/dropdown.js";
+import "./vendor/ui-kit/components/tabs.js";
+import "./vendor/ui-kit/components/tooltip.js";
+import "./vendor/ui-kit/components/progress.js";
+
+/* ================================================================= scene === */
+const app = document.getElementById("app");
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+if ("outputColorSpace" in renderer) renderer.outputColorSpace = THREE.SRGBColorSpace;
+app.appendChild(renderer.domElement);
+const canvas = renderer.domElement;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x14101f);
+scene.fog = new THREE.Fog(0x14101f, 26, 80);
+
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 200);
+camera.position.set(0, 6, 14);
+
+scene.add(new THREE.HemisphereLight(0xbcd3e6, 0x2a2418, 0.8));
+scene.add(new THREE.AmbientLight(0x3a3450, 0.4));
+const sun = new THREE.DirectionalLight(0xfff2d8, 1.0);
+sun.position.set(10, 16, 8);
+scene.add(sun);
+
+/* ----------------------------------------------- voxel world + solidity --- */
+const GROUND_MIN = -12;
+const GROUND_MAX = 12;
+
+// Each pillar: axis-aligned box footprint [x0,x0+w) x [z0,z0+d), height h.
+const PILLARS = [
+  { x0: -6, z0: -6, w: 1, d: 1, h: 5 },
+  { x0: 5, z0: -6, w: 1, d: 1, h: 4 },
+  { x0: -6, z0: 5, w: 1, d: 1, h: 4 },
+  { x0: 3, z0: -2, w: 1, d: 5, h: 3 },
+];
+
+/**
+ * World solidity oracle injected into the spectator camera. Solid below the
+ * floor plane and inside any pillar box. Never throws.
+ */
+function isSolid(x, y, z) {
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return false;
+  if (y <= 0) return true; // floor
+  for (let i = 0; i < PILLARS.length; i++) {
+    const p = PILLARS[i];
+    if (x >= p.x0 && x < p.x0 + p.w && z >= p.z0 && z < p.z0 + p.d && y >= 0 && y <= p.h) return true;
+  }
+  return false;
+}
+
+// Ground (instanced, checkered).
+{
+  const side = GROUND_MAX - GROUND_MIN;
+  const geo = new THREE.BoxGeometry(1, 1, 1);
+  const mat = new THREE.MeshLambertMaterial({ color: 0x2e2645 });
+  const ground = new THREE.InstancedMesh(geo, mat, side * side);
+  const m = new THREE.Matrix4();
+  const tint = new THREE.Color();
+  let i = 0;
+  for (let gx = GROUND_MIN; gx < GROUND_MAX; gx++) {
+    for (let gz = GROUND_MIN; gz < GROUND_MAX; gz++) {
+      m.makeTranslation(gx + 0.5, -0.5, gz + 0.5);
+      ground.setMatrixAt(i, m);
+      tint.setHex((gx + gz) & 1 ? 0x272038 : 0x322a4c);
+      ground.setColorAt(i, tint);
+      i++;
+    }
+  }
+  ground.instanceMatrix.needsUpdate = true;
+  if (ground.instanceColor) ground.instanceColor.needsUpdate = true;
+  scene.add(ground);
+}
+
+// Pillars (instanced, matches isSolid boxes).
+{
+  let count = 0;
+  for (const p of PILLARS) count += p.w * p.d * p.h;
+  const geo = new THREE.BoxGeometry(1, 1, 1);
+  const mat = new THREE.MeshLambertMaterial({ color: 0x6a5f8c });
+  const mesh = new THREE.InstancedMesh(geo, mat, count);
+  const m = new THREE.Matrix4();
+  let i = 0;
+  for (const p of PILLARS) {
+    for (let dx = 0; dx < p.w; dx++)
+      for (let dz = 0; dz < p.d; dz++)
+        for (let k = 0; k < p.h; k++) {
+          m.makeTranslation(p.x0 + dx + 0.5, k + 0.5, p.z0 + dz + 0.5);
+          mesh.setMatrixAt(i++, m);
+        }
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+  scene.add(mesh);
+}
+
+// A few colored boxes standing in for peer avatars (spectator flavor).
+const peerBoxes = new Map();
+function peerBox(id, hex) {
+  const geo = new THREE.BoxGeometry(0.8, 1.8, 0.8);
+  const mat = new THREE.MeshLambertMaterial({ color: new THREE.Color(hex || 0x8a8278) });
+  const box = new THREE.Mesh(geo, mat);
+  box.position.set(0, 0.9, 0);
+  scene.add(box);
+  peerBoxes.set(id, box);
+  return box;
+}
+
+/* ========================================================== MockNet ======= */
+/**
+ * A NetClient-like fake. It mirrors the real transport surface the game's
+ * NetClient exposes — onState / onPeerJoin / onPeerLeave / onPeerMove / onChat /
+ * onDisconnect / sendChat / selfId — but the wire it "receives" only ever carries
+ * the v1 protocol fields: {id,name,x,y,z,yaw,pitch,dim} per peer and {id,name,
+ * text} per chat. It does NOT deliver ping, team, or skin over the wire; those
+ * are fabricated by the DEMO (see refreshPings / roster.skin) so the UI is fully
+ * exercised. sendChat() echoes back through onChat exactly like a room broadcast.
+ */
+class MockNet {
+  constructor(roster) {
+    this.selfId = roster.id;
+    this._roster = roster;
+    this._cb = {};
+  }
+  onState(cb) { this._cb.state = cb; return () => { this._cb.state = null; }; }
+  onPeerJoin(cb) { this._cb.join = cb; return () => { this._cb.join = null; }; }
+  onPeerLeave(cb) { this._cb.leave = cb; return () => { this._cb.leave = null; }; }
+  onPeerMove(cb) { this._cb.move = cb; return () => { this._cb.move = null; }; }
+  onChat(cb) { this._cb.chat = cb; return () => { this._cb.chat = null; }; }
+  onDisconnect(cb) { this._cb.disc = cb; return () => { this._cb.disc = null; }; }
+
+  /** Public chat send — the server rebroadcasts to everyone INCLUDING us. */
+  sendChat(text) { this._fire("chat", { id: this.selfId, name: "You", text: String(text) }); }
+
+  _fire(k, m) { const f = this._cb[k]; if (typeof f === "function") { try { f(m); } catch (_e) { /* no-op */ } } }
+
+  /* Emit helpers the demo timers drive. */
+  emitWelcome() { this._fire("state", this._roster); }
+  pushJoin(m) { this._fire("join", m); }
+  pushLeave(id) { this._fire("leave", { id }); }
+  pushMove(m) { this._fire("move", m); }
+  pushChat(m) { this._fire("chat", m); }
+  disconnect() { this._fire("disc", {}); }
+}
+
+/* ================================================ roster (v1 wire fields) == */
+// A couple of peers carry a locally-known skin descriptor (as a real join WOULD
+// once the protocol extension lands); the rest fall back to a hash-of-id swatch.
+const roster = {
+  id: "you-1",
+  peers: [
+    { id: "p-sona", name: "Sona", x: -4, y: 0, z: -4, yaw: 0, pitch: 0, dim: "overworld", skin: defaultDescriptor("warpwold-mender") },
+    { id: "p-ren", name: "Ren", x: 5, y: 0, z: 3, yaw: 0, pitch: 0, dim: "nether", skin: defaultDescriptor("cinderloom-scaldwarden") },
+    { id: "p-thal", name: "Thal", x: -2, y: 0, z: 6, yaw: 0, pitch: 0, dim: "end" },
+    { id: "p-brill", name: "Brill", x: 6, y: 0, z: -5, yaw: 0, pitch: 0, dim: "overworld" },
+    { id: "p-ode", name: "Ode", x: -6, y: 0, z: 2, yaw: 0, pitch: 0, dim: "nether" },
+  ],
+};
+const BOT_NAMES = roster.peers.map((p) => p.name);
+
+const mockNet = new MockNet(roster);
+
+/* ================================================ SocialLayer wire-up ===== */
+const chatEl = document.getElementById("chat");
+const social = new SocialLayer({
+  net: mockNet,
+  chat: chatEl,
+  camera,
+  isSolid,
+  mount: document.body,
+  feedMount: document.getElementById("feedMount"),
+  selfName: "You",
+  localSkin: defaultDescriptor("warpwold-mender"),
+  canvas,
+});
+social.enable();
+
+// Bring the fake world online: welcome roster, then fabricate pings so the list
+// reads live immediately (real layer would show "—" until an RTT source feeds it).
+mockNet.emitWelcome();
+
+/* --------------------------------------------------- fabricated pings ------ */
+// The wire carries NO latency, so the demo invents a stable-ish base per player
+// and jitters it. In-game you'd call social.setPing(selfId, measuredRtt).
+const pingBase = new Map();
+function refreshPings() {
+  const players = social.presence.players;
+  for (const p of players) {
+    if (!pingBase.has(p.id)) pingBase.set(p.id, 20 + Math.floor(Math.random() * 180));
+    const base = pingBase.get(p.id);
+    const ms = Math.max(4, base + Math.floor((Math.random() - 0.5) * 40));
+    social.setPing(p.id, ms);
+  }
+}
+refreshPings();
+
+/* ------------------------- position peer boxes from presence --------------- */
+function syncPeerBoxes() {
+  for (const p of social.presence.players) {
+    if (p.self) continue;
+    let box = peerBoxes.get(p.id);
+    if (!box) box = peerBox(p.id, p.swatch);
+    box.material.color.set(p.swatch);
+    box.position.set(p.x, 0.9, p.z);
+    box.visible = true;
+  }
+  // Hide boxes for peers that left.
+  for (const [id, box] of peerBoxes) {
+    if (!social.presence.get(id)) box.visible = false;
+  }
+}
+
+/* ================================================ demo simulation timers == */
+const timers = [];
+
+// Movement: nudge a random peer; occasionally hop dimension.
+timers.push(setInterval(() => {
+  const peers = social.presence.players.filter((p) => !p.self);
+  if (!peers.length) return;
+  const p = peers[(Math.random() * peers.length) | 0];
+  const nx = Math.max(GROUND_MIN + 1, Math.min(GROUND_MAX - 1, p.x + (Math.random() - 0.5) * 4));
+  const nz = Math.max(GROUND_MIN + 1, Math.min(GROUND_MAX - 1, p.z + (Math.random() - 0.5) * 4));
+  const hop = Math.random() < 0.15;
+  const dims = ["overworld", "nether", "end"];
+  mockNet.pushMove({ id: p.id, x: nx, y: 0, z: nz, yaw: Math.random() * 6.28, dim: hop ? dims[(Math.random() * 3) | 0] : p.dim });
+}, 1500));
+
+// Fabricated ping refresh.
+timers.push(setInterval(refreshPings, 2000));
+
+// Public chat from a random bot.
+const CHATTER = ["anyone near a loom shrine?", "watch the nether gap", "gg", "trading thread at spawn", "found a cache!"];
+timers.push(setInterval(() => {
+  const p = social.presence.players.filter((x) => !x.self);
+  if (!p.length) return;
+  const bot = p[(Math.random() * p.length) | 0];
+  mockNet.pushChat({ id: bot.id, name: bot.name, text: CHATTER[(Math.random() * CHATTER.length) | 0] });
+}, 7000));
+
+// Incoming whisper from a random bot (routes through the whisper controller).
+const WHISPERS = ["you around?", "help at the wall?", "nice find", "meet at spawn"];
+timers.push(setInterval(() => {
+  const p = social.presence.players.filter((x) => !x.self);
+  if (!p.length) return;
+  const bot = p[(Math.random() * p.length) | 0];
+  social.whisper.receiveWhisper({ from: bot.name, text: WHISPERS[(Math.random() * WHISPERS.length) | 0] });
+}, 16000));
+
+// A transient join/leave every ~13s so the feed + list churn.
+let ghostN = 0;
+timers.push(setInterval(() => {
+  const gid = "ghost-" + (++ghostN);
+  const gname = "Wanderer" + ghostN;
+  mockNet.pushJoin({ id: gid, name: gname, x: (Math.random() - 0.5) * 16, y: 0, z: (Math.random() - 0.5) * 16, yaw: 0, pitch: 0, dim: "overworld" });
+  setTimeout(() => mockNet.pushLeave(gid), 6000);
+}, 13000));
+
+/* -------- auto-reply so a whisper EXCHANGE is visible when you /w a bot ----- */
+// Fires alongside SocialLayer's own lf-send handler. Both handlers see the event.
+chatEl.addEventListener("lf-send", (e) => {
+  const text = e && e.detail && typeof e.detail.text === "string" ? e.detail.text : "";
+  const m = /^\/(?:w|msg)\s+"?([^"\s]+)"?\s+(.+)$/i.exec(text.trim());
+  if (!m) return;
+  const target = m[1];
+  const hit = BOT_NAMES.find((n) => n.toLowerCase() === target.toLowerCase());
+  if (!hit) return;
+  setTimeout(() => social.whisper.receiveWhisper({ from: hit, text: "hey — got your message :)" }), 1200);
+});
+
+/* ================================================ HUD + controls ========== */
+const statFps = document.getElementById("statFps");
+const statPeers = document.getElementById("statPeers");
+const statSpec = document.getElementById("statSpec");
+const statWhisper = document.getElementById("statWhisper");
+
+function setBtnLabel(el, text) {
+  if (!el) return;
+  const label = el.querySelector(".lf-button__label");
+  if (label) label.textContent = text;
+  else el.textContent = text;
+}
+
+const btnSpectate = document.getElementById("btnSpectate");
+btnSpectate.addEventListener("click", () => {
+  const on = social.toggleSpectator();
+  setBtnLabel(btnSpectate, on ? "Stop spectating" : "Spectate");
+});
+
+const btnPlayers = document.getElementById("btnPlayers");
+// Press-and-hold semantics for the button mirror hold-Tab; click toggles.
+btnPlayers.addEventListener("mousedown", () => social.showPlayerList());
+btnPlayers.addEventListener("mouseup", () => social.hidePlayerList());
+btnPlayers.addEventListener("mouseleave", () => social.hidePlayerList());
+
+/* ================================================ render loop ============= */
+let fpsAvg = 60;
+let fpsAcc = 0;
+let fpsFrames = 0;
+let last = performance.now();
+let orbit = 0;
+
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000) || 0;
+  last = now;
+
+  if (social.isSpectating()) {
+    social.update(dt); // spectator camera drives the camera
+  } else {
+    // Idle orbit so the scene reads before you spectate.
+    orbit += dt * 0.15;
+    camera.position.set(Math.cos(orbit) * 16, 7, Math.sin(orbit) * 16);
+    camera.lookAt(0, 1, 0);
+  }
+
+  syncPeerBoxes();
+  renderer.render(scene, camera);
+
+  fpsAcc += dt;
+  fpsFrames++;
+  if (fpsAcc >= 0.5) {
+    fpsAvg = fpsFrames / fpsAcc;
+    fpsFrames = 0;
+    fpsAcc = 0;
+    if (statFps) statFps.textContent = String(Math.round(fpsAvg));
+  }
+  if (statPeers) statPeers.textContent = String(social.presence.players.length);
+  if (statSpec) statSpec.textContent = social.isSpectating() ? "yes" : "no";
+  if (statWhisper) statWhisper.textContent = social.whisper.lastWhisperer || "—";
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+/* ================================================ headless harness ======== */
+/** Programmatically submit a chat line through the exact lf-send path. */
+function typeChat(text) {
+  try {
+    chatEl.dispatchEvent(new CustomEvent("lf-send", { detail: { text: String(text) }, bubbles: true }));
+  } catch (_e) { /* no-op */ }
+}
+
+window.socialDemo = {
+  THREE,
+  scene,
+  camera,
+  renderer,
+  social,
+  mockNet,
+  presence: social.presence,
+  whisper: social.whisper,
+  showPlayers: () => social.showPlayerList(),
+  hidePlayers: () => social.hidePlayerList(),
+  sendWhisperFromBot: (name, text) => social.whisper.receiveWhisper({ from: name, text: String(text == null ? "" : text) }),
+  typeChat,
+  toggleSpectate: () => social.toggleSpectator(),
+  forcePing: () => { refreshPings(); return social.presence.players.map((p) => ({ id: p.id, name: p.name, ping: p.ping })); },
+  getFps: () => Math.round(fpsAvg),
+};
+</script>
+</body>
+</html>
