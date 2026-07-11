@@ -1,0 +1,344 @@
+<!-- weather/demo.html -->
+<!-- Standalone Three.js harness for the weather package: voxel ground + control panel. -->
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Loomfall · Weather Demo</title>
+<!-- Inline favicon so headless/browser doesn't 404 on /favicon.ico -->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>%E2%9B%85</text></svg>" />
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.module.js",
+    "three/addons/controls/OrbitControls.js": "./vendor/OrbitControls.js"
+  }
+}
+</script>
+
+<style>
+  :root {
+    --bg: #14161a;
+    --panel: #1c2026;
+    --panel-border: #2b313a;
+    --fg: #d7dce3;
+    --muted: #8a93a0;
+    --accent: #56b6ff;
+    --accent-dim: #2d6da3;
+    --strike: #ffd23f;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); }
+  body {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    color: var(--fg);
+    font-size: 13px;
+  }
+  #app { position: fixed; inset: 0; }
+  canvas { display: block; }
+
+  #panel {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    width: 250px;
+    background: color-mix(in srgb, var(--panel) 92%, transparent);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 14px;
+    backdrop-filter: blur(6px);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+    user-select: none;
+  }
+  #panel h1 {
+    margin: 0 0 2px;
+    font-size: 14px;
+    letter-spacing: 0.5px;
+    color: var(--fg);
+  }
+  #panel .sub { margin: 0 0 12px; color: var(--muted); font-size: 11px; }
+
+  .row { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+  button {
+    flex: 1 1 auto;
+    min-width: 52px;
+    background: #232a33;
+    color: var(--fg);
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    padding: 7px 8px;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+  }
+  button:hover { background: #2b333e; border-color: var(--accent-dim); }
+  button.active { background: var(--accent-dim); border-color: var(--accent); color: #fff; }
+  button.strike { background: #3a3212; border-color: #6b5a1a; color: var(--strike); flex: 1 1 100%; }
+  button.strike:hover { background: #4a4016; }
+
+  label.field { display: block; margin: 10px 0 4px; color: var(--muted); font-size: 11px; }
+  input[type="range"] { width: 100%; accent-color: var(--accent); }
+
+  .stats {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--panel-border);
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+  .stats b { color: var(--fg); font-weight: 600; }
+
+  #log {
+    margin-top: 10px;
+    height: 108px;
+    overflow-y: auto;
+    background: #10131a;
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 10.5px;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+  #log .entry { white-space: nowrap; }
+  #log .entry .t { color: var(--accent); }
+  #log .entry .b { color: var(--strike); }
+</style>
+
+<div id="app"></div>
+
+<div id="panel">
+  <h1>⛅ Weather</h1>
+  <p class="sub">Loomfall visuals harness</p>
+
+  <div class="row" id="stateRow">
+    <button data-state="clear">Clear</button>
+    <button data-state="rain">Rain</button>
+    <button data-state="storm">Storm</button>
+    <button data-state="snow">Snow</button>
+  </div>
+
+  <label class="field" for="intensity">Intensity · <span id="intVal">1.00</span></label>
+  <input type="range" id="intensity" min="0" max="1" step="0.01" value="1" />
+
+  <div class="row">
+    <button data-day="day" class="active">Day</button>
+    <button data-day="night">Night</button>
+  </div>
+
+  <div class="row">
+    <button class="strike" id="strikeBtn">Strike ⚡</button>
+  </div>
+
+  <div class="stats">
+    weather <b id="stWeather">clear</b> · int <b id="stInt">1.00</b><br />
+    fps <b id="stFps">--</b> · draws <b id="stDraws">--</b>
+  </div>
+
+  <div id="log"></div>
+</div>
+
+<script type="module">
+  import * as THREE from "three";
+  import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+  import WeatherSystem from "./weather.js";
+
+  // --- Renderer -------------------------------------------------------------
+  const app = document.getElementById("app");
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setClearColor(0x14161a, 1);
+  app.appendChild(renderer.domElement);
+
+  // --- Scene / camera / controls -------------------------------------------
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(
+    60, window.innerWidth / window.innerHeight, 0.1, 1000
+  );
+  camera.position.set(24, 18, 28);
+
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.target.set(0, 4, 0);
+  controls.enableDamping = true;
+  controls.maxPolarAngle = Math.PI * 0.495; // keep camera above the ground
+  controls.minDistance = 6;
+  controls.maxDistance = 120;
+
+  // --- Voxel ground plane (InstancedMesh) ----------------------------------
+  // ~40x40 tiles, per-tile height wobble + a green/dirt/stone palette.
+  const GRID = 40;
+  const TILE = 2;
+  const count = GRID * GRID;
+  const cubeGeo = new THREE.BoxGeometry(TILE, TILE, TILE);
+  const cubeMat = new THREE.MeshStandardMaterial({ roughness: 0.95, metalness: 0.0 });
+  const ground = new THREE.InstancedMesh(cubeGeo, cubeMat, count);
+  ground.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+
+  const PALETTE = [
+    new THREE.Color(0x5a8f3a), // grass
+    new THREE.Color(0x4d7d32), // darker grass
+    new THREE.Color(0x8a6a43), // dirt
+    new THREE.Color(0x7d7d82), // stone
+  ];
+  const m = new THREE.Matrix4();
+  const half = (GRID * TILE) / 2;
+  let i = 0;
+  for (let gx = 0; gx < GRID; gx++) {
+    for (let gz = 0; gz < GRID; gz++) {
+      const x = gx * TILE - half + TILE / 2;
+      const z = gz * TILE - half + TILE / 2;
+      // Gentle pseudo-random height so surfaces catch light + read against precip.
+      const h = Math.round(Math.sin(gx * 0.6) * 1.2 + Math.cos(gz * 0.5) * 1.2);
+      const y = h * (TILE / 2);
+      m.makeTranslation(x, y, z);
+      ground.setMatrixAt(i, m);
+      let col = PALETTE[0];
+      if (y < -0.5) col = PALETTE[2];
+      else if (y > 1.5) col = PALETTE[3];
+      else col = (gx + gz) % 5 === 0 ? PALETTE[1] : PALETTE[0];
+      ground.setColorAt(i, col);
+      i++;
+    }
+  }
+  ground.instanceMatrix.needsUpdate = true;
+  if (ground.instanceColor) ground.instanceColor.needsUpdate = true;
+  scene.add(ground);
+
+  // A few taller pillars for parallax.
+  const pillarMat = new THREE.MeshStandardMaterial({ color: 0x6b6b70, roughness: 0.9 });
+  const pillarGeo = new THREE.BoxGeometry(TILE, TILE, TILE);
+  const pillars = [
+    [-12, 5], [10, -8], [16, 14], [-18, -14], [4, 4],
+  ];
+  for (const [px, pz] of pillars) {
+    const hgt = 4 + Math.floor(Math.abs(px + pz)) % 4;
+    for (let b = 0; b < hgt; b++) {
+      const mesh = new THREE.Mesh(pillarGeo, pillarMat);
+      mesh.position.set(px, b * TILE + 2, pz);
+      scene.add(mesh);
+    }
+  }
+
+  // --- Weather system -------------------------------------------------------
+  const weather = new WeatherSystem(scene, camera);
+
+  // Day/night reaches SkyController via the exposed getter.
+  function setDay() { weather.sky.setDayNight("day"); }
+  function setNight() { weather.sky.setDayNight("night"); }
+
+  // --- Control panel wiring -------------------------------------------------
+  const stateBtns = [...document.querySelectorAll("#stateRow button")];
+  const dayBtns = [...document.querySelectorAll("[data-day]")];
+  const intSlider = document.getElementById("intensity");
+  const intVal = document.getElementById("intVal");
+  const stWeather = document.getElementById("stWeather");
+  const stInt = document.getElementById("stInt");
+  const stFps = document.getElementById("stFps");
+  const stDraws = document.getElementById("stDraws");
+  const logEl = document.getElementById("log");
+
+  function markActive(btns, el) {
+    for (const b of btns) b.classList.toggle("active", b === el);
+  }
+
+  function chooseWeather(state, btn) {
+    weather.setWeather(state);
+    if (btn) markActive(stateBtns, btn);
+    stWeather.textContent = state;
+  }
+
+  for (const b of stateBtns) {
+    b.addEventListener("click", () => chooseWeather(b.dataset.state, b));
+  }
+  markActive(stateBtns, stateBtns[0]); // clear active by default
+
+  intSlider.addEventListener("input", () => {
+    const v = parseFloat(intSlider.value);
+    intVal.textContent = v.toFixed(2);
+    weather.setIntensity(v, 0.4);
+  });
+
+  for (const b of dayBtns) {
+    b.addEventListener("click", () => {
+      if (b.dataset.day === "day") setDay(); else setNight();
+      markActive(dayBtns, b);
+    });
+  }
+
+  document.getElementById("strikeBtn").addEventListener("click", () => {
+    weather.strike();
+  });
+
+  // --- Event log ------------------------------------------------------------
+  function log(html) {
+    const div = document.createElement("div");
+    div.className = "entry";
+    div.innerHTML = html;
+    logEl.appendChild(div);
+    logEl.scrollTop = logEl.scrollHeight;
+    while (logEl.children.length > 60) logEl.removeChild(logEl.firstChild);
+  }
+  weather.on("weatherChange", (e) => {
+    log(`<span class="t">weatherChange</span> ${e.detail.from}-&gt;${e.detail.to}`);
+  });
+  weather.on("lightningStrike", (e) => {
+    log(`<span class="b">lightningStrike</span> far=${e.detail.far}`);
+  });
+
+  // --- FPS averaging --------------------------------------------------------
+  let currentAvgFps = 0;
+  let fpsAccum = 0;
+  let fpsFrames = 0;
+  let fpsClock = 0;
+
+  // --- Render loop ----------------------------------------------------------
+  const clock = new THREE.Clock();
+  function frame() {
+    const dt = clock.getDelta();
+    weather.update(dt);
+    controls.update();
+    renderer.render(scene, camera);
+
+    // FPS: average over ~0.5s windows.
+    fpsAccum += dt;
+    fpsFrames++;
+    fpsClock += dt;
+    if (fpsClock >= 0.5) {
+      currentAvgFps = fpsFrames / fpsAccum;
+      stFps.textContent = currentAvgFps.toFixed(0);
+      stDraws.textContent = String(renderer.info.render.calls);
+      const s = weather.getState();
+      stInt.textContent = s.intensity.toFixed(2);
+      fpsAccum = 0; fpsFrames = 0; fpsClock = 0;
+    }
+    requestAnimationFrame(frame);
+  }
+  frame();
+
+  // --- Resize ---------------------------------------------------------------
+  window.addEventListener("resize", () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  // --- Headless harness surface --------------------------------------------
+  window.weatherDemo = {
+    system: weather,
+    renderer,
+    scene,
+    camera,
+    setWeather: (s) => chooseWeather(s, stateBtns.find((b) => b.dataset.state === s)),
+    setIntensity: (v) => {
+      intSlider.value = String(v);
+      intVal.textContent = Number(v).toFixed(2);
+      weather.setIntensity(v, 0.4);
+    },
+    strike: (opts) => weather.strike(opts),
+    setDay: () => { setDay(); markActive(dayBtns, dayBtns[0]); },
+    setNight: () => { setNight(); markActive(dayBtns, dayBtns[1]); },
+    getFps: () => currentAvgFps,
+  };
+</script>
