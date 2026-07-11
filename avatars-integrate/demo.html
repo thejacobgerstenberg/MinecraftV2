@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Loomfall — PlayerStack Integration Proof (real NetClient / World / blocks / chat)</title>
+<link rel="icon" href="data:," />
+
+<!-- Resolve the HTML's own relative URLs (importmap, css links) against the
+     package dir so it works both at "/" and "/avatars-integrate/demo.html".
+     NOTE: ES module import specifiers resolve relative to each module file,
+     NOT this base href, so integrate.js's "../avatars-plus/..." still works. -->
+<base href="/avatars-integrate/" />
+
+<!-- Vendored lf-* UI kit (lives under /social/vendor/ui-kit): design tokens +
+     base, then each component the social overlays (player list, toasts) use. -->
+<link rel="stylesheet" href="../social/vendor/ui-kit/tokens.css" />
+<link rel="stylesheet" href="../social/vendor/ui-kit/base.css" />
+<link rel="stylesheet" href="../social/vendor/ui-kit/components/button.css" />
+<link rel="stylesheet" href="../social/vendor/ui-kit/components/input.css" />
+<link rel="stylesheet" href="../social/vendor/ui-kit/components/chat.css" />
+<link rel="stylesheet" href="../social/vendor/ui-kit/components/toast.css" />
+<link rel="stylesheet" href="../social/vendor/ui-kit/components/modal.css" />
+<link rel="stylesheet" href="../social/vendor/ui-kit/components/dropdown.css" />
+<link rel="stylesheet" href="../social/vendor/ui-kit/components/tabs.css" />
+<link rel="stylesheet" href="../social/vendor/ui-kit/components/tooltip.css" />
+<link rel="stylesheet" href="../social/vendor/ui-kit/components/progress.css" />
+
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--lf-color-bg-root, #14101f);
+    color: var(--lf-color-text-body, #e8e4f0);
+    font: 13px/1.5 var(--lf-font-ui, system-ui, sans-serif);
+    overflow: hidden;
+  }
+  #app { position: fixed; inset: 0; }
+  canvas { display: block; }
+
+  #hud {
+    position: fixed; top: 12px; left: 12px; width: 260px;
+    background: var(--lf-color-bg-panel, rgba(30,26,48,0.9));
+    border: var(--lf-border-hem, 1px solid rgba(120,110,160,0.4));
+    border-radius: var(--lf-radius-lg, 10px);
+    padding: 14px; z-index: 50;
+  }
+  #hud h1 { margin: 0 0 2px; font-size: 15px; color: var(--lf-brand-primary, #c9a2ff); }
+  #hud .sub { color: var(--lf-color-text-dim, #9a92b0); margin: 0 0 8px; font-size: 11px; }
+  .stat {
+    display: flex; justify-content: space-between;
+    border-top: 1px solid var(--lf-color-border-hem, rgba(120,110,160,0.25));
+    padding: 4px 0; color: var(--lf-color-text-dim, #9a92b0);
+  }
+  .stat b { color: var(--lf-color-text-heading, #fff); font-weight: 600; }
+
+  /* The REAL builder chat module (vendor-game/src/ui/chat.js) renders into
+     #chat with class .chat / .chat-log / .chat-line. It ships NO css of its
+     own, so give it a minimal readable bottom-left placement here. */
+  #chat.chat {
+    position: fixed; left: 12px; bottom: 12px; width: 360px; max-height: 40vh;
+    z-index: 45; pointer-events: none; font-size: 12.5px;
+  }
+  #chat .chat-log {
+    display: flex; flex-direction: column; gap: 2px;
+    max-height: 34vh; overflow-y: auto;
+  }
+  #chat .chat-line {
+    color: #f2eefb; text-shadow: 0 1px 2px rgba(0,0,0,0.9);
+    background: rgba(20,16,31,0.55); padding: 2px 7px; border-radius: 5px;
+    align-self: flex-start; transition: opacity 0.4s;
+  }
+  #chat .chat-line--faded { opacity: 0.72; }         /* keep readable for capture */
+  #chat .chat-line--system { font-style: italic; color: #ffcf8a; }
+  #chat .chat-name { color: #c9a2ff; font-weight: 600; margin-right: 5px; }
+  #chat .chat-input-row { display: none; }           /* input hidden unless opened */
+  #chat.chat--open .chat-input-row { display: flex; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<div id="hud">
+  <h1>PlayerStack · Integration Proof</h1>
+  <p class="sub">real NetClient · World · blocks · chat</p>
+  <div class="stat"><span>net.connected</span><b id="statConn">—</b></div>
+  <div class="stat"><span>selfId</span><b id="statSelf">—</b></div>
+  <div class="stat"><span>peers</span><b id="statPeers">0</b></div>
+  <div class="stat"><span>FPS</span><b id="statFps">—</b></div>
+</div>
+
+<!-- Host for the real chat module (it also creates this itself if absent). -->
+<div id="chat"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "../avatars/vendor/three.module.js"
+  }
+}
+</script>
+
+<script type="module">
+/* ==========================================================================
+   PROOF: the avatars-plus + social stack (via PlayerStack) rendering peer
+   avatars driven by the builder's REAL, unmodified modules:
+     - net/NetClient.js   (single net owner, driven by a MockWS + real frames)
+     - engine/World.js    (real voxel store → isSolid oracle)
+     - blocks/blocks.js   (real getBlockDef → solidity)
+     - ui/chat.js         (real chat log)
+   ========================================================================== */
+import * as THREE from "three";
+
+// --- REAL builder modules (genuine, three-free) ---------------------------
+import { NetClient } from "./vendor-game/src/net/NetClient.js";
+import { initChat } from "./vendor-game/src/ui/chat.js";
+import { World } from "./vendor-game/src/engine/World.js";
+import { getBlockDef } from "./vendor-game/src/blocks/blocks.js";
+
+// --- the integration facade + my packages ---------------------------------
+import { PlayerStack } from "./integrate.js";
+import { encodeDescriptor, defaultDescriptor, THEME_IDS } from "../avatars-plus/skin-descriptor.js";
+
+/* ---------------------------------------------------- error collection ---- */
+const errors = [];
+const _consoleError = console.error.bind(console);
+console.error = (...a) => { errors.push("console.error: " + a.map(String).join(" ")); _consoleError(...a); };
+window.addEventListener("error", (e) => errors.push("window.onerror: " + (e && e.message)));
+window.addEventListener("unhandledrejection", (e) => errors.push("unhandledrejection: " + (e && e.reason)));
+
+/* ------------------------------------------------------- MockWS (no server) --
+   NetClient does `new WebSocket(url)` and assigns onopen/onmessage/onerror/
+   onclose. Swap the GLOBAL WebSocket BEFORE `new NetClient()`; capture the live
+   instance so the harness can push REAL protocol frames through onmessage. */
+class MockWS {
+  constructor(url) {
+    this.url = url;
+    this.readyState = 1;           // OPEN — so NetClient._send() writes through
+    this.onopen = null; this.onmessage = null; this.onerror = null; this.onclose = null;
+    this.sent = [];
+    window.mockWs = this;
+  }
+  send(data) { this.sent.push(data); }
+  close() { this.readyState = 3; if (this.onclose) this.onclose({ code: 1000, reason: "" }); }
+}
+globalThis.WebSocket = MockWS;
+
+/* --------------------------------------------------------------- renderer -- */
+const app = document.getElementById("app");
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+if ("outputColorSpace" in renderer) renderer.outputColorSpace = THREE.SRGBColorSpace;
+app.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a2233);
+scene.fog = new THREE.Fog(0x1a2233, 30, 90);
+
+const camera = new THREE.PerspectiveCamera(64, window.innerWidth / window.innerHeight, 0.05, 200);
+camera.position.set(3, 2.2, 8);
+
+/* ---------------------------------------------------------------- lights -- */
+scene.add(new THREE.HemisphereLight(0xbcd3e6, 0x38341f, 0.9));
+scene.add(new THREE.AmbientLight(0x40465a, 0.5));
+const sun = new THREE.DirectionalLight(0xfff2d8, 1.05);
+sun.position.set(9, 15, 7);
+scene.add(sun);
+
+/* -------------------------------------------- REAL World → solidity oracle --
+   Paint a floor + two pillars into the genuine builder World (sync, generator
+   null). getBlockDef (real) turns block ids into { solid } — PlayerStack builds
+   its isSolid() from world + getBlockDef, so collision uses the real physics. */
+const GRASS = 1, STONE = 3;                 // real ids from blocks.js (both solid)
+const world = new World(null);
+const FMIN = -7, FMAX = 7;
+for (let x = FMIN; x <= FMAX; x++)
+  for (let z = FMIN; z <= FMAX; z++)
+    world.setBlock(x, 0, z, GRASS);         // floor: grass at cell y=0
+const PILLARS = [ { x: -3, z: -3, h: 3 }, { x: 5, z: -1, h: 2 } ];
+for (const p of PILLARS)
+  for (let k = 0; k < p.h; k++) world.setBlock(p.x, k, p.z, STONE);
+
+/* --- matching THREE meshes so the voxel world reads visually -------------- */
+{
+  // Floor: box tops at y=0 (avatars, feet at y=0, stand on top).
+  const geo = new THREE.BoxGeometry(1, 1, 1);
+  const side = FMAX - FMIN + 1;
+  const floor = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial({ color: 0x4f7a3a }), side * side);
+  const m = new THREE.Matrix4(); const tint = new THREE.Color(); let i = 0;
+  for (let x = FMIN; x <= FMAX; x++) for (let z = FMIN; z <= FMAX; z++) {
+    m.makeTranslation(x + 0.5, -0.5, z + 0.5); floor.setMatrixAt(i, m);
+    tint.setHex((x + z) & 1 ? 0x4f7a3a : 0x5a8842); floor.setColorAt(i, tint); i++;
+  }
+  floor.instanceMatrix.needsUpdate = true;
+  if (floor.instanceColor) floor.instanceColor.needsUpdate = true;
+  scene.add(floor);
+
+  // Pillars: stone boxes rising from the floor (top of floor is y=0).
+  let count = 0; for (const p of PILLARS) count += p.h;
+  const pil = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial({ color: 0x8a8f99 }), count);
+  let j = 0;
+  for (const p of PILLARS) for (let k = 0; k < p.h; k++) {
+    m.makeTranslation(p.x + 0.5, k + 0.5, p.z + 0.5); pil.setMatrixAt(j++, m);
+  }
+  pil.instanceMatrix.needsUpdate = true;
+  scene.add(pil);
+}
+
+/* ------------------------------------------------ REAL chat module -------- */
+const chat = initChat({ onSend: (_t) => { /* local send is a no-op in the proof */ } });
+
+/* ------------------------------------------------ local skin descriptor --- */
+const localSkin = defaultDescriptor(THEME_IDS[0]);   // "warpwold-mender"
+
+/* ------------------------------------------------ REAL NetClient + facade -- */
+const net = new NetClient();
+const stack = PlayerStack.init({
+  net, scene, camera, chat,
+  world, getBlockDef,                         // real World + real getBlockDef → isSolid
+  mount: document.body,
+  localName: "You",
+  localSkin,
+  getLocalFeet: () => ({ x: 0, y: 0, z: 0 }),
+  getLocalLook: () => ({ yaw: 0, pitch: 0 }),
+});
+
+/* ------------------------------------------------ drive the REAL net ------ */
+// A vivid, DIFFERENT theme for the peer so its skin visibly came from the wire.
+const WREN_SKIN = encodeDescriptor(defaultDescriptor(THEME_IDS[3]));   // "everthread-forged"
+
+const welcome = {
+  t: "welcome", id: "self",
+  world: { id: "world1", name: "W", seed: 1, edits: {} },
+  peers: [
+    { id: "wren", name: "Wren", x: 2, y: 0, z: 2, yaw: 0.6, pitch: 0, dim: "overworld", skin: WREN_SKIN },
+  ],
+};
+
+// connect() creates the MockWS synchronously, then awaits the welcome frame.
+const connectP = net.connect("ws://mock/ws", "world1", "You", "overworld");
+const mockWs = window.mockWs;
+mockWs.onopen();                                              // fire join
+mockWs.onmessage({ data: JSON.stringify(welcome) });         // resolve + onState → render Wren
+await connectP;
+
+// A 2nd peer with NO skin → deterministic hash swatch (contrast vs Wren).
+mockWs.onmessage({ data: JSON.stringify(
+  { t: "peer-join", id: "odd", name: "Odd", x: -2, y: 0, z: 3, yaw: -0.4, pitch: 0, dim: "overworld" }) });
+// Move Wren (proves live move sync through the real dispatch).
+mockWs.onmessage({ data: JSON.stringify(
+  { t: "move", id: "wren", x: 2, y: 0, z: 2, yaw: 0.6, pitch: 0, dim: "overworld" }) });
+// Public chat from Wren (proves chat routes through the real chat module).
+function feedChat() {
+  mockWs.onmessage({ data: JSON.stringify(
+    { t: "chat", id: "wren", name: "Wren", text: "hey, nice weave!" }) });
+}
+feedChat();
+
+/* ------------------------------------------------ camera framing on Wren -- */
+// Wren's group sits at (2 + 0.3, 0, 2 + 0.3) (PeerAvatarsPlus column-centres).
+const WREN_AT = new THREE.Vector3(2.3, 1.0, 2.3);
+function frameWren() {
+  camera.position.set(3.2, 2.15, 7.6);
+  camera.lookAt(WREN_AT);
+}
+frameWren();
+
+/* ------------------------------------------------------------------ loop -- */
+let fpsAvg = 60, fpsAcc = 0, fpsFrames = 0, last = performance.now();
+const statConn = document.getElementById("statConn");
+const statSelf = document.getElementById("statSelf");
+const statPeers = document.getElementById("statPeers");
+const statFps = document.getElementById("statFps");
+
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000) || 0;
+  last = now;
+
+  stack.update(dt);            // advances peer avatars + social; drives tpCamera
+  frameWren();                 // re-point camera at Wren for the hero framing
+  renderer.render(scene, camera);
+
+  fpsAcc += dt; fpsFrames++;
+  if (fpsAcc >= 0.5) { fpsAvg = fpsFrames / fpsAcc; fpsFrames = 0; fpsAcc = 0; }
+  if (statConn) statConn.textContent = String(net.connected);
+  if (statSelf) statSelf.textContent = String(net.selfId);
+  if (statPeers) statPeers.textContent = String(stack.peersManager.count);
+  if (statFps) statFps.textContent = String(Math.round(fpsAvg));
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+/* ------------------------------------------------------ headless harness -- */
+window.proof = {
+  THREE, scene, camera, renderer, net, mockWs, stack, world,
+  feed: (o) => mockWs.onmessage({ data: JSON.stringify(o) }),
+  feedChat,
+  playPeerEmote: (id, e) => stack.receivePeerEmote(id, e),
+  showList: () => stack.social.showPlayerList(),
+  hideList: () => stack.social.hidePlayerList(),
+  frameWren,
+  peersManager: stack.peersManager,
+  presence: stack.presence,
+  isSolid: (x, y, z) => stack.isSolid(x, y, z),
+  errors,
+  getFps: () => Math.round(fpsAvg),
+};
+</script>
+</body>
+</html>
