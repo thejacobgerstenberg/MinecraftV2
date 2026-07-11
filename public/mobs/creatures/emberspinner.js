@@ -1,54 +1,45 @@
 import * as THREE from 'three';
+import * as rig from '../anim/rig.js';
 
-// ---------------------------------------------------------------------------
-// Emberspinner — a hostile, fast/fragile fire spider-weaver of the Cinderloom
-// forges. Archetype: groaner (fast, low-HP base)
+// ============================================================================
+// EMBERSPINNER — a hostile fire spider-weaver of the Cinderloom forges.
+// Archetype: groaner (fast, low-HP base)
 //
-// Silhouette goals (per design brief): a round GLOWING ABDOMEN behind a
-// smaller cephalothorax, EIGHT thin angular legs (four per side, each a
-// three-box jointed limb) splayed wide for a low stance, a small cluster of
-// glowing ember eyes, and short ember-web mandibles up front. ~0.6 units
-// tall, wide legspan (~1.0 across). This is deliberately NOT a Minecraft
-// spider — no fat single-cube body on short stub legs. The abdomen pulses
-// with molten Thrum-glow like a coal dragged up from the forge floor, and
-// the legs are long, thin, and radiate outward like spokes.
-// ---------------------------------------------------------------------------
+// Loomfall lore: a coal dragged up from the forge floor and given eight
+// legs. A small charred-carapace cephalothorax with a raised brow-plate and
+// hooked chelicerae rides in front of a round, bulbous abdomen that pulses
+// molten orange from within like a breathing ember — a jagged spine of
+// darker ember-shade spikes runs its ridge, and a cluster of loose spinneret
+// nubs at the tail trails three pale web-threads. Eight thin, angular legs
+// (four per side, three-segment + thread-wrap knee cinch) splay wide and low
+// from the sides, skittering in a true alternating-tetrapod gait — a
+// criss-crossed diagonal quartet of legs swings together while the other
+// four stay planted, and vice versa, so the creature never loses a stable
+// four-point stance even at full sprint. It rears its front pair of legs to
+// telegraph a strike, snaps them down in a whip-crack lunge, and curls its
+// legs tight beneath it before unraveling into loose thread and embers when
+// it dies. ORIGINAL silhouette — a bulbous glowing ember-spider woven from
+// coal and thread, not a Minecraft creature.
+// ============================================================================
 
-// Canonical Emberspinner bestiary palette.
+// ---- Palette (canonical Emberspinner bestiary palette — all five used) ----
 const PALETTE = {
   carapace: 0x3a1108, // charred carapace — body & legs
   abdomenGlow: 0xd94f1e, // molten abdomen glow (emissive, pulses)
-  eye: 0xf2a03d, // ember eyes (emissive)
-  webThread: 0xffd98c, // faint web-thread trailing strands
+  abdomenShade: 0x8c2b12, // darker ember shade — ridge spikes, underside, joints
+  eye: 0xf2a03d, // ember eyes / fang tips (emissive)
+  webThread: 0xffd98c, // pale web-thread strands & thread-wrap cinches
 };
 
-function makeMaterials() {
-  return {
-    carapace: new THREE.MeshStandardMaterial({
-      color: PALETTE.carapace,
-      roughness: 0.85,
-      metalness: 0.15,
-    }),
-    abdomenGlow: new THREE.MeshStandardMaterial({
-      color: PALETTE.abdomenGlow,
-      roughness: 0.5,
-      metalness: 0.05,
-      emissive: new THREE.Color(PALETTE.abdomenGlow),
-      emissiveIntensity: 1.1,
-    }),
-    eye: new THREE.MeshStandardMaterial({
-      color: PALETTE.eye,
-      roughness: 0.3,
-      metalness: 0.0,
-      emissive: new THREE.Color(PALETTE.eye),
-      emissiveIntensity: 1.4,
-    }),
-    webThread: new THREE.MeshStandardMaterial({
-      color: PALETTE.webThread,
-      roughness: 0.9,
-      metalness: 0.0,
-    }),
-  };
+// Defensive numeric coercion, mirroring rig.js's own internal guards, for
+// the small amount of arithmetic that happens directly in this file.
+function n(v, fallback = 0) {
+  const x = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(x) ? x : fallback;
+}
+function clamp01(v) {
+  const x = n(v, 0);
+  return x < 0 ? 0 : x > 1 ? 1 : x;
 }
 
 // Plain centered box mesh.
@@ -76,63 +67,152 @@ export function build() {
   const root = new THREE.Group();
   root.name = 'Emberspinner';
 
-  const mat = makeMaterials();
-  const parts = {};
+  // ---- Materials (one per canonical hex, every one used below) ----------
+  const carapaceMat = new THREE.MeshStandardMaterial({
+    color: PALETTE.carapace,
+    roughness: 0.85,
+    metalness: 0.15,
+  });
+  const glowMat = new THREE.MeshStandardMaterial({
+    color: PALETTE.abdomenGlow,
+    roughness: 0.5,
+    metalness: 0.05,
+    emissive: new THREE.Color(PALETTE.abdomenGlow),
+    emissiveIntensity: 1.1,
+  });
+  const shadeMat = new THREE.MeshStandardMaterial({
+    color: PALETTE.abdomenShade,
+    roughness: 0.7,
+    metalness: 0.05,
+    emissive: new THREE.Color(PALETTE.abdomenShade),
+    emissiveIntensity: 0.35,
+  });
+  const eyeMat = new THREE.MeshStandardMaterial({
+    color: PALETTE.eye,
+    roughness: 0.3,
+    metalness: 0.0,
+    emissive: new THREE.Color(PALETTE.eye),
+    emissiveIntensity: 1.4,
+  });
+  const threadMat = new THREE.MeshStandardMaterial({
+    color: PALETTE.webThread,
+    roughness: 0.9,
+    metalness: 0.0,
+  });
+
+  const mat = { carapace: carapaceMat, glow: glowMat, shade: shadeMat, eye: eyeMat, thread: threadMat };
 
   // -------------------------------------------------------------------
   // BODY — small cephalothorax up front, larger glowing abdomen behind.
   // -------------------------------------------------------------------
-  const HIP_Y = 0.38; // leg attachment height above the ground
+  const HIP_Y = 0.4; // leg attachment height above the ground
 
   const bodyGroup = new THREE.Group();
-  bodyGroup.position.set(0, 0.42, 0);
+  bodyGroup.position.set(0, 0.44, 0);
   root.add(bodyGroup);
 
   // Cephalothorax — smaller, forward.
-  const cephGeo = new THREE.BoxGeometry(0.17, 0.15, 0.18);
-  const cephalothorax = new THREE.Mesh(cephGeo, mat.carapace);
-  cephalothorax.position.set(0, -0.02, 0.16);
+  const cephalothorax = box(0.19, 0.16, 0.2, carapaceMat);
+  cephalothorax.position.set(0, -0.01, 0.17);
   bodyGroup.add(cephalothorax);
 
+  // Brow-plate — a raised carapace ridge above the eyes. Cheap silhouette
+  // win: without it the head is a plain box; with it the head reads as
+  // "armored and glaring" even at thumbnail size.
+  const browPlate = box(0.15, 0.05, 0.07, shadeMat);
+  browPlate.position.set(0, 0.09, 0.19);
+  bodyGroup.add(browPlate);
+
   // Narrow waist/pedicel joining ceph to abdomen.
-  const waistGeo = new THREE.BoxGeometry(0.07, 0.07, 0.05);
-  const waist = new THREE.Mesh(waistGeo, mat.carapace);
-  waist.position.set(0, -0.02, 0.05);
+  const waist = box(0.07, 0.07, 0.05, carapaceMat);
+  waist.position.set(0, -0.02, 0.055);
   bodyGroup.add(waist);
 
   // Abdomen — round glowing mass built as a core plus overlapping chamfer
   // puffs so the silhouette reads bulbous/round rather than a plain box.
-  const abdomenCoreGeo = new THREE.BoxGeometry(0.26, 0.22, 0.28);
-  const abdomenCore = new THREE.Mesh(abdomenCoreGeo, mat.abdomenGlow);
-  abdomenCore.position.set(0, 0.02, -0.16);
+  const abdomenCore = box(0.28, 0.24, 0.3, glowMat);
+  abdomenCore.position.set(0, 0.02, -0.18);
   bodyGroup.add(abdomenCore);
 
   const abdomenPuffDefs = [
-    { size: [0.14, 0.16, 0.14], pos: [0.1, 0.04, -0.06] },
-    { size: [0.14, 0.16, 0.14], pos: [-0.1, 0.04, -0.06] },
-    { size: [0.12, 0.14, 0.12], pos: [0.09, 0.02, -0.27] },
-    { size: [0.12, 0.14, 0.12], pos: [-0.09, 0.02, -0.27] },
-    { size: [0.2, 0.1, 0.16], pos: [0, 0.12, -0.16] }, // top cap
-    { size: [0.2, 0.1, 0.16], pos: [0, -0.09, -0.16] }, // bottom cap
+    { size: [0.15, 0.17, 0.15], pos: [0.11, 0.04, -0.07] },
+    { size: [0.15, 0.17, 0.15], pos: [-0.11, 0.04, -0.07] },
+    { size: [0.13, 0.15, 0.13], pos: [0.1, 0.02, -0.29] },
+    { size: [0.13, 0.15, 0.13], pos: [-0.1, 0.02, -0.29] },
+    { size: [0.21, 0.1, 0.17], pos: [0, 0.13, -0.18] }, // top cap
   ];
   const abdomenPuffs = abdomenPuffDefs.map(({ size, pos }) => {
-    const m = box(size[0], size[1], size[2], mat.abdomenGlow);
+    const m = box(size[0], size[1], size[2], glowMat);
     m.position.set(pos[0], pos[1], pos[2]);
     bodyGroup.add(m);
     return m;
   });
 
+  // Underside shade plate — a darker ember-shade belly, so the glow reads
+  // as coming from WITHIN a solid mass rather than the whole abdomen being
+  // a flat-lit blob. Secondary detail that sells volume at a glance.
+  const abdomenUnderside = box(0.22, 0.07, 0.25, shadeMat);
+  abdomenUnderside.position.set(0, -0.13, -0.18);
+  bodyGroup.add(abdomenUnderside);
+
+  // Ridge spikes — a jagged spine of darker ember-shade spikes along the
+  // abdomen's top, alternating twist so it reads as jagged/organic rather
+  // than a neat row. The single clearest "coal ember, not a bug" cue.
+  const ridgeSpikeDefs = [
+    { pos: [0, 0.17, -0.06], rot: 0.3 },
+    { pos: [0, 0.185, -0.19], rot: -0.32 },
+    { pos: [0, 0.155, -0.31], rot: 0.28 },
+  ];
+  const ridgeSpikes = ridgeSpikeDefs.map(({ pos, rot }) => {
+    const m = box(0.05, 0.07, 0.05, shadeMat);
+    m.position.set(pos[0], pos[1], pos[2]);
+    m.rotation.y = rot;
+    bodyGroup.add(m);
+    return m;
+  });
+
+  // Spinneret cluster at the tail tip, with three pale web-threads trailing
+  // off — flavor for the "weaver" half of the creature's name, and the
+  // showpiece of the death-unravel.
+  const spinneretCluster = new THREE.Group();
+  spinneretCluster.position.set(0, -0.03, -0.34);
+  bodyGroup.add(spinneretCluster);
+  const spinneretNubDefs = [
+    [0, 0, 0],
+    [0.035, -0.015, 0.02],
+    [-0.035, -0.015, 0.02],
+  ];
+  const spinneretNubs = spinneretNubDefs.map(([x, y, z]) => {
+    const m = box(0.03, 0.03, 0.03, threadMat);
+    m.position.set(x, y, z);
+    spinneretCluster.add(m);
+    return m;
+  });
+
+  const threadDefs = [
+    { rz: 0, len: 0.2 },
+    { rz: 0.35, len: 0.16 },
+    { rz: -0.35, len: 0.16 },
+  ];
+  const webThreads = threadDefs.map(({ rz, len }) => {
+    const t = hangingBox(0.014, len, 0.014, threadMat);
+    t.rotation.x = 0.95; // trail out behind, roughly horizontal
+    t.rotation.z = rz;
+    spinneretCluster.add(t);
+    return t;
+  });
+
   // Ember eye cluster on the front of the cephalothorax.
-  const eyeGeo = new THREE.BoxGeometry(0.025, 0.025, 0.02);
+  const eyeGeo = new THREE.BoxGeometry(0.026, 0.026, 0.02);
   const eyeOffsets = [
-    [0, 0.03, 0.095],
-    [0.045, 0.02, 0.09],
-    [-0.045, 0.02, 0.09],
-    [0.02, -0.01, 0.09],
-    [-0.02, -0.01, 0.09],
+    [0, 0.035, 0.105],
+    [0.05, 0.02, 0.1],
+    [-0.05, 0.02, 0.1],
+    [0.024, -0.015, 0.1],
+    [-0.024, -0.015, 0.1],
   ];
   const eyes = eyeOffsets.map(([x, y, z]) => {
-    const m = new THREE.Mesh(eyeGeo, mat.eye);
+    const m = new THREE.Mesh(eyeGeo, eyeMat);
     m.castShadow = true;
     m.receiveShadow = true;
     m.position.set(x, y, z);
@@ -140,55 +220,53 @@ export function build() {
     return m;
   });
 
-  // Short ember-web mandibles — two angled boxes hinged at the front of
-  // the cephalothorax, tips tinted with the ember glow material.
-  function buildMandible(side) {
+  // Chelicerae — two hinged, hooked fangs at the front of the cephalothorax,
+  // each a carapace base + curved ember-glow tip. Redesigned from a simple
+  // mandible into a two-segment hook so it reads as a genuine strike weapon.
+  function buildChelicera(side) {
     const pivot = new THREE.Group();
-    pivot.position.set(side * 0.06, -0.04, 0.09);
-    pivot.rotation.y = side * 0.35;
+    pivot.position.set(side * 0.065, -0.045, 0.1);
+    pivot.rotation.y = side * 0.32;
     cephalothorax.add(pivot);
 
-    const base = hangingBox(0.03, 0.08, 0.03, mat.carapace);
-    base.rotation.x = -0.5;
+    const base = hangingBox(0.032, 0.09, 0.032, carapaceMat);
+    base.rotation.x = -0.45;
     pivot.add(base);
 
-    const tip = hangingBox(0.02, 0.04, 0.02, mat.eye);
-    tip.position.set(0, -0.075, 0.03);
-    tip.rotation.x = -0.3;
-    pivot.add(tip);
+    const hookPivot = new THREE.Group();
+    hookPivot.position.set(0, -0.085, 0.035);
+    pivot.add(hookPivot);
 
-    return { pivot, base, tip };
+    const tip = hangingBox(0.022, 0.055, 0.022, eyeMat);
+    tip.rotation.x = 0.5; // curls inward/down, a hooked fang
+    hookPivot.add(tip);
+
+    return { pivot, base, hookPivot, tip };
   }
-  const mandibleL = buildMandible(-1);
-  const mandibleR = buildMandible(1);
+  const cheliceraL = buildChelicera(-1);
+  const cheliceraR = buildChelicera(1);
 
-  // Faint web-thread strands trailing off the rear of the abdomen — flavor
-  // for the "weaver" half of the creature's name.
-  const threadDefs = [
-    { pos: [0.06, -0.02, -0.29], rz: 0.3 },
-    { pos: [-0.06, -0.02, -0.29], rz: -0.3 },
-  ];
-  const webThreads = threadDefs.map(({ pos, rz }) => {
-    const t = hangingBox(0.015, 0.18, 0.015, mat.webThread);
-    t.position.set(pos[0], pos[1], pos[2]);
-    t.rotation.x = 0.9; // trail out behind, roughly horizontal
-    t.rotation.z = rz;
-    bodyGroup.add(t);
-    return t;
-  });
-
-  parts.bodyGroup = bodyGroup;
-  parts.cephalothorax = cephalothorax;
-  parts.abdomenCore = abdomenCore;
-  parts.abdomenPuffs = abdomenPuffs;
-  parts.eyes = eyes;
-  parts.mandibleL = mandibleL;
-  parts.mandibleR = mandibleR;
-  parts.webThreads = webThreads;
+  const parts = {
+    bodyGroup,
+    cephalothorax,
+    browPlate,
+    waist,
+    abdomenCore,
+    abdomenPuffs,
+    abdomenUnderside,
+    ridgeSpikes,
+    spinneretCluster,
+    spinneretNubs,
+    webThreads,
+    eyes,
+    cheliceraL,
+    cheliceraR,
+    mat,
+  };
 
   // Head anchor for name tags — above the abdomen/cephalothorax mass.
   const headAnchor = new THREE.Object3D();
-  headAnchor.position.set(0, 0.66, 0.1);
+  headAnchor.position.set(0, 0.68, 0.1);
   root.add(headAnchor);
   root.userData.headAnchor = headAnchor;
 
@@ -196,34 +274,52 @@ export function build() {
   // LEGS — eight thin, angular, three-segment limbs (four per side),
   // splayed outward and slightly forward/back for a wide, low stance.
   // Each leg is a chain: hip pivot (splay + yaw) -> upper segment ->
-  // knee pivot -> lower segment -> ankle pivot -> foot tip segment.
+  // knee pivot (thread-wrap cinch) -> lower segment -> ankle pivot ->
+  // foot tip segment. Feet land essentially at y=0 (verified via a
+  // standalone THREE.js matrix-world check against these exact numbers).
+  //
+  // Legs are grouped into a true alternating-tetrapod gait: a criss-
+  // crossed diagonal quartet ("group 0") swings together while the
+  // opposite quartet ("group 1") stays planted, then they swap — so the
+  // Emberspinner always keeps a stable four-point stance, even sprinting.
   // -------------------------------------------------------------------
-  const UPPER_LEN = 0.16;
-  const LOWER_LEN = 0.24;
+  const UPPER_LEN = 0.17;
+  const LOWER_LEN = 0.26;
   const FOOT_LEN = 0.09;
   const A1 = 1.05; // hip: mostly-outward splay angle from vertical
   const A2_DELTA = -0.55; // knee: bends back toward vertical
   const A3_DELTA = -0.32; // ankle: straightens further to reach the ground
 
-  const LEG_DEFS = [
-    { side: 1, z: 0.15, yaw: 0.5, tag: 'FR' },
-    { side: 1, z: 0.05, yaw: 0.15, tag: 'MFR' },
-    { side: 1, z: -0.05, yaw: -0.15, tag: 'MBR' },
-    { side: 1, z: -0.15, yaw: -0.5, tag: 'BR' },
-    { side: -1, z: 0.15, yaw: -0.5, tag: 'FL' },
-    { side: -1, z: 0.05, yaw: -0.15, tag: 'MFL' },
-    { side: -1, z: -0.05, yaw: 0.15, tag: 'MBL' },
-    { side: -1, z: -0.15, yaw: 0.5, tag: 'BL' },
-  ];
+  const BASE_YAW = [0.5, 0.15, -0.15, -0.5]; // front -> back, per side
+  const LEG_TAGS = ['FR', 'MFR', 'MBR', 'BR', 'FL', 'MFL', 'MBL', 'BL'];
+  const LEG_Z = [0.15, 0.05, -0.05, -0.15];
 
-  function buildLeg({ side, z, yaw }) {
+  const LEG_DEFS = [];
+  [1, -1].forEach((side) => {
+    for (let pairIndex = 0; pairIndex < 4; pairIndex++) {
+      const evenPair = pairIndex % 2 === 0;
+      // Criss-crossed diagonal grouping: alternates both front-to-back and
+      // side-to-side so each active quartet forms a stable support diamond.
+      const group = side > 0 ? (evenPair ? 0 : 1) : evenPair ? 1 : 0;
+      LEG_DEFS.push({
+        side,
+        z: LEG_Z[pairIndex],
+        yaw: side * BASE_YAW[pairIndex],
+        pairIndex,
+        group,
+        tag: LEG_TAGS[LEG_DEFS.length],
+      });
+    }
+  });
+
+  function buildLeg({ side, z, yaw, pairIndex, group, tag }) {
     const hipPivot = new THREE.Group();
     hipPivot.position.set(side * 0.1, HIP_Y, z);
     hipPivot.rotation.y = yaw;
     hipPivot.rotation.z = side * A1;
     root.add(hipPivot);
 
-    const upper = hangingBox(0.035, UPPER_LEN, 0.035, mat.carapace);
+    const upper = hangingBox(0.035, UPPER_LEN, 0.035, carapaceMat);
     hipPivot.add(upper);
 
     const kneePivot = new THREE.Group();
@@ -231,7 +327,15 @@ export function build() {
     kneePivot.rotation.z = side * A2_DELTA;
     hipPivot.add(kneePivot);
 
-    const lower = hangingBox(0.028, LOWER_LEN, 0.028, mat.carapace);
+    // Thread-wrap cinch at the knee — a thin pale band, the leg's echo of
+    // the abdomen's spinneret threads. Ties the "weaver" motif into every
+    // limb and pops the light accent color at eight evenly spaced points
+    // around the silhouette.
+    const threadBand = box(0.045, 0.016, 0.045, threadMat);
+    threadBand.position.set(0, -0.01, 0);
+    kneePivot.add(threadBand);
+
+    const lower = hangingBox(0.028, LOWER_LEN, 0.028, carapaceMat);
     kneePivot.add(lower);
 
     const anklePivot = new THREE.Group();
@@ -239,10 +343,10 @@ export function build() {
     anklePivot.rotation.z = side * A3_DELTA;
     kneePivot.add(anklePivot);
 
-    const foot = hangingBox(0.02, FOOT_LEN, 0.02, mat.carapace);
+    const foot = hangingBox(0.02, FOOT_LEN, 0.02, carapaceMat);
     anklePivot.add(foot);
 
-    return { hipPivot, kneePivot, anklePivot, upper, lower, foot, side, z };
+    return { hipPivot, kneePivot, threadBand, anklePivot, lower, upper, foot, side, z, pairIndex, group, tag };
   }
 
   const legs = LEG_DEFS.map(buildLeg);
@@ -251,88 +355,223 @@ export function build() {
   root.userData.parts = parts;
 
   // -------------------------------------------------------------------
-  // ANIMATION
-  // Idle: constant fast 8-leg micro-skitter (small independent per-leg
-  //       jitter, never fully still) + abdomen pulse-glow.
-  // Walk: alternating-tetrapod skitter — legs split into two sets of
-  //       four that swing in opposing phase.
-  // Attack/threat: front legs rear up (driven by state.attack if the
-  //       host provides it, plus a periodic self-triggered threat rear
-  //       so the creature always reads as aggressive and lively).
+  // ANIMATION — built on mobs/anim/rig.js's procedural-motion helpers.
+  // Idle:      rig.breathe pulses the abdomen glow/scale, rig.sway drives a
+  //            slow cephalothorax scan and lazy web-thread drift, plus a
+  //            constant fine per-leg micro-skitter jitter so it never looks
+  //            frozen.
+  // Walk:      rig.walkPhase drives a true 8-leg alternating-tetrapod gait —
+  //            each leg's diagonal group takes rig.walkPhase's FR or FL
+  //            value (already an antiphase pair), scaled by state.speed01,
+  //            with knee/ankle lift derived from the forward-swing sign so
+  //            each foot visibly picks up during its forward reach and
+  //            drags flat during its planted stroke. Leans into turns via
+  //            state.turn.
+  // Telegraph: rig.windUp rears BOTH front legs (FR/FL) up and back while
+  //            the chelicerae flare open, building to the strike.
+  // Attack:    rig.strike snaps the reared front legs down/forward in a
+  //            fast whip-crack lunge as the chelicerae snap shut.
+  // Hurt:      a sharp full-body jolt/flinch plus a bright flare of the
+  //            abdomen and eye glow.
+  // Death:     legs curl in tight beneath the body first (a dying spider's
+  //            seize), then rig.dissolve's outward spread takes over and
+  //            flings them apart as loose thread while the body sinks,
+  //            shrinks, and every ember glow gutters dark — a thread-
+  //            unravel, never gore.
   // -------------------------------------------------------------------
+  const puffRest = abdomenPuffs.map((p) => p.position.clone());
+  const spikeRest = ridgeSpikes.map((s) => s.position.clone());
+  let prevT = null;
+  let lean = 0;
+  let flinch = 0;
+
   root.userData.animate = (t, state) => {
-    const s = state || {};
-    const moving = !!s.moving;
-    const hurt = s.hurt || 0;
-    const attackDrive = s.attack || 0;
+    try {
+      const s = state || {};
+      const time = n(t, 0);
+      let dt = 0;
+      if (prevT !== null) dt = Math.max(0, Math.min(0.12, time - prevT));
+      prevT = time;
 
-    // Idle breathing / abdomen bob — always active.
-    const breathe = Math.sin(t * 3.2);
-    bodyGroup.position.y = 0.42 + breathe * 0.008;
-    bodyGroup.rotation.z = Math.sin(t * 1.4) * 0.015;
+      const moving = !!s.moving;
+      const grounded = s.grounded == null ? true : !!s.grounded;
+      const speed01 = clamp01(s.speed01 != null ? s.speed01 : moving ? 1 : 0);
+      const hurt = clamp01(s.hurt);
+      const attack = clamp01(s.attack);
+      const telegraph = clamp01(s.telegraph);
+      const dying = clamp01(s.dying);
+      const fuse = clamp01(s.fuse);
+      const phase = n(s.phase, 0);
+      const turn = n(s.turn, 0);
 
-    // Abdomen pulse-glow — molten forge-coal breathing.
-    const pulse = 0.75 + Math.sin(t * 2.2) * 0.45 + Math.max(0, Math.sin(t * 9)) * 0.15;
-    mat.abdomenGlow.emissiveIntensity = Math.max(0.3, pulse - hurt * 0.3);
-    mat.eye.emissiveIntensity = 1.2 + Math.sin(t * 5.0) * 0.3;
+      // Lean into turns, damped so it never snaps.
+      const leanTarget = dying > 0 ? 0 : Math.max(-0.4, Math.min(0.4, -turn * 0.7));
+      lean = rig.damp(lean, leanTarget, 10, dt || 0.016);
 
-    // Mandible chatter — quick nervous open/close, faster when hurt.
-    const mandibleRate = 6.0 + hurt * 8.0;
-    const mandibleOpen = (Math.sin(t * mandibleRate) * 0.5 + 0.5) * 0.35;
-    mandibleL.pivot.rotation.z = -mandibleOpen;
-    mandibleR.pivot.rotation.z = mandibleOpen;
+      // ---- DEATH: curl-then-unravel dissolve -----------------------------
+      if (dying > 0) {
+        const d = rig.dissolve(dying);
+        const sc = Math.max(0.04, d.scale);
+        root.scale.set(sc, sc, sc);
+        root.position.y = -d.drop * 0.5;
+        root.rotation.z = lean * 0.15;
 
-    // Web threads drift lazily behind the abdomen.
-    webThreads.forEach((th, i) => {
-      th.rotation.x = 0.9 + Math.sin(t * 1.3 + i * 1.7) * 0.12;
-    });
+        // A dying spider curls its legs in first (a hump that peaks mid-
+        // death), then rig.dissolve's outward "spread" overtakes it and
+        // flings the legs apart into loose, unraveling thread.
+        const curl = Math.sin(clamp01(dying) * Math.PI); // 0 -> 1 -> 0 hump
+        legs.forEach((leg) => {
+          leg.hipPivot.rotation.x = -curl * 0.35;
+          leg.hipPivot.rotation.z = leg.side * A1 + leg.side * d.spread * 0.45;
+          leg.kneePivot.rotation.x = -curl * 1.1 + d.spread * 0.3;
+          leg.anklePivot.rotation.x = -curl * 0.8 + d.spread * 0.5;
+        });
 
-    // Periodic self-triggered "threat rear" of the front legs, layered
-    // on top of everything else, plus explicit attack-state drive.
-    const rearCycle = t % 4.5;
-    let rear = rearCycle < 0.5 ? Math.sin((rearCycle / 0.5) * Math.PI) : 0;
-    rear = Math.max(rear, attackDrive);
+        cheliceraL.pivot.rotation.z = d.spread * 0.6;
+        cheliceraR.pivot.rotation.z = -d.spread * 0.6;
+        cheliceraL.hookPivot.rotation.x = -curl * 0.5;
+        cheliceraR.hookPivot.rotation.x = -curl * 0.5;
 
-    // Gait speed: fast, fragile skitterer.
-    const gaitSpeed = moving ? 14.0 : 0.0;
-    const microSpeed = 10.0; // constant fine jitter, even when idle/still
+        spinneretCluster.rotation.x = d.spread * 0.6;
+        webThreads.forEach((th, i) => {
+          th.rotation.x = 0.95 + d.spread * (0.8 + i * 0.2);
+          th.rotation.z = threadDefs[i].rz * (1 + d.spread);
+        });
 
-    legs.forEach((leg, i) => {
-      // Two alternating sets of four for the tetrapod skitter gait.
-      const setPhase = i % 2 === 0 ? 0 : Math.PI;
-      const stridePhase = t * gaitSpeed + setPhase;
+        ridgeSpikes.forEach((sp, i) => {
+          const rest = spikeRest[i];
+          sp.position.set(rest.x + (i % 2 === 0 ? 1 : -1) * d.spread * 0.06, rest.y + d.spread * 0.04, rest.z);
+        });
 
-      const stepLift = moving ? Math.max(0, Math.sin(stridePhase)) * 0.55 : 0;
-      const stepReach = moving ? Math.sin(stridePhase) * 0.3 : 0;
+        bodyGroup.rotation.x = curl * 0.15;
 
-      // Constant micro-skitter jitter — small, per-leg-phased, never zero.
-      const jitterPhase = i * 0.9;
-      const microJitter = Math.sin(t * microSpeed + jitterPhase) * 0.05;
-
-      leg.hipPivot.rotation.x = stepReach + microJitter;
-      leg.kneePivot.rotation.x = -stepLift * 0.6;
-      leg.anklePivot.rotation.x = stepLift * 0.4;
-
-      // Front two legs (FR, FL) rear up on the threat/attack pulse.
-      if (i === 0 || i === 4) {
-        leg.hipPivot.rotation.x += -rear * 1.1;
-        leg.kneePivot.rotation.x += -rear * 0.6;
+        // Every ember glow gutters dark as the coal goes cold.
+        glowMat.emissiveIntensity = Math.max(0, 1.1 * (1 - dying));
+        shadeMat.emissiveIntensity = Math.max(0, 0.35 * (1 - dying));
+        eyeMat.emissiveIntensity = Math.max(0, 1.4 * (1 - dying));
+        return; // death pose overrides everything below
       }
 
-      // Hurt flinch — a sharp jittery buckle across all legs.
-      if (hurt > 0) {
-        leg.kneePivot.rotation.x += Math.sin(t * 40 + i) * 0.08 * hurt;
-      }
-    });
+      // Reset root transforms in case a previous frame was mid-dissolve and
+      // the mob got revived/recycled (defensive; animate() must never
+      // assume ordering with the mob manager's own lifecycle).
+      if (root.scale.x !== 1) root.scale.set(1, 1, 1);
+      root.rotation.z = 0;
+      root.rotation.x = 0;
+      root.position.y = 0;
 
-    // Slight full-body bob while skittering, plus a lower forward-hunched
-    // crouch when rearing to threaten.
-    if (moving) {
-      bodyGroup.position.y += Math.abs(Math.sin(t * gaitSpeed)) * 0.015;
+      // ---- Idle: abdomen breathing pulse + cephalothorax scan -----------
+      const breatheAmt = rig.breathe(time, 1.2, 1.3);
+      bodyGroup.scale.set(1 + breatheAmt * 0.5, 1 + breatheAmt, 1 + breatheAmt * 0.5);
+      abdomenUnderside.scale.set(1 / (1 + breatheAmt * 0.5), 1, 1 / (1 + breatheAmt * 0.5));
+
+      const idleAmt = 1 - speed01;
+      const scan = rig.sway(time, 1.0, 0.6, 0) * idleAmt;
+      cephalothorax.rotation.y = scan * 0.5 + lean * 0.2;
+      browPlate.rotation.x = rig.sway(time, 0.6, 1.4, 0.4) * idleAmt * 0.3;
+
+      // Abdomen pulse-glow — molten forge-coal breathing, flaring brighter
+      // with telegraph/attack/fuse and spiking sharply on hurt.
+      const pulse = 0.7 + Math.sin(time * 2.4) * 0.4 + Math.max(0, Math.sin(time * 9.5)) * 0.15;
+      const hurtFlare = hurt > 0 ? Math.abs(Math.sin(time * 32)) * 0.9 * hurt : 0;
+      glowMat.emissiveIntensity = Math.max(0.35, pulse + hurtFlare + telegraph * 0.5 + attack * 0.6 + fuse * 0.6);
+      shadeMat.emissiveIntensity = 0.3 + pulse * 0.15 + hurtFlare * 0.3;
+      eyeMat.emissiveIntensity = 1.2 + Math.sin(time * 5.2) * 0.3 + hurtFlare * 0.6 + telegraph * 0.3;
+
+      // Ridge spikes ride the breathing pulse subtly, like coals shifting.
+      ridgeSpikes.forEach((sp, i) => {
+        const rest = spikeRest[i];
+        sp.position.y = rest.y + breatheAmt * 0.15;
+      });
+      abdomenPuffs.forEach((p, i) => {
+        const rest = puffRest[i];
+        p.position.y = rest.y + breatheAmt * 0.3;
+      });
+
+      // Chelicerae idle chatter — quick nervous open/close, faster/wider
+      // when hurt or fused-up, always at least a little restless.
+      const chatterRate = 6.0 + hurt * 8.0 + fuse * 4.0;
+      const chatterOpen = (Math.sin(time * chatterRate) * 0.5 + 0.5) * 0.3;
+      cheliceraL.pivot.rotation.z = -chatterOpen - 0.05;
+      cheliceraR.pivot.rotation.z = chatterOpen + 0.05;
+
+      // Web threads drift lazily behind the abdomen, streaming back a
+      // little more with speed.
+      const stream = speed01 * 0.25;
+      webThreads.forEach((th, i) => {
+        th.rotation.x = 0.95 + Math.sin(time * 1.3 + i * 1.7) * 0.14 + stream;
+        th.rotation.z = threadDefs[i].rz + Math.sin(time * 1.1 + i) * 0.06;
+      });
+
+      // ---- Locomotion: true 8-leg alternating-tetrapod skitter ----------
+      // rig.walkPhase's FR/FL are already an antiphase diagonal pair — used
+      // directly as the two criss-crossed leg groups (see LEG_DEFS.group).
+      const strideFreq = 3.2 + fuse * 1.5 + phase * 0.6;
+      const walk = rig.walkPhase(time, speed01, strideFreq);
+      const groupVal = [walk.FR, walk.FL];
+
+      const microSpeed = 9.0; // constant fine jitter, even fully idle/still
+
+      legs.forEach((leg, i) => {
+        const reach = groupVal[leg.group];
+        const microJitter = Math.sin(time * microSpeed + i * 0.9) * 0.04 * (0.4 + idleAmt * 0.6);
+
+        // Foot lifts during its forward reach (positive swing), drags flat
+        // and low during its planted backward stroke (negative swing).
+        const liftRaw = Math.max(0, reach);
+
+        leg.hipPivot.rotation.x = reach + microJitter;
+        leg.kneePivot.rotation.x = -liftRaw * 1.0;
+        leg.anklePivot.rotation.x = liftRaw * 0.65;
+
+        // Lean into turns: outer-side legs (relative to turn direction)
+        // splay a touch wider for a believable weight shift.
+        leg.hipPivot.rotation.z = leg.side * A1 - lean * leg.side * 0.12;
+      });
+
+      // Slight full-body bob timed to footfalls, plus forward hunch scaled
+      // with speed for a scuttling, predatory read.
+      let bodyY = breatheAmt * 0.5;
+      bodyY += walk.lift * 0.05;
+      bodyGroup.rotation.x = -0.04 - speed01 * 0.05;
+      bodyGroup.rotation.z = lean * 0.5;
+
+      // ---- Telegraph (rear front legs) / attack (whip-crack lunge) ------
+      const wind = rig.windUp(telegraph); // 0 -> ~-1.1 -> -1
+      const strikeAmt = rig.strike(attack); // 0 -> 1, fast release
+
+      legs.forEach((leg) => {
+        if (leg.pairIndex !== 0) return; // only the front pair (FR/FL) rears
+        leg.hipPivot.rotation.x += wind * 0.9 - strikeAmt * 1.15;
+        leg.kneePivot.rotation.x += -wind * 0.5 + strikeAmt * 0.55;
+      });
+      cheliceraL.pivot.rotation.x = -wind * 0.35 + strikeAmt * 0.5;
+      cheliceraR.pivot.rotation.x = -wind * 0.35 + strikeAmt * 0.5;
+      cheliceraL.hookPivot.rotation.x = -wind * 0.3 + strikeAmt * 0.9;
+      cheliceraR.hookPivot.rotation.x = -wind * 0.3 + strikeAmt * 0.9;
+      cephalothorax.rotation.x = -wind * 0.15 + strikeAmt * 0.25;
+      bodyGroup.rotation.x += -wind * 0.1 + strikeAmt * 0.18;
+
+      // ---- Hurt flinch: sharp, fast-decaying jolt across the body -------
+      flinch = rig.damp(flinch, hurt, 20, dt || 0.016);
+      if (flinch > 0.001) {
+        bodyGroup.rotation.z += Math.sin(time * 42) * 0.16 * flinch;
+        bodyY += Math.abs(Math.sin(time * 55)) * -0.03 * flinch;
+        legs.forEach((leg, i) => {
+          leg.kneePivot.rotation.x += Math.sin(time * 40 + i) * 0.09 * flinch;
+        });
+      }
+
+      bodyGroup.position.y = 0.44 + bodyY;
+    } catch (e) {
+      // animate() must never throw and take the whole mob manager down.
     }
-    bodyGroup.rotation.x = -0.05 - rear * 0.22;
-    bodyGroup.position.y -= rear * 0.03;
   };
+
+  // Feet-at-y0 sanity: verified via a standalone THREE.js world-matrix
+  // check with these exact HIP_Y/UPPER_LEN/LOWER_LEN/FOOT_LEN/A1/A2_DELTA/
+  // A3_DELTA constants — every foot tip lands within ~0.001 units of y=0
+  // across all four yaw values, so it is not re-derived by hand here.
 
   return root;
 }
@@ -350,11 +589,16 @@ export const meta = {
     webThread: '#FFD98C',
   },
   description:
-    'A fast, fragile fire spider-weaver bred in the Cinderloom forges. A ' +
-    'small charred-carapace cephalothorax rides in front of a round, ' +
-    'molten-glowing abdomen that pulses like a dragged forge coal. Eight ' +
-    'thin, angular legs splay wide and low from its sides, skittering in ' +
-    'an alternating tetrapod gait, while a cluster of ember eyes and a pair ' +
-    'of short web-spun mandibles chatter at the front. Faint web-thread ' +
-    'strands trail from its abdomen as it moves.',
+    'A fast, fragile fire spider-weaver bred in the Cinderloom forges — a ' +
+    'coal dragged up from the forge floor and given eight legs. A small ' +
+    'charred-carapace cephalothorax with a raised brow-plate and hooked ' +
+    'chelicerae rides in front of a bulbous, molten-glowing abdomen ridged ' +
+    'with darker ember-shade spikes and trailing pale web-threads from a ' +
+    'spinneret cluster at the tail. Eight thin, angular legs, each cinched ' +
+    'at the knee with a pale thread-wrap band, splay wide and low from its ' +
+    'sides and skitter in a true alternating-tetrapod gait — four legs ' +
+    'always planted while the opposite diagonal quartet swings forward. It ' +
+    'rears its front legs to telegraph a strike before snapping them down ' +
+    'in a whip-crack lunge, and when killed curls tight before unraveling ' +
+    'into loose thread and cooling embers.',
 };

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import * as rig from '../anim/rig.js';
 
 // ---------------------------------------------------------------------------
 // Understruck — a hostile, mournful Warpwold wraith of unravelling cloth.
@@ -47,12 +48,31 @@ function makeMaterials() {
       roughness: 1.0,
       metalness: 0.0,
     }),
-    thrum: new THREE.MeshStandardMaterial({
+    // Chest Thrum glow is built from TWO layered materials rather than one
+    // hot flat-emissive box: a small, moderately-bright core plus a larger,
+    // much dimmer, additively-blended halo behind/around it. Without a
+    // post-process bloom pass, a single high-emissiveIntensity box on a
+    // pale/near-white color (#C4D4CF) blows out to flat overexposed white
+    // under standard PBR lighting. Splitting it into a soft-edged core +
+    // translucent halo fakes the gradient/falloff a real bloom would give,
+    // so it reads as a faint moody pulse rather than a bright white patch.
+    thrumCore: new THREE.MeshStandardMaterial({
       color: PALETTE.thrum,
-      roughness: 0.4,
-      metalness: 0.1,
+      roughness: 0.7,
+      metalness: 0.0,
       emissive: new THREE.Color(PALETTE.thrum),
-      emissiveIntensity: 0.9,
+      emissiveIntensity: 0.5,
+    }),
+    thrumHalo: new THREE.MeshStandardMaterial({
+      color: PALETTE.thrum,
+      roughness: 1.0,
+      metalness: 0.0,
+      emissive: new THREE.Color(PALETTE.thrum),
+      emissiveIntensity: 0.2,
+      transparent: true,
+      opacity: 0.4,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
     }),
   };
 }
@@ -77,6 +97,18 @@ function box(w, h, d, material) {
   return mesh;
 }
 
+// Defensive numeric coercion — never let a missing/NaN state field poison a
+// transform. Mirrors rig.js's internal `num()` for the arithmetic that
+// happens directly in this file (rig's own exports already self-guard).
+function n(v, fallback = 0) {
+  const x = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(x) ? x : fallback;
+}
+function clamp01(v) {
+  const x = n(v, 0);
+  return x < 0 ? 0 : x > 1 ? 1 : x;
+}
+
 export function build() {
   const root = new THREE.Group();
   root.name = 'Understruck';
@@ -95,7 +127,7 @@ export function build() {
   // -------------------------------------------------------------------
   const torsoPivot = new THREE.Group();
   torsoPivot.position.set(0, HIP_Y, 0.01);
-  torsoPivot.rotation.x = 0.32; // permanent forward hunch
+  torsoPivot.rotation.x = 0.36; // permanent forward hunch (deepened for silhouette read)
   torsoPivot.rotation.z = -0.05; // permanent asymmetric side lean
   root.add(torsoPivot);
 
@@ -123,13 +155,29 @@ export function build() {
   torsoWrap.rotation.z = 0.16;
   torsoPivot.add(torsoWrap);
 
-  // Chest seam — faint blue Thrum glow, recessed into the front of the chest.
-  const chestSeam = box(0.07, 0.20, 0.03, mat.thrum);
-  chestSeam.position.set(0.03, 0.32, 0.11);
+  // Chest seam — faint blue Thrum glow, recessed into the front of the
+  // chest. A larger, dimmer, additively-blended halo sits just behind the
+  // small bright core so the glow reads with a soft gradient falloff
+  // bleeding into the surrounding cloth, instead of a single hard-edged
+  // overexposed patch.
+  const chestGlow = box(0.13, 0.28, 0.02, mat.thrumHalo);
+  chestGlow.position.set(0.03, 0.32, 0.105);
+  torsoPivot.add(chestGlow);
+
+  const chestSeam = box(0.06, 0.17, 0.025, mat.thrumCore);
+  chestSeam.position.set(0.03, 0.32, 0.115);
   torsoPivot.add(chestSeam);
+
+  // Small stitched patch on the shoulder yoke — a dark fleck of contrast
+  // that reads clearly at thumbnail size and breaks up the pale cloth.
+  const shoulderPatch = box(0.05, 0.035, 0.02, mat.voidEye);
+  shoulderPatch.position.set(0.10, -0.005, 0.095);
+  shoulderYoke.add(shoulderPatch);
 
   parts.torsoPivot = torsoPivot;
   parts.chestSeam = chestSeam;
+  parts.chestGlow = chestGlow;
+  parts.shoulderPatch = shoulderPatch;
 
   // -------------------------------------------------------------------
   // RAGGED CLOTH STRIPS — several thin boxes of varying length/offset
@@ -166,7 +214,7 @@ export function build() {
   // -------------------------------------------------------------------
   const headPivot = new THREE.Group();
   headPivot.position.set(-0.03, 0.50, 0.06);
-  headPivot.rotation.x = 0.34; // additional forward droop beyond the torso hunch
+  headPivot.rotation.x = 0.37; // additional forward droop beyond the torso hunch
   torsoPivot.add(headPivot);
 
   const head = box(0.19, 0.20, 0.17, mat.cloth);
@@ -214,20 +262,29 @@ export function build() {
   // well past the knees, with asymmetric lengths and a frayed thread
   // wisp trailing off each end.
   // -------------------------------------------------------------------
-  function buildArm({ shoulderX, shoulderY, upperLen, foreLen, wispLen, shade, wispSide }) {
+  function buildArm({ shoulderX, shoulderY, upperLen, foreLen, wispLen, wispSide }) {
     const shoulderPivot = new THREE.Group();
     shoulderPivot.position.set(shoulderX, shoulderY, 0.0);
     torsoPivot.add(shoulderPivot);
 
-    // Loose thread bundle draped over the shoulder joint.
-    const shoulderWrap = box(0.11, 0.09, 0.14, shade ? mat.clothShade : mat.cloth);
+    // Loose thread bundle draped over the shoulder joint — always the
+    // darker clothShade tone (regardless of the per-arm `shade` flag) so
+    // the joint itself reads as a visible seam/socket cutting the arm's
+    // silhouette away from the lighter torso, instead of blending into it.
+    const shoulderWrap = box(0.11, 0.09, 0.14, mat.clothShade);
     shoulderWrap.position.set(0, -0.02, 0.0);
     shoulderPivot.add(shoulderWrap);
 
-    // Upper arm — two stacked, slightly tapering segments.
-    const upperA = hangingBox(0.075, upperLen * 0.55, 0.075, mat.cloth);
+    // Upper arm — two stacked, tapering segments. Both segments use
+    // darker cloth/seam tones than the torso's main cloth color: the whole
+    // arm silhouette then reads as a clearly distinct, separately-shaded
+    // limb dangling off the body rather than merging into the torso's
+    // silhouette when they overlap in a flat/front-on view. Segments are
+    // also a touch thicker than before so the limb stays legible as a
+    // discrete shape at a distance instead of thinning into a hairline.
+    const upperA = hangingBox(0.088, upperLen * 0.55, 0.088, mat.clothShade);
     shoulderPivot.add(upperA);
-    const upperB = hangingBox(0.062, upperLen * 0.45, 0.062, mat.clothShade);
+    const upperB = hangingBox(0.074, upperLen * 0.45, 0.074, mat.seam);
     upperB.position.set(0, -upperLen * 0.55, 0);
     shoulderPivot.add(upperB);
 
@@ -238,9 +295,9 @@ export function build() {
     elbowPivot.position.set(0, -upperLen, 0);
     shoulderPivot.add(elbowPivot);
 
-    const foreA = hangingBox(0.055, foreLen * 0.5, 0.055, mat.cloth);
+    const foreA = hangingBox(0.066, foreLen * 0.5, 0.066, mat.clothShade);
     elbowPivot.add(foreA);
-    const foreB = hangingBox(0.044, foreLen * 0.5, 0.044, mat.clothShade);
+    const foreB = hangingBox(0.053, foreLen * 0.5, 0.053, mat.seam);
     foreB.position.set(0, -foreLen * 0.5, 0);
     elbowPivot.add(foreB);
 
@@ -260,7 +317,6 @@ export function build() {
     upperLen: 0.30,
     foreLen: 0.40,
     wispLen: 0.14,
-    shade: false,
     wispSide: -1,
   });
 
@@ -272,7 +328,6 @@ export function build() {
     upperLen: 0.26,
     foreLen: 0.34,
     wispLen: 0.08,
-    shade: true,
     wispSide: 1,
   });
 
@@ -313,97 +368,230 @@ export function build() {
 
   const legL = buildLeg(-0.09, 0.26, 0.22, true);
   const legR = buildLeg(0.09, 0.26, 0.22, false);
+
+  // A single thin trailing ankle-thread on the right leg (in place of the
+  // left leg's blocky hem) keeps the pair asymmetric while still giving
+  // the right leg its own bit of secondary silhouette detail.
+  const ankleWispR = hangingBox(0.015, 0.09, 0.015, mat.seam);
+  ankleWispR.position.set(0.02, -0.20, 0.02);
+  legR.kneePivot.add(ankleWispR);
+  legR.ankleWisp = ankleWispR;
+
   parts.legL = legL;
   parts.legR = legR;
 
   // Store all animated sub-parts for animate() to reach.
   root.userData.parts = parts;
 
+  // Baked rest rotations (the permanent hunch set at build time above) —
+  // animate() re-derives from these every frame rather than accumulating,
+  // so state can never drift/compound across frames.
+  const REST_TORSO_X = 0.36;
+  const REST_TORSO_Z = -0.05;
+  const REST_HEAD_X = 0.37;
+
   // -------------------------------------------------------------------
-  // ANIMATION
-  // Idle: slumped breathing + slow independent drift of every ragged
-  //       strip, so the figure never looks frozen/rigid.
-  // Walk: shambling lurch — legs step short and heavy from hip+knee,
-  //       arms swing as limp dangling weight (shoulder + lagged elbow),
-  //       torso rocks and bobs like it is dragging itself forward.
+  // ANIMATION — built on mobs/anim/rig.js's procedural-motion helpers.
+  // Idle:      rig.breathe drives the torso's breathing scale, rig.sway
+  //            drifts torso/head/arms independently so the figure never
+  //            reads as frozen even standing still.
+  // Walk:      a slumped two-beat shamble — rig.legSwing drives each leg's
+  //            hip/knee a half-cycle apart, contralateral arm sway (each
+  //            overlong arm swings opposite its matching leg, elbow
+  //            lagging the shoulder), amplitude/cadence scaled by
+  //            state.speed01 so it never marches in place at a standstill.
+  // Telegraph: rig.windUp pulls the right arm up and back through
+  //            state.telegraph — a wound-back claw about to reach out.
+  // Attack:    rig.strike whips that same arm forward past rest into an
+  //            overlong reaching claw as state.attack fires.
+  // Hurt:      a sharp, fast-decaying jolt keyed to state.hurt.
+  // Death:     rig.dissolve unravels the whole figure — arms and legs
+  //            splay outward, every ragged thread flings loose, the body
+  //            sinks and shrinks, and the chest Thrum glow gutters out.
+  //            No gore — just threads coming apart.
+  // Turn:      torso/head bank into state.turn (signed yaw rate), damped.
   // -------------------------------------------------------------------
+  let prevT = null;
+  let lean = 0;
+  let flinch = 0;
+
   root.userData.animate = (t, state) => {
-    const moving = !!(state && state.moving);
-    const hurt = (state && state.hurt) || 0;
+    try {
+      const s = state || {};
+      const time = n(t, 0);
+      let dt = 0;
+      if (prevT !== null) dt = Math.max(0, Math.min(0.12, time - prevT));
+      prevT = time;
 
-    // Idle breathing (always active, subtle).
-    const breathe = Math.sin(t * 1.6);
-    torsoPivot.scale.set(
-      1 + breathe * 0.015,
-      1 + breathe * 0.03,
-      1 + breathe * 0.015
-    );
+      const moving = !!s.moving;
+      const grounded = s.grounded !== false; // default true if unspecified
+      const hurt = clamp01(s.hurt);
+      const dying = clamp01(s.dying);
+      const telegraph = clamp01(s.telegraph);
+      const attack = clamp01(s.attack);
+      const turn = n(s.turn, 0);
+      const speed01 = clamp01(s.speed01 != null ? s.speed01 : (moving ? 1 : 0));
 
-    if (moving) {
-      // --- Shambling lurch ---
-      const stride = t * 4.0; // gait speed
-      const legSwing = Math.sin(stride) * 0.42;
+      // Idle breathing, always active (subtler while dissolving).
+      const breathAmt = rig.breathe(time, 1.1, 0.85) * (1 - dying);
+      torsoPivot.scale.set(1 + breathAmt * 0.6, 1 + breathAmt * 1.2, 1 + breathAmt * 0.6);
 
-      legL.hipPivot.rotation.x = legSwing;
-      legR.hipPivot.rotation.x = -legSwing;
-      legL.kneePivot.rotation.x = Math.max(0, Math.sin(stride + 0.5)) * 0.5;
-      legR.kneePivot.rotation.x = Math.max(0, Math.sin(stride + 0.5 + Math.PI)) * 0.5;
+      // Lean into turns — damped so the bank never snaps.
+      const leanTarget = dying > 0 ? 0 : Math.max(-0.3, Math.min(0.3, -turn * 0.16));
+      lean = rig.damp(lean, leanTarget, 7, dt);
 
-      // Overlong arms swing as limp dangling weight — modest shoulder
-      // arcs with a phase-lagged elbow so they read as swaying cloth,
-      // not windmilling.
-      const armSwing = Math.sin(stride + Math.PI * 0.15) * 0.22;
-      armL.shoulderPivot.rotation.x = -armSwing + 0.06;
-      armR.shoulderPivot.rotation.x = armSwing * 0.8 + 0.05;
-      armL.elbowPivot.rotation.x = Math.sin(stride - 1.1) * 0.16 + 0.10;
-      armR.elbowPivot.rotation.x = Math.sin(stride - 1.1 + Math.PI) * 0.16 + 0.10;
+      if (dying > 0) {
+        // --- DEATH: thread-unravel dissolve, no gore ---
+        const d = rig.dissolve(dying);
+        const sc = Math.max(0.03, d.scale);
+        root.scale.set(sc, sc, sc);
+        root.position.y = -d.drop * 0.85;
 
-      // Body rolls side-to-side and bobs, dragging with each heavy step.
-      root.position.y = Math.abs(Math.sin(stride)) * 0.03;
-      torsoPivot.rotation.z = -0.05 + Math.sin(stride) * 0.09;
-      torsoPivot.rotation.x = 0.32 + Math.cos(stride) * 0.04;
+        torsoPivot.rotation.x = REST_TORSO_X + d.spread * 0.25;
+        torsoPivot.rotation.z = REST_TORSO_Z + lean;
+        headPivot.rotation.x = REST_HEAD_X + d.spread * 0.4;
+        headPivot.rotation.z = d.spread * 0.5;
 
-      // Head lolls with the lurch.
-      headPivot.rotation.z = Math.sin(stride + 0.6) * 0.13;
-    } else {
-      // --- Slow idle sway ---
-      const sway = t * 0.8;
-      torsoPivot.rotation.z = -0.05 + Math.sin(sway) * 0.045;
-      torsoPivot.rotation.x = 0.32 + Math.sin(sway * 0.5) * 0.02;
-      headPivot.rotation.z = Math.sin(sway * 0.7 + 1.1) * 0.05;
+        armL.shoulderPivot.rotation.x = -0.2 - d.spread * 0.7;
+        armL.shoulderPivot.rotation.z = -d.spread * 0.9;
+        armR.shoulderPivot.rotation.x = -0.2 - d.spread * 0.6;
+        armR.shoulderPivot.rotation.z = d.spread * 0.9;
+        armL.elbowPivot.rotation.x = d.spread * 0.8;
+        armR.elbowPivot.rotation.x = d.spread * 0.8;
 
-      armL.shoulderPivot.rotation.x = Math.sin(sway * 0.6) * 0.06 + 0.03;
-      armR.shoulderPivot.rotation.x = Math.sin(sway * 0.6 + 1.4) * 0.06;
-      armL.elbowPivot.rotation.x = Math.sin(sway * 0.6 + 0.5) * 0.07 + 0.08;
-      armR.elbowPivot.rotation.x = Math.sin(sway * 0.6 + 1.9) * 0.07 + 0.08;
+        legL.hipPivot.rotation.x = -d.spread * 0.4;
+        legL.hipPivot.rotation.z = -d.spread * 0.5;
+        legR.hipPivot.rotation.x = -d.spread * 0.35;
+        legR.hipPivot.rotation.z = d.spread * 0.5;
+        legL.kneePivot.rotation.x = d.spread * 0.5;
+        legR.kneePivot.rotation.x = d.spread * 0.5;
 
-      legL.hipPivot.rotation.x = 0;
-      legR.hipPivot.rotation.x = 0;
-      legL.kneePivot.rotation.x = 0;
-      legR.kneePivot.rotation.x = 0;
-      root.position.y = 0;
-    }
+        // Every ragged thread flings loose as the last stitches let go.
+        chestStrip.rotation.x = 0.05 + d.spread * 0.9;
+        chestStrip.rotation.z = -0.06 - d.spread * 0.7;
+        backStrip.rotation.x = -0.08 - d.spread * 0.8;
+        hipFray.rotation.z = 0.12 + d.spread * 1.1;
+        yokeWisp.rotation.z = -0.10 - d.spread * 1.2;
+        waistThread.rotation.x = d.spread * 0.6;
+        waistThread.rotation.z = d.spread * 0.9;
+        hoodFlap.rotation.x = -0.15 - d.spread * 0.7;
+        armL.wisp.rotation.x = d.spread * 1.3;
+        armR.wisp.rotation.x = -d.spread * 1.3;
+        ankleWispR.rotation.x = d.spread * 1.0;
 
-    // Every ragged strip drifts on its own slow, independent phase, so
-    // the figure reads as loose unravelling cloth even standing still.
-    chestStrip.rotation.x = 0.05 + Math.sin(t * 1.3 + 0.2) * 0.12;
-    chestStrip.rotation.z = -0.06 + Math.sin(t * 1.9 + 0.9) * 0.08;
-    backStrip.rotation.x = -0.08 + Math.sin(t * 1.1 + 1.6) * 0.10;
-    hipFray.rotation.z = 0.12 + Math.sin(t * 1.5 + 0.4) * 0.10;
-    yokeWisp.rotation.z = -0.10 + Math.sin(t * 2.2 + 1.0) * 0.14;
-    waistThread.rotation.x = Math.sin(t * 1.1 + 0.2) * 0.15;
-    waistThread.rotation.z = Math.sin(t * 1.7 + 0.4) * 0.08;
-    hoodFlap.rotation.x = -0.15 + Math.sin(t * 1.4 + 0.7) * 0.08;
-    armL.wisp.rotation.x = Math.sin(t * 2.1) * 0.22;
-    armR.wisp.rotation.x = Math.sin(t * 2.4 + 0.8) * 0.22;
+        // The last thread of warmth gutters out.
+        mat.thrumCore.emissiveIntensity = Math.max(0, 0.5 * (1 - dying));
+        mat.thrumHalo.emissiveIntensity = Math.max(0, 0.2 * (1 - dying));
+        mat.thrumHalo.opacity = Math.max(0, 0.4 * (1 - dying));
+        return; // death pose overrides everything below
+      }
 
-    // Chest Thrum glow gently pulses.
-    mat.thrum.emissiveIntensity = 0.7 + Math.sin(t * 2.0) * 0.25;
+      // Reset root scale in case a previous frame was mid-dissolve and the
+      // mob got revived/recycled (defensive; animate() must never assume
+      // ordering with the manager's own removal timing).
+      if (root.scale.x !== 1) root.scale.set(1, 1, 1);
 
-    // Hurt flinch — a sharp asymmetric jolt that decays into the normal pose.
-    if (hurt > 0) {
-      torsoPivot.rotation.z += hurt * 0.3 * Math.sin(t * 30);
-      headPivot.rotation.x -= hurt * 0.2;
+      // ---- Two-beat shambling walk cycle, scaled by state.speed01 ----
+      const strideFreq = 1.05; // slow, dragging shamble cadence
+      const cadence = strideFreq * (0.35 + 0.65 * speed01);
+      const phase = time * cadence; // cycles elapsed
+      const legAmp = 0.46 * speed01;
+      const idleAmt = 1 - speed01;
+
+      const hipL = rig.legSwing(phase, legAmp);
+      const hipR = rig.legSwing(phase + 0.5, legAmp);
+      const kneeL = Math.max(0, rig.legSwing(phase + 0.22, 1)) * 0.55 * speed01;
+      const kneeR = Math.max(0, rig.legSwing(phase + 0.72, 1)) * 0.55 * speed01;
+      const bob = Math.abs(Math.sin(phase * Math.PI * 2)) * 0.032 * speed01;
+
+      legL.hipPivot.rotation.x = hipL;
+      legR.hipPivot.rotation.x = hipR;
+      legL.kneePivot.rotation.x = kneeL;
+      legR.kneePivot.rotation.x = kneeR;
+      root.position.y = grounded ? bob : bob * 0.4;
+
+      // Overlong arms swing opposite the matching leg, as limp dangling
+      // weight — a lagged elbow keeps them reading as loose cloth, not
+      // rigid pendulums. Idle-blends into a slow independent sway as
+      // speed01 falls to 0.
+      const idleSwayL = rig.sway(time, 1, 1, 0.4);
+      const idleSwayR = rig.sway(time, 1, 1.15, 1.9);
+      const armSwingL = -hipR * 0.55 + idleSwayL * idleAmt + 0.05;
+      const armSwingR = -hipL * 0.5 + idleSwayR * idleAmt + 0.04;
+      const elbowSwingL = Math.max(-0.05, rig.legSwing(phase + 0.28, 1)) * 0.22 * speed01
+        + rig.sway(time, 0.6, 1, 1.1) * idleAmt + 0.09;
+      const elbowSwingR = Math.max(-0.05, rig.legSwing(phase + 0.78, 1)) * 0.22 * speed01
+        + rig.sway(time, 0.6, 1.1, 2.4) * idleAmt + 0.09;
+
+      armL.shoulderPivot.rotation.x = armSwingL;
+      armL.shoulderPivot.rotation.z = 0;
+      armL.elbowPivot.rotation.x = elbowSwingL;
+
+      // ---- Telegraph / attack overlay on the right (striking) arm ----
+      // rig.windUp pulls the arm up+back through the telegraph window;
+      // once the strike fires, rig.strike whips it forward past rest into
+      // a reaching claw before releasing back to the walk/idle pose.
+      const attackActive = telegraph > 0 || attack > 0;
+      if (attackActive) {
+        const windAmt = rig.windUp(telegraph); // 0 -> ~-1.1 -> -1
+        const strikeAmt = rig.strike(attack); // 0 -> 1, fast release
+        const driveX = attack > 0 ? -1 + strikeAmt * 1.8 : windAmt;
+        const blend = Math.max(telegraph, attack);
+        armR.shoulderPivot.rotation.x = armSwingR * (1 - blend) + driveX * 0.85;
+        armR.shoulderPivot.rotation.z = attack > 0 ? strikeAmt * 0.3 : -telegraph * 0.22;
+        armR.elbowPivot.rotation.x = elbowSwingR * (1 - blend) + Math.max(0, driveX) * 0.55;
+      } else {
+        armR.shoulderPivot.rotation.x = armSwingR;
+        armR.shoulderPivot.rotation.z = 0;
+        armR.elbowPivot.rotation.x = elbowSwingR;
+      }
+
+      // ---- Torso / head: permanent hunch + lurch roll/pitch + turn lean ----
+      const lurchZ = Math.sin(phase * Math.PI * 2) * 0.09 * speed01;
+      const lurchX = Math.cos(phase * Math.PI * 2) * 0.045 * speed01;
+      const idleSwayTorso = rig.sway(time, 1, 1, 0) * idleAmt;
+      torsoPivot.rotation.z = REST_TORSO_Z + lurchZ + idleSwayTorso * 0.7 + lean;
+      torsoPivot.rotation.x = REST_TORSO_X + lurchX + breathAmt * 0.3;
+      torsoPivot.rotation.y = lean * 0.5;
+
+      headPivot.rotation.z = Math.sin(phase * Math.PI * 2 + 0.6) * 0.13 * speed01
+        + rig.sway(time, 1, 0.8, 1.1) * idleAmt;
+      headPivot.rotation.x = REST_HEAD_X - lean * 0.3 - attack * 0.05;
+      headPivot.rotation.y = lean * 0.6 + attack * 0.1;
+
+      // ---- Ragged strips: independent slow drift, always alive ----
+      chestStrip.rotation.x = 0.05 + Math.sin(time * 1.3 + 0.2) * 0.12;
+      chestStrip.rotation.z = -0.06 + Math.sin(time * 1.9 + 0.9) * 0.08;
+      backStrip.rotation.x = -0.08 + Math.sin(time * 1.1 + 1.6) * 0.10;
+      hipFray.rotation.z = 0.12 + Math.sin(time * 1.5 + 0.4) * 0.10 + hipL * 0.15;
+      yokeWisp.rotation.z = -0.10 + Math.sin(time * 2.2 + 1.0) * 0.14;
+      waistThread.rotation.x = Math.sin(time * 1.1 + 0.2) * 0.15;
+      waistThread.rotation.z = Math.sin(time * 1.7 + 0.4) * 0.08;
+      hoodFlap.rotation.x = -0.15 + Math.sin(time * 1.4 + 0.7) * 0.08 + lurchX * 0.5;
+      armL.wisp.rotation.x = Math.sin(time * 2.1) * 0.22 + armSwingL * 0.3;
+      armR.wisp.rotation.x = Math.sin(time * 2.4 + 0.8) * 0.22 + armSwingR * 0.3;
+      ankleWispR.rotation.x = Math.sin(time * 1.8 + 0.3) * 0.16 + hipR * 0.35;
+
+      // ---- Chest Thrum glow — pulses, dims on hurt, quickens on attack ----
+      // Core and halo pulse together (halo trailing slightly dimmer) so the
+      // glow keeps its soft gradient falloff at every phase of the pulse
+      // rather than flashing to a single flat brightness.
+      const pulseFreq = 2.0 + attack * 4 + telegraph * 2;
+      const pulse = (0.6 + Math.sin(time * pulseFreq) * 0.2) * (1 - hurt * 0.4);
+      mat.thrumCore.emissiveIntensity = pulse * 0.85;
+      mat.thrumHalo.emissiveIntensity = pulse * 0.35;
+      mat.thrumHalo.opacity = 0.3 + pulse * 0.15;
+
+      // ---- Hurt flinch: sharp asymmetric jolt that snaps back ----
+      flinch = rig.damp(flinch, hurt, 16, dt);
+      if (flinch > 0.001) {
+        torsoPivot.rotation.z += flinch * 0.3 * Math.sin(time * 30);
+        torsoPivot.rotation.x -= flinch * 0.10;
+        headPivot.rotation.x -= flinch * 0.2;
+        headPivot.rotation.z += flinch * 0.18 * Math.sin(time * 26 + 1);
+      }
+    } catch (e) {
+      // animate() must never throw and take the whole mob manager down.
     }
   };
 
