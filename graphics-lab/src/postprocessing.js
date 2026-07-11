@@ -97,11 +97,14 @@ import { GodRaysPass } from './godrays.js';
 // the halo more than the last — emissives get a real glow, not a 2px dot.
 //   ssao       : SSAO on/off; ssaoSamples 8|12; ssaoDiv 2 = half-res, 1 = full.
 //   godrays    : crepuscular rays on/off (always quarter-res internally).
+//   godraysTaps/godraysPasses : radial-blur taps per pass / blur iterations —
+//                more of both at high+ so the shafts stay smooth as they get
+//                longer and higher-contrast (still quarter-res => cheap).
 const QUALITY = {
-  low:    { bloom: false, bloomDiv: 2, iterations: 1, fxaa: false, ssao: false, ssaoSamples: 8,  ssaoDiv: 2, godrays: false },
-  medium: { bloom: true,  bloomDiv: 2, iterations: 2, fxaa: true,  ssao: true,  ssaoSamples: 8,  ssaoDiv: 2, godrays: true  },
-  high:   { bloom: true,  bloomDiv: 2, iterations: 3, fxaa: true,  ssao: true,  ssaoSamples: 12, ssaoDiv: 2, godrays: true  },
-  ultra:  { bloom: true,  bloomDiv: 1, iterations: 4, fxaa: true,  ssao: true,  ssaoSamples: 12, ssaoDiv: 1, godrays: true  },
+  low:    { bloom: false, bloomDiv: 2, iterations: 1, fxaa: false, ssao: false, ssaoSamples: 8,  ssaoDiv: 2, godrays: false, godraysTaps: 12, godraysPasses: 2 },
+  medium: { bloom: true,  bloomDiv: 2, iterations: 2, fxaa: true,  ssao: true,  ssaoSamples: 8,  ssaoDiv: 2, godrays: true,  godraysTaps: 12, godraysPasses: 2 },
+  high:   { bloom: true,  bloomDiv: 2, iterations: 3, fxaa: true,  ssao: true,  ssaoSamples: 12, ssaoDiv: 2, godrays: true,  godraysTaps: 16, godraysPasses: 3 },
+  ultra:  { bloom: true,  bloomDiv: 1, iterations: 4, fxaa: true,  ssao: true,  ssaoSamples: 12, ssaoDiv: 1, godrays: true,  godraysTaps: 20, godraysPasses: 3 },
 };
 
 // Shared vertex shader: a fullscreen triangle whose clip-space positions are
@@ -162,9 +165,14 @@ uniform sampler2D tScene;        // HDR linear scene
 uniform sampler2D tBloom;        // blurred bloom (linear, low-res, upsampled)
 uniform sampler2D tAO;           // SSAO (r, 1 = open; 1x1 white when off)
 uniform sampler2D tRays;         // god rays (low-res; 1x1 black when off)
+uniform sampler2D tDepth;        // scene depth (near-field ray guard; 1x1
+                                 // white => guard neutral when unavailable)
 uniform float uSsao;             // 0/1
 uniform vec3 uRaysTint;          // altitude-derived warm sun tint
 uniform float uRaysStrength;     // strength x sun fade (0 disables)
+uniform float uRaysDepthFade;    // 0/1: near-field ray attenuation available
+uniform float uCamNear;          // camera near/far for depth linearisation
+uniform float uCamFar;
 uniform float exposure;
 uniform float bloomStrength;
 uniform float uBloom;            // 0/1
@@ -195,7 +203,25 @@ void main() {
   hdr *= mix(1.0, texture2D(tAO, vUv).r, uSsao);
   vec3 bloom = texture2D(tBloom, vUv).rgb;
   hdr += bloom * bloomStrength * uBloom;
-  hdr += texture2D(tRays, vUv).rgb * uRaysTint * uRaysStrength;
+
+  // God rays: additive, but CAPPED so a sunset frame keeps colour separation
+  // instead of washing to monochrome. Three guards:
+  //   1. soft max on the rays themselves (Reinhard on ray luminance) — peaks
+  //      near the sun stay bright but can't blow past the tonemap shoulder;
+  //   2. scene-luminance suppression — where the sky is already bright the
+  //      add is scaled down (the dark wedges keep the full add => contrast);
+  //   3. near-depth fade — geometry within ~15 blocks keeps its texture
+  //      (haze there is fog's job); ramps in over ~4..18 world units.
+  vec3 rays = texture2D(tRays, vUv).rgb * uRaysTint * uRaysStrength;
+  const vec3 LW = vec3(0.2126, 0.7152, 0.0722);
+  rays *= 1.0 / (1.0 + 0.30 * dot(rays, LW));
+  rays *= 1.0 / (1.0 + 0.55 * dot(hdr, LW));
+  float dRaw = texture2D(tDepth, vUv).x;
+  float zNdc = dRaw * 2.0 - 1.0;
+  float viewDist = (2.0 * uCamNear * uCamFar)
+    / max(uCamFar + uCamNear - zNdc * (uCamFar - uCamNear), 1e-4);
+  float nearFade = mix(1.0, smoothstep(4.0, 18.0, viewDist), uRaysDepthFade);
+  hdr += rays * nearFade;
   hdr *= exposure;
 
   vec3 color = mix(hdr, aces(hdr), uTonemap);
@@ -211,7 +237,10 @@ void main() {
   float vig = smoothstep(vigRadius, vigRadius - vigSoftness, dist);
   color *= mix(1.0, mix(1.0 - vigDarkness, 1.0, vig), uVignette);
 
-  gl_FragColor = vec4(linearToSRGB(color), 1.0);
+  // Subtle screen-space dither (interleaved gradient noise, +/- 0.5 LSB on
+  // the ENCODED output) — hides banding in the smooth halo/shaft gradients.
+  float dn = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+  gl_FragColor = vec4(linearToSRGB(color) + (dn - 0.5) * (1.0 / 255.0), 1.0);
 }
 `;
 
@@ -450,9 +479,13 @@ export class PostFX {
       tBloom: { value: null },
       tAO: { value: this._whiteTex },
       tRays: { value: this._blackTex },
+      tDepth: { value: this._whiteTex },
       uSsao: { value: 0 },
       uRaysTint: { value: new THREE.Color(1, 0.8, 0.6) },
       uRaysStrength: { value: 0 },
+      uRaysDepthFade: { value: 0 },
+      uCamNear: { value: 0.1 },
+      uCamFar: { value: 1000 },
       exposure: { value: this.exposure },
       bloomStrength: { value: this.bloomStrength },
       uBloom: { value: 1 },
@@ -618,6 +651,12 @@ export class PostFX {
       this.ssao.setSamples(preset.ssaoSamples);
       this.ssao.setResolutionDiv(preset.ssaoDiv);
     }
+    // God-ray tier config: more taps + a third compounding blur at high/ultra
+    // so the longer, higher-contrast shafts stay smooth (still quarter-res).
+    if (this.godrays) {
+      this.godrays.setTaps(preset.godraysTaps);
+      this.godrays.setPasses(preset.godraysPasses);
+    }
   }
 
   // Resize targets. Args are device (drawing-buffer) pixels; omit to auto-detect.
@@ -760,9 +799,17 @@ export class PostFX {
       cu.tRays.value = this.godrays.texture;
       cu.uRaysStrength.value = this.godrays.strength * this.godrays.fadeValue;
       cu.uRaysTint.value.copy(this.godrays.tint);
+      // Near-field ray guard needs linearised scene depth (guard is neutral
+      // when the depth texture is unavailable: white tex + uRaysDepthFade 0).
+      cu.tDepth.value = this._depthTexture || this._whiteTex;
+      cu.uRaysDepthFade.value = this._depthTexture ? 1 : 0;
+      cu.uCamNear.value = this.camera.near || 0.1;
+      cu.uCamFar.value = this.camera.far || 1000;
     } else {
       cu.tRays.value = this._blackTex;
       cu.uRaysStrength.value = 0;
+      cu.tDepth.value = this._whiteTex;
+      cu.uRaysDepthFade.value = 0;
     }
     cu.exposure.value = effExposure;
     cu.bloomStrength.value = effStrength;

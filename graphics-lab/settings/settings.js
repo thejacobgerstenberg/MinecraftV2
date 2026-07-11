@@ -27,7 +27,9 @@
 
 export const EVENT_NAME = 'graphics-settings-change';
 
-/** Factory-default settings. `preset: 'medium'` matches PRESETS.medium below. */
+/** Factory-default settings. The demo boots with the FULL effect stack on
+ *  (showcase default) at 'medium' pass-internal quality; the preset readout
+ *  re-derives from the toggles as soon as a preset chip or toggle is used. */
 export const DEFAULTS = Object.freeze({
   preset: 'medium',        // 'low' | 'medium' | 'high' | 'ultra' | 'custom'
   renderDistance: 8,       // chunks (2..32); world units = chunks * 16
@@ -56,8 +58,15 @@ export const TOGGLE_KEYS = Object.freeze([
 
 /** Effect-toggle profiles per quality preset.
  *  ssao/godRays mirror the PostFX QUALITY gating (src/postprocessing.js):
- *  OFF at low, ON from medium up — medium/high/ultra then differ in pass
- *  internals (sample counts, resolutions, budgets), not in which toggles run. */
+ *  OFF at low, ON from medium up. The ladder:
+ *    low    — cheapest: vertex AO + fog only (no post passes, no shadows,
+ *             no water fx, wind/particles off).
+ *    medium — the screen-space passes come on (SSAO, god rays) plus shadows,
+ *             water and foliage sway; bloom and the particle systems stay off.
+ *    high   — everything on.
+ *    ultra  — everything on; differs from high in pass INTERNALS (sample
+ *             counts, resolutions, light budgets via setQuality), which the
+ *             boolean toggles do not capture. */
 export const PRESETS = Object.freeze({
   low: Object.freeze({
     ao: true,  ssao: false, shadows: false, water: false, bloom: false,
@@ -65,8 +74,8 @@ export const PRESETS = Object.freeze({
     biomeGrading: false, portalFx: false,
   }),
   medium: Object.freeze({
-    ao: true,  ssao: true,  shadows: true,  water: true,  bloom: true,
-    godRays: true,  windSway: true,  particles: true,  fog: true,
+    ao: true,  ssao: true,  shadows: true,  water: true,  bloom: false,
+    godRays: true,  windSway: true,  particles: false, fog: true,
     biomeGrading: true,  portalFx: true,
   }),
   high: Object.freeze({
@@ -248,7 +257,8 @@ export function createSettingsPanel({
     const silent = !!opts.silent;
 
     let expanded = patch;
-    if (typeof patch.preset === 'string' && PRESETS[patch.preset]) {
+    const chosePreset = typeof patch.preset === 'string' && !!PRESETS[patch.preset];
+    if (chosePreset) {
       expanded = { ...PRESETS[patch.preset], ...patch };
     }
 
@@ -281,7 +291,21 @@ export function createSettingsPanel({
     persist();
     refreshUI();
     if (!silent) {
-      for (let i = 0; i < changed.length; i++) emit(changed[i]);
+      if (chosePreset) {
+        // A named preset fans out to quality INTERNALS downstream (the demo
+        // maps it to setQuality, which resets effect flags per its own
+        // gating), so emit 'preset' first and then re-assert the FULL toggle
+        // profile after it — consumers land exactly on this profile even for
+        // toggles whose value did not change in this panel.
+        emit('preset');
+        for (let i = 0; i < TOGGLE_KEYS.length; i++) emit(TOGGLE_KEYS[i]);
+        for (let i = 0; i < changed.length; i++) {
+          const key = changed[i];
+          if (key !== 'preset' && !TOGGLE_KEYS.includes(key)) emit(key);
+        }
+      } else {
+        for (let i = 0; i < changed.length; i++) emit(changed[i]);
+      }
     }
   }
 
@@ -393,7 +417,7 @@ export function createSettingsPanel({
     return input;
   }
 
-  sliderRow(display.sec, 'renderDistance', 'Render Distance', ' ch');
+  sliderRow(display.sec, 'renderDistance', 'Render Distance', ' chunks');
   sliderRow(display.sec, 'fov', 'Field of View', '°');
 
   // FPS cap select
@@ -418,8 +442,9 @@ export function createSettingsPanel({
     syncFns.push(() => { sel.value = String(settings.fpsCap); });
   }
 
-  function toggleRow(parent, key, label, hint) {
+  function toggleRow(parent, key, label, hint, title) {
     const lab = el('label', 'mc2gs-toggle');
+    if (title) lab.title = title;
     const input = el('input', 'mc2gs-toggle-input');
     input.type = 'checkbox';
     input.addEventListener('change', () => set({ [key]: input.checked }));
@@ -436,7 +461,7 @@ export function createSettingsPanel({
     return input;
   }
 
-  toggleRow(display.sec, 'vsync', 'VSync', 'advisory flag');
+  toggleRow(display.sec, 'vsync', 'VSync', null, 'Hint for the game loop');
 
   // -- Effects section -----------------------------------------------------
   const effects = section('Effects');
@@ -451,7 +476,7 @@ export function createSettingsPanel({
   resetBtn.addEventListener('click', () => set({ ...DEFAULTS }));
   footer.appendChild(resetBtn);
   const storageNote = el('p', 'mc2gs-note');
-  storageNote.textContent = `Saved to localStorage · ${storageKey}`;
+  storageNote.textContent = 'Settings save automatically';
   footer.appendChild(storageNote);
   drawer.appendChild(footer);
 

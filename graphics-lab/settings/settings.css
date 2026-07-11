@@ -321,6 +321,9 @@
   min-width: 52px;
   text-align: center;
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
+  /* full unit words ("32 chunks") must never wrap, shrink or truncate */
+  white-space: nowrap;
+  flex: none;
 }
 
 /* chunky slider ------------------------------------------------------------- */

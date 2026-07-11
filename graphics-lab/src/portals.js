@@ -21,10 +21,12 @@
 //         spill pools visibly on the ground 3-5 units in front even on
 //         software-rasterised (SwiftShader) night shots.
 //
-//     Three dimension palettes (exported as PALETTES so the GUI can list them):
-//       'warpwold'   — deep violet/magenta swirl with teal filaments
-//       'cinderloom' — ember orange/crimson with dark smoke veins
-//       'nevermend'  — pale bone-white/ice cyan with faint green wisps
+//     Three dimension palettes (exported as PALETTES so the GUI can list them),
+//     sampled from the LOOMFALL brand 8-stop dimension ramps (brand/palette.json
+//     @ feature/brand d8f96a2 — see PALETTES below for the stop mapping):
+//       'warpwold'   — violet-blue understitch base, woven green arms, dawn-gold filaments
+//       'cinderloom' — ember orange over charred umber with brick smoke veins
+//       'nevermend'  — violet-black breaking to hemstone pale, cold cyan gleam
 //     Palettes are pure uniform data: setDimension(name) crossfades every
 //     palette uniform (and the light colour) over ~0.6 s and fires activate().
 //
@@ -46,31 +48,38 @@ import * as THREE from 'three';
 //   filament — thin vein/wisp colour (mixed in, so dark veins work too)
 //   glow     — additive core-glow / burst tint
 //   light    — PointLight tint
+//
+// Every colour is a verbatim stop from the LOOMFALL brand dimension ramps
+// (brand/palette.json `dimensions.<name>.ramp`, stops indexed 0=darkest ..
+// 7=brightest). Mapping per dimension: deep <- a darkest stop, bright <- a
+// brightest stop, filament/glow/light <- mid/high stops chosen so the in-scene
+// swirl stays vivid and the three realms stay hue-distinct (green-gold vs
+// ember orange vs violet-cyan — matching the brand's realm-hue oaths).
 // ---------------------------------------------------------------------------
 export const PALETTES = {
   warpwold: {
     label: 'Warpwold',
-    deep: 0x1c0733,       // deep violet
-    bright: 0xc72bd6,     // magenta
-    filament: 0x2fd6c4,   // teal filaments
-    glow: 0xa14dee,
-    light: 0xb45cf2,
+    deep: 0x2c3247,       // W0 — night understitch violet-blue
+    bright: 0x87ab4c,     // W4 — saturated woven-canopy green
+    filament: 0xe4d68a,   // W6 — dawn-gold filaments
+    glow: 0x5f8a46,       // W3 — identity green (brand LUT anchor / sat peak)
+    light: 0xb8bc5e,      // W5 — green-gold light spill
   },
   cinderloom: {
     label: 'Cinderloom',
-    deep: 0x2f0a05,       // charred umber
-    bright: 0xff7a1f,     // ember orange
-    filament: 0x17100e,   // dark smoke veins
-    glow: 0xe0342b,       // crimson glow
-    light: 0xff8c3a,
+    deep: 0x33221b,       // C1 — spent-skein charred umber
+    bright: 0xe8722a,     // C5 — ember orange
+    filament: 0x8a3220,   // C3 — brick smoke veins (darker than the arms)
+    glow: 0xc24a20,       // C4 — live-ember glow (brand saturation peak)
+    light: 0xf7a93e,      // C6 — firelight amber
   },
   nevermend: {
     label: 'Nevermend',
-    deep: 0x8d989e,       // cold pale grey-bone
-    bright: 0xe9ece2,     // bone white
-    filament: 0x9dffb4,   // faint green wisps
-    glow: 0xa8e9f7,       // ice cyan
-    light: 0xbfeef5,
+    deep: 0x181330,       // N1 — violet-black past the hem
+    bright: 0x9cc8d6,     // N6 — cold cyan threshold gleam (realm-exclusive)
+    filament: 0x7f7bc2,   // N5 — violet wisps threading the cyan arms
+    glow: 0x9cc8d6,       // N6 — the same cyan gleam feeds core/burst/pool
+    light: 0xddf3f0,      // N7 — hemstone pale, the finished rim (light spill)
   },
 };
 

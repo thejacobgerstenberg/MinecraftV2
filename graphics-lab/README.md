@@ -29,10 +29,15 @@ between the greedy and classic meshers live),
 `setView('hero'|'sunrise'|'closeup'|'firstperson'|'portal'|'torches')`, the
 Phase 2 calls: `setPortalDimension('warpwold'|'cinderloom'|'nevermend')`,
 `triggerBreak()`, `setHeldItem('block:<id|name>'|'tool:pickaxe'|null)`,
-`swing()`, `setBiome('plains'|'desert'|'tundra'|'swamp'|'cinder')` and
-`setTorchCount(n)` (0..500 synthetic stress registrations), and the Phase 3
+`swing()`, `setBiome(name)` (any of the 16 brand biomes in `BIOMES` plus the
+five legacy aliases `plains|desert|tundra|swamp|cinder` — see the biomelut
+section) and
+`setTorchCount(n)` (0..500 synthetic stress registrations), the Phase 3
 calls `setFov(deg)` (clamped 30..120) and `setFpsCap(n)` (0 = uncapped —
-render-loop throttle, rAF stays scheduled). `window.demo.settings` is the
+render-loop throttle, rAF stays scheduled), and `setScenicMode(bool)` —
+hides all screen furniture (held-item view model, dev GUI, settings drawer)
+for clean scenic captures and restores the previous state on the way back.
+`window.demo.settings` is the
 mounted settings-panel handle (see the settings section below).
 `window.__demoReady === true` after the first rendered frame. `window.__gui.hide()/show()` toggles the panel from
 automation scripts. `verify.mjs` is the headless Playwright harness that
@@ -352,9 +357,9 @@ in place — zero per-frame allocation.
 | quality | bloom | bloom buffer | blur iterations | FXAA | SSAO | god rays |
 |---|---|---|---|---|---|---|
 | low | off | — | — | off | off | off |
-| medium | on | half-res | 2 | on | 8 samples, half-res | on (quarter-res) |
-| high | on | half-res | 3 | on | 12 samples, half-res | on (quarter-res) |
-| ultra | on | full-res | 4 | on | 12 samples, full-res | on (quarter-res) |
+| medium | on | half-res | 2 | on | 8 samples, half-res | on (¼-res, 12 taps × 2 passes) |
+| high | on | half-res | 3 | on | 12 samples, half-res | on (¼-res, 16 taps × 3 passes) |
+| ultra | on | full-res | 4 | on | 12 samples, full-res | on (¼-res, 20 taps × 3 passes) |
 
 `setQuality` re-gates SSAO/god rays per this table (both OFF at low, ON at
 medium+); `post.toggle(...)` afterwards overrides the gate until the next
@@ -487,10 +492,14 @@ drawn with a lean `ShaderMaterial` (three parallax depth layers of
 fbm-warped rotating spiral + soft filaments, emissive core that feeds bloom,
 soft rectangular alpha edges), a palette-tinted flickering `PointLight` at the
 centre strong enough to paint the frame/ground (intensity 5.0, decay 1.8), and
-70 additive glow motes drifting through the plane. Three dimension palettes
-(`warpwold` violet/magenta+teal, `cinderloom` ember orange/crimson,
-`nevermend` bone-white/ice-cyan) are pure uniform data — switching crossfades
-every colour over ~0.6 s and fires an activation burst.
+70 additive glow motes drifting through the plane. The three dimension
+palettes are sampled **verbatim from the LOOMFALL brand 8-stop dimension
+ramps** in `brand/palette.json` (feature/brand, PR #9 — same source as the
+biome LUT, see `BRAND_VERSION` in `biomelut.js`): `warpwold` violet-blue
+understitch base / woven-green arms / dawn-gold filaments, `cinderloom` ember
+orange over charred umber with brick smoke veins, `nevermend` violet-black
+breaking to cold cyan + hemstone pale. Palettes remain pure uniform data —
+switching crossfades every colour over ~0.6 s and fires an activation burst.
 
 **Public API.**
 
@@ -506,7 +515,8 @@ gate.activate()        // burst: expanding bright ring + flash, ~0.8s envelope
 gate.dimension         // getter: current palette name
 gate.update(dt, ctx); gate.setEnabled(on); gate.enabled; gate.dispose();
 PALETTES               // exported { name: { label, deep, bright, filament, glow, light } }
-                       // hex colours — the GUI lists them as swatches
+                       // hex colours (each a verbatim brand ramp stop) —
+                       // the GUI lists them as swatches
 ```
 
 **Integration snippet.**
@@ -735,26 +745,38 @@ shadow of foliage does not sway — invisible at ≤ 0.08 units of travel.
 
 **What it does.** Per-biome colour grading applied through `PostFX.setGrade()`,
 folded into the existing composite pass (after ACES tonemapping, before
-vignette/FXAA): `c = mix(vec3(luma(c)), c, sat) * gain + lift`. Five
-deliberately SUBTLE grades — `plains` (neutral baseline), `desert` (warm/dry,
-bleached), `tundra` (cool, desaturated), `swamp` (green-tinted, murky lift),
-`cinder` (ember-warm dark, crushed blue shadows). PostFX eases the live grade
-toward each target over ~0.5 s, so biome switches cross-fade instead of
-popping. Value discipline: gain within ±0.08 of 1.0, lift within ±0.03, sat
-0.85..1.05 — the scene look is owned by the sky/lighting, the grade is
-seasoning.
+vignette/FXAA): `c = mix(vec3(luma(c)), c, sat) * gain + lift`.
+
+**Brand alignment.** The biome list is now the canonical **16-biome LOOMFALL
+brand set**, and every grade is DERIVED deterministically from its
+`brand/palette.json` swatch (feature/brand, PR #9) instead of hand-picked:
+weighted swatch mean → chromatic gain, sky/fog brightness → lift, mean swatch
+saturation → sat (exact formulas in `deriveGrade` in the source). The exported
+`BRAND_VERSION` identifies the palette the LUT was built from (system name +
+source commit — the brand json carries no numeric version field). The five
+pre-brand names keep working as **aliases** of their nearest brand biome
+(same frozen entry object): `plains → sennmeadows`, `desert → bleachlands`,
+`tundra → the_frostlace`, `swamp → muslin_fens`, `cinder → emberwarp`.
+
+PostFX eases the live grade toward each target over ~0.5 s, so biome switches
+cross-fade instead of popping. Value discipline (enforced by clamps in
+`deriveGrade`): gain within ±0.08 of 1.0, lift within ±0.03, sat 0.85..1.05 —
+the scene look is owned by the sky/lighting, the grade is seasoning.
 
 **Public API.**
 
 ```js
 new BiomeGrading(postFX)   // postFX: a PostFX instance (or anything with setGrade({lift,gain,sat}))
-bg.setBiome('plains'|'desert'|'tundra'|'swamp'|'cinder') -> bool  // false + warn on unknown
+bg.setBiome(name) -> bool  // any of the 16 brand biomes or a legacy alias;
+                           // false + warn on unknown
 bg.biome                   // getter: current biome name
-bg.list()                  // -> fresh array of biome names
+bg.list()                  // -> fresh array of biome names (brand + aliases)
 bg.setEnabled(on)          // false => neutral grade (biome remembered)
 bg.enabled; bg.update(dt, ctx) /* no-op */; bg.dispose() /* resets to neutral */
-BIOMES                     // frozen { name: { lift:[r,g,b], gain:[r,g,b], sat, description } }
-NEUTRAL_GRADE              // frozen plains-equivalent neutral grade
+BIOMES                     // frozen { name: { lift:[r,g,b], gain:[r,g,b], sat,
+                           //                  description, brandColors } }
+BRAND_VERSION              // id of the brand palette the LUT is derived from
+NEUTRAL_GRADE              // frozen identity grade
 ```
 
 **Integration snippet.**
@@ -934,12 +956,21 @@ pass when unavailable.
 
 **What it does.** Crepuscular light shafts (GPU Gems 3 ch. 13-style radial
 blur), everything at QUARTER resolution and **no second scene render**: the
-occlusion mask reuses the main HDR colour buffer gated by depth — sky pixels
-(depth at the far plane) keep their colour, geometry goes black — clamped so
-an HDR sun disc can't blow out, and windowed around the sun's screen position.
-Two 12-tap radial blur iterations ping-pong toward the sun (the second blurs
-the already-blurred image with longer reach ⇒ ~144 effective taps), then the
-composite ADDs `rays × tint × (strength × fade)` before tonemapping.
+occlusion mask reuses the main HDR colour buffer gated by depth. **Shaft
+definition tuning:** the mask is now HIGH-CONTRAST — geometry is hard black,
+sky is Reinhard-compressed then threshold+power shaped so dim sky drops out
+and only genuinely bright sky feeds the shafts (that mask contrast IS the
+shaft structure: occluder silhouettes carve crisp dark wedges instead of
+uniform haze), and the hard-edged square sun quad is superseded as the shaft
+driver by an analytic ROUND gaussian core (feathered in the mask — the sky
+module's square sun is untouched), all windowed around the sun's screen
+position. 1–3 compounding radial blur iterations (short reach first, longest
+last, taps^passes effective taps) ping-pong toward the sun with a per-pixel
+interleaved-gradient-noise jitter on each tap ladder to hide banding. The
+composite then ADDs `rays × tint × (strength × fade)` before tonemapping,
+with three wash-out guards: a soft cap on ray luminance, scene-luminance
+suppression (bright sky gets less add, the dark wedges keep it all), and a
+near-depth fade (~4–18 world units) so near terrain keeps its texture.
 
 `updateSun()` runs on the CPU each frame (allocation-free): projects the sun
 to screen UV and combines fade from (a) sun behind camera, (b) sun off screen,
@@ -954,6 +985,11 @@ so god rays cost nothing at night.
 ```js
 new GodRaysPass({ strength, decay, maskRadius, type })
 setSize(w, h); setStrength(x)        // composite add weight (default 0.55)
+setDecay(d)                          // per-tap decay 0.5..0.999 (default 0.92),
+                                     // energy-normalised so brightness holds
+setTaps(n)                           // taps per radial pass 4..32 (default 12;
+                                     // one-off shader recompile)
+setPasses(n)                         // radial blur iterations 1..3 (default 2)
 updateSun(camera, sunDir, underwater) -> fade 0..1
 fadeValue; active; tint              // getters
 render(pass, sceneTexture, depthTexture) -> bool (false when faded out)
@@ -961,7 +997,9 @@ texture; dispose()
 ```
 
 **Quality gating.** Off at low, on at medium+ (always quarter-res — there is
-no per-tier resolution knob by design). Same depth-texture requirement as SSAO.
+no per-tier resolution knob by design); PostFX scales taps/passes per tier —
+**12 × 2** at medium, **16 × 3** at high, **20 × 3** at ultra — so the longer,
+higher-contrast shafts stay smooth. Same depth-texture requirement as SSAO.
 
 ### benchmark.js + bench.html — the measurement harness (Phase 3)
 
@@ -989,6 +1027,22 @@ three.js import, no network. State persists to `localStorage`
 (`mc2.graphics`); Low/Medium/High/Ultra presets expand per-toggle profiles
 with automatic **Custom** detection; sliders for render distance (2–32
 chunks) and FOV (60–110°), FPS cap and an advisory VSync flag.
+
+**Preset toggle profiles** (`PRESETS` in `settings/settings.js`). A preset
+click emits `preset` first, then re-asserts the FULL profile below (one event
+per toggle) so consumers land exactly on it even when a downstream
+`setQuality` re-gates effects; any manual toggle flips the readout to
+**Custom**:
+
+| preset | ao | ssao | shadows | water | bloom | god rays | wind | particles | fog | biome grade | portal fx |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| low | ✓ | — | — | — | — | — | — | — | ✓ | — | — |
+| medium | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ | — | ✓ | ✓ | ✓ |
+| high | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| ultra | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+`ultra` differs from `high` in pass INTERNALS (sample counts, resolutions,
+light budgets via `setQuality`), which the boolean toggles do not capture.
 
 ```js
 import { createSettingsPanel } from './settings/settings.js';
@@ -1118,9 +1172,9 @@ checkboxes stay honest:
 | tier | shadow map | shadow frustum / PCF | bloom | blur iters | FXAA | SSAO | god rays | torch lights |
 |---|---|---|---|---|---|---|---|---|
 | low | 1024² | 80u / 2.0 | off | — | off | off | off | 2 |
-| medium | 2048² | 70u / 3.0 | half-res | 2 | on | 8 smp, ½-res | on | 6 |
-| high | 4096² | 64u / 3.5 | half-res | 3 | on | 12 smp, ½-res | on | 10 |
-| ultra | 4096² | 52u / 4.0 | full-res | 4 | on | 12 smp, full-res | on | 14 |
+| medium | 2048² | 70u / 3.0 | half-res | 2 | on | 8 smp, ½-res | 12 taps × 2 | 6 |
+| high | 4096² | 64u / 3.5 | half-res | 3 | on | 12 smp, ½-res | 16 taps × 3 | 10 |
+| ultra | 4096² | 52u / 4.0 | full-res | 4 | on | 12 smp, full-res | 20 taps × 3 | 14 |
 
 Everything else (sky, water, particles, fog, mesher) is tier-independent by
 design — their costs are already flat and low. Natural extension points for

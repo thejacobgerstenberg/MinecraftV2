@@ -500,6 +500,10 @@ function init() {
     controls.update();
   }
 
+  // Scenic-capture state (window.demo.setScenicMode).
+  let scenicMode = false;
+  let scenicPrevViewmodel = true;
+
   window.demo = {
     setTimeOfDay(t) {
       const v = Math.max(0, Math.min(1, Number(t)));
@@ -590,6 +594,27 @@ function init() {
       viewmodel.swing();
     },
 
+    // Capture convention for screenshot recipes: scenic mode hides all the
+    // SCREEN FURNITURE — first-person viewmodel (held item + arm), dev GUI
+    // and the settings drawer/gear — so scenic beauty shots stay clean (the
+    // held cube used to intrude into wide shots). setScenicMode(false)
+    // restores the previous viewmodel toggle state and re-shows the UI.
+    setScenicMode(on) {
+      const b = !!on;
+      if (b === scenicMode) return;
+      scenicMode = b;
+      if (b) {
+        scenicPrevViewmodel = !!state.effects.viewmodel;
+        window.demo.toggle('viewmodel', false);
+        gui.hide();
+        if (settingsPanel) settingsPanel.element.style.display = 'none';
+      } else {
+        window.demo.toggle('viewmodel', scenicPrevViewmodel);
+        if (!noGui) gui.show(); // show() would MOUNT the panel in nogui mode
+        if (settingsPanel) settingsPanel.element.style.display = '';
+      }
+    },
+
     // Biome colour grade: 'plains'|'desert'|'tundra'|'swamp'|'cinder'.
     setBiome(name) {
       if (biomes.setBiome(name)) state.biome = name;
@@ -664,7 +689,7 @@ function init() {
   //    (settings/settings.js — gear bottom-right; both skipped by ?nogui=1
   //    for clean beauty shots) + resize.
   // ==========================================================================
-  createGUI(window.demo, state);
+  const gui = createGUI(window.demo, state);
 
   // Map a settings-drawer key onto the live modules. Every key is wired:
   // preset -> demo.setQuality, fov -> camera, fpsCap -> loop throttle,

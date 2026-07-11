@@ -11,15 +11,26 @@
 //
 // Pipeline (render()):
 //   1. Mask pass  (sceneRT colour + depth -> rtA, quarter res):
-//        sky-only colour (depth >= far threshold), clamped so an HDR sun disc
-//        can't blow out, weighted by distance to the sun's screen position so
-//        only the sky around the sun feeds the shafts.
-//   2. Radial blur x2 (12 taps each, ping-pong rtA -> rtB -> rtA): taps march
-//        toward the sun's screen-space position with exponential decay. The
-//        second iteration blurs the already-blurred image with a longer reach,
-//        compounding to ~144 effective taps.
+//        HIGH-CONTRAST occlusion mask. Sky colour (depth >= far threshold) is
+//        Reinhard-compressed, then threshold+power shaped so dim sky drops to
+//        black and only genuinely bright sky feeds the shafts — geometry is
+//        hard black, so occluder silhouettes carve dark wedges into the light
+//        (that mask contrast IS the shaft structure). The hard-edged square
+//        sun quad is defused by the compression and replaced as the shaft
+//        driver by an analytic ROUND gaussian core around the sun's screen
+//        position (feathered here, in the mask — the sky module's square sun
+//        is untouched). Windowed by distance to the sun so far-away sky
+//        doesn't smear across the whole frame.
+//   2. Radial blur xN (TAPS taps each, ping-pong rtA <-> rtB): taps march
+//        toward the sun's screen-space position with exponential decay
+//        (energy-normalised on the CPU). Each iteration blurs the previous
+//        result with a longer reach, compounding to TAPS^N effective taps.
+//        A per-pixel interleaved-gradient-noise jitter offsets each pixel's
+//        tap ladder to hide banding.
 //   3. postprocessing.js ADDs the result into the composite before
-//        tonemapping: hdr += rays * tint * (strength * fade).
+//        tonemapping: hdr += rays * tint * (strength * fade), luminance-
+//        suppressed + near-depth-faded there so the frame keeps colour
+//        separation and near terrain keeps texture.
 //
 // updateSun() runs on the CPU each frame (allocation-free scratch): it
 // projects cameraPos + sunDir * 1000 to screen UV, and computes a combined
@@ -30,10 +41,15 @@
 // warm white at noon). When fade == 0 postprocessing.js skips the passes
 // entirely, so god rays cost nothing at night.
 //
-// Public API:
+// Public API (backward compatible — all previous members unchanged):
 //   new GodRaysPass({ strength, decay, maskRadius, type })
 //   setSize(w, h)            // FULL drawing-buffer px; quarter-res inside
 //   setStrength(x)           // composite add weight baseline (default 0.55)
+//   setDecay(d)              // per-tap decay 0.5..0.999 (default 0.92),
+//                            // weight-normalised so energy stays constant
+//   setTaps(n)               // taps per radial pass (4..32; default 12).
+//                            // Triggers a one-off shader recompile.
+//   setPasses(n)             // radial blur iterations (1..3; default 2)
 //   updateSun(camera, sunDir, underwater) -> fade 0..1
 //   get fadeValue()          // last computed fade
 //   get active()             // fade > epsilon (passes worth running)
@@ -44,9 +60,18 @@
 
 import * as THREE from 'three';
 
-export const GODRAYS_TAPS = 12;
+export const GODRAYS_TAPS = 12;    // default taps per radial pass
 const RES_DIV = 4;                 // quarter resolution, all tiers
 const SUN_DISTANCE = 1000;         // "at infinity" projection distance
+
+// Per-pass density (march reach as a fraction of pixel->sun distance).
+// Short reach first, longest last: the compounding keeps fine wedge detail
+// near silhouettes while still stretching the streaks all the way out.
+const PASS_DENSITIES = {
+  1: [1.0],
+  2: [0.35, 1.0],
+  3: [0.22, 0.5, 1.0],
+};
 
 const VERT = /* glsl */ `
 varying vec2 vUv;
@@ -56,16 +81,26 @@ void main() {
 }
 `;
 
-// Occlusion mask: sky pixels (depth at/near the far plane — the sky dome hugs
-// ndc z 0.99995) keep their scene colour, geometry occludes (black). Clamped
-// so an HDR sun disc can't nuke the blur, and windowed around the sun's
-// screen position so far-away sky doesn't smear across the whole frame.
+// HIGH-CONTRAST occlusion mask. Geometry (depth below the far threshold) is
+// hard black; sky keeps its colour but is Reinhard-compressed then shaped by
+// a luminance threshold + power curve, so dim sky contributes nothing and the
+// bright band around the sun contributes strongly — after the radial blur,
+// occluder silhouettes read as crisp dark wedges instead of uniform haze.
+// The square HDR sun quad is compressed flat and superseded by an analytic
+// round gaussian core (uSunSigma feather) so the shaft/halo source has no
+// hard edge. Windowed around the sun's screen position so far-away sky
+// doesn't smear across the whole frame.
 const MASK_FRAG = /* glsl */ `
 uniform sampler2D tScene;
 uniform sampler2D tDepth;
 uniform vec2 uSunUV;
 uniform float uAspect;
 uniform float uMaskRadius;
+uniform float uThreshold;   // luminance floor AFTER Reinhard compression
+uniform float uPower;       // contrast exponent (>1 => carve harder)
+uniform float uSkyGain;     // shaped-sky amplitude (the wedge signal)
+uniform float uSunSigma;    // analytic round sun core radius (aspect-corr UV)
+uniform float uSunGain;     // analytic sun core brightness
 varying vec2 vUv;
 
 #define SKY_DEPTH 0.9998
@@ -73,17 +108,38 @@ varying vec2 vUv;
 void main() {
   float depth = texture2D(tDepth, vUv).x;
   float sky = step(SKY_DEPTH, depth);
-  vec3 c = min(texture2D(tScene, vUv).rgb, vec3(3.0)) * sky;
+
+  // Reinhard-compress the HDR scene colour: the clipped square sun quad
+  // (values >> 1) flattens toward the surrounding halo, so its hard edge
+  // can't survive into the blurred shafts.
+  vec3 c = texture2D(tScene, vUv).rgb;
+  c = c / (1.0 + c);
+
+  // Threshold + power shaping (hue-preserving): output luminance becomes
+  // pow(clamp((lum - t) / (1 - t)), power) — dim sky -> black, bright sky
+  // boosted. This is the contrast that makes the wedges read.
+  float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
+  float shaped = pow(clamp((lum - uThreshold) / max(1.0 - uThreshold, 1e-3), 0.0, 1.0), uPower);
+  vec3 col = c * (shaped * uSkyGain / max(lum, 1e-4));
+
   vec2 d = vUv - uSunUV;
   d.x *= uAspect;
-  float w = 1.0 - smoothstep(uMaskRadius * 0.2, uMaskRadius, length(d));
-  gl_FragColor = vec4(c * w, 1.0);
+  float r = length(d);
+
+  // Analytic ROUND feathered sun core (gaussian => no edge at all). This —
+  // not the square quad — is what the radial blur streaks outward.
+  float core = exp(-(r * r) / max(uSunSigma * uSunSigma, 1e-6));
+
+  // Radial window: only sky near the sun feeds the shafts.
+  float w = 1.0 - smoothstep(uMaskRadius * 0.2, uMaskRadius, r);
+  gl_FragColor = vec4((col + vec3(core) * uSunGain) * sky * w, 1.0);
 }
 `;
 
 // Radial blur toward the sun. TAPS is a compile-time define => static loop.
 // uWeight is pre-normalised on the CPU (1 / sum(decay^i)) so overall energy
-// stays constant regardless of decay.
+// stays constant regardless of decay. The tap ladder start is jittered per
+// pixel with interleaved gradient noise (0..1 tap) to hide banding.
 const RADIAL_FRAG = /* glsl */ `
 uniform sampler2D tDiffuse;
 uniform vec2 uSunUV;
@@ -93,7 +149,10 @@ uniform float uWeight;
 varying vec2 vUv;
 void main() {
   vec2 delta = (uSunUV - vUv) * (uDensity / float(TAPS));
-  vec2 uv = vUv;
+  // Interleaved gradient noise start-offset: de-bands the tap ladder without
+  // extra taps (each pixel starts 0..1 tap along the march).
+  float j = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+  vec2 uv = vUv + delta * j;
   float w = uWeight;
   vec3 sum = vec3(0.0);
   for (int i = 0; i < TAPS; i++) {
@@ -117,8 +176,8 @@ function _smoothstep(e0, e1, x) {
 export class GodRaysPass {
   constructor({
     strength = 0.55,
-    decay = 0.93,
-    maskRadius = 0.9,
+    decay = 0.92,
+    maskRadius = 0.6,
     type = THREE.HalfFloatType,
   } = {}) {
     this.strength = Math.max(0, +strength || 0);
@@ -130,6 +189,9 @@ export class GodRaysPass {
 
     this._fade = 0;
     this._tint = new THREE.Color(1, 0.8, 0.6);
+    this._taps = GODRAYS_TAPS;
+    this._passes = 2;
+    this._decay = 0.93;
 
     // Allocation-free scratch for updateSun().
     this._fwd = new THREE.Vector3();
@@ -152,6 +214,7 @@ export class GodRaysPass {
     this._rtB = new THREE.WebGLRenderTarget(1, 1, rtOpts);
     this._rtA.texture.generateMipmaps = false;
     this._rtB.texture.generateMipmaps = false;
+    this._final = this._rtA;       // last ping-pong target (see render())
 
     const mk = (frag, uniforms, defines) => new THREE.ShaderMaterial({
       vertexShader: VERT,
@@ -168,7 +231,14 @@ export class GodRaysPass {
       tDepth: { value: null },
       uSunUV: { value: this._sunUV },
       uAspect: { value: 1 },
-      uMaskRadius: { value: Math.max(0.1, +maskRadius || 0.9) },
+      uMaskRadius: { value: Math.max(0.1, +maskRadius || 0.6) },
+      uThreshold: { value: 0.30 },
+      uPower: { value: 1.8 },
+      uSkyGain: { value: 2.0 },
+      // Small sigma matters: the core must stay near-POINT-like so occluder
+      // shadows have narrow penumbrae — a fat source washes the wedges out.
+      uSunSigma: { value: 0.025 },
+      uSunGain: { value: 2.6 },
     });
 
     this.radialMat = mk(RADIAL_FRAG, {
@@ -177,12 +247,12 @@ export class GodRaysPass {
       uDensity: { value: 1.0 },
       uDecay: { value: 0.93 },
       uWeight: { value: 1.0 },
-    }, { TAPS: GODRAYS_TAPS });
-    this._setDecay(decay);
+    }, { TAPS: this._taps });
+    this.setDecay(decay);
   }
 
   get texture() {
-    return this._rtA.texture;
+    return this._final.texture;
   }
 
   get fadeValue() {
@@ -201,13 +271,36 @@ export class GodRaysPass {
     this.strength = Math.max(0, +x || 0);
   }
 
-  _setDecay(d) {
-    d = Math.min(0.999, Math.max(0.5, +d || 0.93));
-    // Normalise total weight: sum of decay^i over TAPS taps.
+  // Per-tap exponential decay (0.5..0.999). Lower = punchier, shorter streaks;
+  // the total energy is re-normalised so brightness doesn't drift.
+  setDecay(d) {
+    this._decay = Math.min(0.999, Math.max(0.5, +d || 0.93));
+    this._renormalise();
+  }
+
+  // Taps per radial pass (4..32). Changing it swaps the compile-time TAPS
+  // define => one-off shader recompile, then re-normalises the tap weights.
+  setTaps(n) {
+    n = Math.min(32, Math.max(4, Math.round(+n) || GODRAYS_TAPS));
+    if (n === this._taps) return;
+    this._taps = n;
+    this.radialMat.defines.TAPS = n;
+    this.radialMat.needsUpdate = true;
+    this._renormalise();
+  }
+
+  // Radial blur iterations (1..3), each compounding on the previous result.
+  setPasses(n) {
+    n = Math.min(3, Math.max(1, Math.round(+n) || 2));
+    this._passes = n;
+  }
+
+  _renormalise() {
+    // Normalise total weight: sum of decay^i over the CURRENT tap count.
     let sum = 0;
     let w = 1;
-    for (let i = 0; i < GODRAYS_TAPS; i++) { sum += w; w *= d; }
-    this.radialMat.uniforms.uDecay.value = d;
+    for (let i = 0; i < this._taps; i++) { sum += w; w *= this._decay; }
+    this.radialMat.uniforms.uDecay.value = this._decay;
     this.radialMat.uniforms.uWeight.value = 1 / sum;
   }
 
@@ -255,8 +348,9 @@ export class GodRaysPass {
       // Behind-camera falloff (facing 0 -> 0.25 ramps in).
       const face = _smoothstep(0.02, 0.25, facing);
       // Altitude: off below the horizon, strongest at sunrise/sunset,
-      // deliberately subtle at noon.
-      const rise = _smoothstep(-0.04, 0.07, alt);
+      // deliberately subtle at noon. The ramp tops out just past alt 0 so
+      // the ToD 0.25/0.75 golden-hour frames get the full effect.
+      const rise = _smoothstep(-0.045, 0.015, alt);
       const noon = 1 - 0.7 * _smoothstep(0.35, 0.85, alt);
       fade = edge * face * rise * noon;
 
@@ -273,21 +367,25 @@ export class GodRaysPass {
   render(pass, sceneTexture, depthTexture) {
     if (this._fade <= 0.002) return false;
 
-    // 1) Quarter-res occlusion mask.
+    // 1) Quarter-res high-contrast occlusion mask.
     const mu = this.maskMat.uniforms;
     mu.tScene.value = sceneTexture;
     mu.tDepth.value = depthTexture;
     pass(this.maskMat, this._rtA);
 
-    // 2) Two compounding radial blurs (short reach, then long).
+    // 2) Compounding radial blurs (short reach first, longest last),
+    // ping-ponging rtA <-> rtB. `texture` tracks the last target written.
     const ru = this.radialMat.uniforms;
-    ru.tDiffuse.value = this._rtA.texture;
-    ru.uDensity.value = 0.35;
-    pass(this.radialMat, this._rtB);
-
-    ru.tDiffuse.value = this._rtB.texture;
-    ru.uDensity.value = 1.0;
-    pass(this.radialMat, this._rtA);
+    const densities = PASS_DENSITIES[this._passes] || PASS_DENSITIES[2];
+    let src = this._rtA;
+    let dst = this._rtB;
+    for (let i = 0; i < densities.length; i++) {
+      ru.tDiffuse.value = src.texture;
+      ru.uDensity.value = densities[i];
+      pass(this.radialMat, dst);
+      const t = src; src = dst; dst = t;
+    }
+    this._final = src;             // last written target
 
     return true;
   }
