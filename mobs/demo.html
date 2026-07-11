@@ -1,0 +1,521 @@
+<!doctype html>
+<title>Loomfall Mobs Demo</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js" } }
+</script>
+<style>
+  :root {
+    color-scheme: dark;
+  }
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: #0c0e14;
+    overflow: hidden;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  }
+  #canvasHost {
+    position: fixed;
+    inset: 0;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  #hud {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    z-index: 10;
+    background: rgba(12, 14, 20, 0.72);
+    border: 1px solid rgba(180, 160, 230, 0.35);
+    border-radius: 8px;
+    padding: 10px 14px;
+    color: #ece7f5;
+    font-size: 13px;
+    min-width: 230px;
+    backdrop-filter: blur(4px);
+    pointer-events: auto;
+  }
+  #hud h1 {
+    font-size: 13px;
+    margin: 0 0 6px 0;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #c9b6ff;
+  }
+  #hud .row {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    margin: 2px 0;
+  }
+  #hud .row span.k { color: #9891ab; }
+  #hud button {
+    margin-top: 8px;
+    width: 100%;
+    background: #362b52;
+    color: #ece7f5;
+    border: 1px solid #6a4fb0;
+    border-radius: 5px;
+    padding: 5px 8px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  #hud button:hover { background: #47376b; }
+  #log {
+    position: fixed;
+    bottom: 10px;
+    left: 10px;
+    z-index: 10;
+    width: 480px;
+    max-height: 220px;
+    overflow-y: auto;
+    background: rgba(12, 14, 20, 0.72);
+    border: 1px solid rgba(180, 160, 230, 0.35);
+    border-radius: 8px;
+    padding: 8px 10px;
+    color: #cfc9e0;
+    font-size: 11px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    backdrop-filter: blur(4px);
+  }
+  #log .entry { white-space: pre-wrap; word-break: break-word; margin: 1px 0; }
+  #log .mobSpawn { color: #8fd8a0; }
+  #log .mobHurt { color: #f0c674; }
+  #log .mobDeath { color: #f07070; }
+  #log .mobAttack { color: #f0a0e0; }
+  #labels {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 5;
+  }
+  .mobLabel {
+    position: absolute;
+    transform: translate(-50%, -100%);
+    color: #f2ecff;
+    font-size: 12px;
+    text-shadow: 0 1px 3px #000, 0 0 6px #000;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  #errBox {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    background: rgba(30, 0, 0, 0.92);
+    color: #ffb4b4;
+    padding: 24px;
+    font-family: ui-monospace, monospace;
+    font-size: 13px;
+    white-space: pre-wrap;
+    overflow: auto;
+  }
+</style>
+
+<div id="canvasHost"></div>
+<div id="labels"></div>
+
+<div id="hud">
+  <h1>Loomfall &mdash; Mobs Harness</h1>
+  <div class="row"><span class="k">mode</span><span id="hudMode">showcase+sim</span></div>
+  <div class="row"><span class="k">dimension</span><span id="hudDimension">warpwold</span></div>
+  <div class="row"><span class="k">day/night</span><span id="hudDay">day</span></div>
+  <div class="row"><span class="k">mob count</span><span id="hudCount">0</span></div>
+  <button id="toggleDay">Toggle day/night</button>
+  <button id="forceSpawn">Force-spawn all 5</button>
+</div>
+
+<div id="log"></div>
+
+<pre id="errBox"></pre>
+
+<script type="module">
+  import * as THREE from 'three';
+  import MobManager from './MobManager.js';
+  import StubWorld from './world/StubWorld.js';
+
+  import { build as buildGrazer, meta as metaGrazer } from './creatures/grazer.js';
+  import { build as buildGroaner, meta as metaGroaner } from './creatures/groaner.js';
+  import { build as buildExploder, meta as metaExploder } from './creatures/exploder.js';
+  import { build as buildScreecher, meta as metaScreecher } from './creatures/screecher.js';
+  import { build as buildTrader, meta as metaTrader } from './creatures/trader.js';
+
+  const CREATURES = {
+    grazer: { build: buildGrazer, meta: metaGrazer },
+    groaner: { build: buildGroaner, meta: metaGroaner },
+    exploder: { build: buildExploder, meta: metaExploder },
+    screecher: { build: buildScreecher, meta: metaScreecher },
+    trader: { build: buildTrader, meta: metaTrader },
+  };
+  const ARCHETYPES = Object.keys(CREATURES);
+
+  // ------------------------------------------------------------------
+  // Test hooks (set up early so window.__error works even if init blows
+  // up partway through).
+  // ------------------------------------------------------------------
+  window.__ready = false;
+  window.__events = [];
+  window.__error = null;
+  Object.defineProperty(window, '__mobCount', {
+    get() { return window.__manager ? window.__manager.mobs.length : 0; },
+  });
+  window.__forceSpawnAll = function () {
+    if (!window.__manager) return [];
+    const pos = window.__getPlayerPos ? window.__getPlayerPos() : { x: 0, y: 1, z: 0 };
+    const spawned = [];
+    ARCHETYPES.forEach((archetype, i) => {
+      const angle = (i / ARCHETYPES.length) * Math.PI * 2;
+      const p = {
+        x: pos.x + Math.cos(angle) * 4,
+        y: pos.y,
+        z: pos.z + Math.sin(angle) * 4,
+      };
+      const mob = window.__manager.spawn(archetype, p);
+      if (mob) spawned.push(mob);
+    });
+    return spawned;
+  };
+  window.__setMob = function (archetype) {
+    const url = new URL(window.location.href);
+    if (archetype) {
+      url.searchParams.set('mob', archetype);
+    } else {
+      url.searchParams.delete('mob');
+    }
+    window.location.href = url.toString();
+  };
+
+  function showFatalError(err) {
+    const msg = (err && err.stack) ? err.stack : String(err);
+    window.__error = msg;
+    const box = document.getElementById('errBox');
+    box.style.display = 'block';
+    box.textContent = 'Loomfall mobs demo error:\n\n' + msg;
+    console.error(err);
+  }
+
+  window.addEventListener('error', (e) => showFatalError(e.error || e.message));
+  window.addEventListener('unhandledrejection', (e) => showFatalError(e.reason));
+
+  // ------------------------------------------------------------------
+  // On-page event log (also mirrors to console + window.__events).
+  // ------------------------------------------------------------------
+  const logEl = document.getElementById('log');
+  function fmtPos(p) {
+    if (!p) return '?,?,?';
+    const f = (n) => Number.isFinite(n) ? n.toFixed(1) : '?';
+    return `${f(p.x)},${f(p.y)},${f(p.z)}`;
+  }
+  function logEvent(name, detail) {
+    const line = `[event] ${name} ${detail.archetype} ${detail.species} @ ${fmtPos(detail.position)}` +
+      (detail.dmg !== undefined ? ` dmg=${detail.dmg}` : '') +
+      (detail.explosion ? ' EXPLOSION' : '') +
+      (detail.hitPlayer !== undefined ? ` hitPlayer=${detail.hitPlayer}` : '');
+    console.log(line);
+    window.__events.push({
+      name,
+      archetype: detail.archetype,
+      species: detail.species,
+      position: detail.position,
+      dmg: detail.dmg,
+      explosion: !!detail.explosion,
+      t: performance.now(),
+    });
+    const div = document.createElement('div');
+    div.className = 'entry ' + name;
+    div.textContent = line;
+    logEl.appendChild(div);
+    logEl.scrollTop = logEl.scrollHeight;
+    while (logEl.childElementCount > 200) {
+      logEl.removeChild(logEl.firstChild);
+    }
+  }
+
+  try {
+    init();
+  } catch (err) {
+    showFatalError(err);
+  }
+
+  function init() {
+    const params = new URLSearchParams(window.location.search);
+    const isolateMob = params.get('mob');
+    const mode = isolateMob && CREATURES[isolateMob] ? 'isolate' : 'showcase';
+
+    document.getElementById('hudMode').textContent =
+      mode === 'isolate' ? `isolate: ${isolateMob}` : 'showcase+sim';
+
+    // ---- Renderer / scene / camera ----------------------------------
+    const canvasHost = document.getElementById('canvasHost');
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x11131c, 1);
+    canvasHost.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x11131c, 15, 60);
+
+    const camera = new THREE.PerspectiveCamera(
+      55, window.innerWidth / window.innerHeight, 0.05, 200
+    );
+
+    const hemi = new THREE.HemisphereLight(0xbfd4ff, 0x33261c, 0.9);
+    scene.add(hemi);
+    const dirLight = new THREE.DirectionalLight(0xfff2d9, 1.1);
+    dirLight.position.set(6, 10, 4);
+    scene.add(dirLight);
+    scene.add(new THREE.AmbientLight(0x404050, 0.3));
+
+    const groundGeo = new THREE.PlaneGeometry(120, 120);
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0x2c3a2c, roughness: 1 });
+    const ground = new THREE.Mesh(groundGeo, groundMat);
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = 0;
+    scene.add(ground);
+
+    const grid = new THREE.GridHelper(120, 60, 0x445544, 0x293629);
+    grid.position.y = 0.001;
+    scene.add(grid);
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // ---- Hand-rolled slow auto-rotating camera (no OrbitControls) ---
+    let camAngle = 0;
+    let camRadius = 10;
+    let camHeight = 5;
+    let camTarget = new THREE.Vector3(0, 1, 0);
+    function updateCamera(dt, rotateSpeed) {
+      camAngle += dt * rotateSpeed;
+      camera.position.set(
+        camTarget.x + Math.cos(camAngle) * camRadius,
+        camTarget.y + camHeight,
+        camTarget.z + Math.sin(camAngle) * camRadius
+      );
+      camera.lookAt(camTarget);
+    }
+
+    const labelsRoot = document.getElementById('labels');
+    const labelEls = []; // { el, anchor (THREE.Object3D), text }
+
+    function makeLabel(text) {
+      const el = document.createElement('div');
+      el.className = 'mobLabel';
+      el.textContent = text;
+      labelsRoot.appendChild(el);
+      return el;
+    }
+
+    function updateLabels() {
+      const halfW = window.innerWidth / 2;
+      const halfH = window.innerHeight / 2;
+      const v = new THREE.Vector3();
+      for (const entry of labelEls) {
+        if (!entry.anchor) { entry.el.style.display = 'none'; continue; }
+        entry.anchor.getWorldPosition(v);
+        v.project(camera);
+        if (v.z > 1) { entry.el.style.display = 'none'; continue; }
+        entry.el.style.display = 'block';
+        entry.el.style.left = (v.x * halfW + halfW) + 'px';
+        entry.el.style.top = (-v.y * halfH + halfH) + 'px';
+      }
+    }
+
+    if (mode === 'isolate') {
+      runIsolateMode(isolateMob);
+    } else {
+      runShowcaseMode();
+    }
+
+    // ==================================================================
+    // ISOLATE MODE: one creature, centered, slowly rotating, synthetic
+    // animate() state driven for screenshots.
+    // ==================================================================
+    function runIsolateMode(archetype) {
+      const entry = CREATURES[archetype];
+      const group = entry.build();
+      scene.add(group);
+      group.position.set(0, 0, 0);
+
+      const label = makeLabel(entry.meta.species + ' (' + archetype + ')');
+      labelEls.push({ el: label, anchor: group.userData.headAnchor || group });
+
+      camTarget = new THREE.Vector3(0, 0.8, 0);
+      camRadius = 3.2;
+      camHeight = 1.4;
+
+      document.getElementById('hudDimension').textContent = entry.meta.dimensionDefault || '?';
+      document.getElementById('hudCount').textContent = '1';
+
+      let t = 0;
+      const clock = new THREE.Clock();
+      function frame() {
+        const dt = Math.min(clock.getDelta(), 0.1);
+        t += dt;
+
+        // Synthetic per-archetype state so animate() shows off its full
+        // range of motion for screenshots.
+        let state;
+        if (archetype === 'exploder') {
+          // Looping fuse ramp 0 -> 1 every 2.5s.
+          const fuse = (t % 2.5) / 2.5;
+          state = { moving: false, grounded: true, fuse, hurt: 0, dimension: entry.meta.dimensionDefault };
+        } else if (archetype === 'screecher') {
+          state = { moving: true, grounded: false, fuse: 0, hurt: 0, dimension: entry.meta.dimensionDefault };
+        } else {
+          state = { moving: true, grounded: true, fuse: 0, hurt: 0, dimension: entry.meta.dimensionDefault };
+        }
+
+        const animate = group.userData && group.userData.animate;
+        if (typeof animate === 'function') {
+          try { animate(t, state); } catch (e) { console.error('animate() threw', e); }
+        }
+
+        // Slow spin around Y so all sides are visible without orbit controls.
+        group.rotation.y = t * 0.35;
+
+        updateCamera(dt, 0.08);
+        updateLabels();
+        renderer.render(scene, camera);
+
+        if (!window.__ready) window.__ready = true;
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    }
+
+    // ==================================================================
+    // SHOWCASE + LIVE SIM MODE
+    // ==================================================================
+    function runShowcaseMode() {
+      // ---- Static showcase row: all five creatures side by side -------
+      const spacing = 2.4;
+      const startX = -((ARCHETYPES.length - 1) * spacing) / 2;
+      ARCHETYPES.forEach((archetype, i) => {
+        const entry = CREATURES[archetype];
+        const group = entry.build();
+        group.position.set(startX + i * spacing, 0, -6);
+        scene.add(group);
+
+        const label = makeLabel(entry.meta.species);
+        labelEls.push({ el: label, anchor: group.userData.headAnchor || group });
+
+        group.userData.__showcaseAnimate = group.userData.animate;
+        group.userData.__showcaseArchetype = archetype;
+      });
+
+      // ---- Live MobManager simulation over a StubWorld ----------------
+      const world = new StubWorld();
+
+      // Scripted moving player position: a slow figure-eight so grazers
+      // flee, groaners/exploders/screechers seek+attack, traders tether.
+      let simTime = 0;
+      let isDay = true;
+      let dimension = 'warpwold';
+      function getPlayerPos() {
+        const r = 6;
+        return {
+          x: Math.sin(simTime * 0.25) * r,
+          y: 1,
+          z: Math.sin(simTime * 0.5) * (r * 0.6),
+        };
+      }
+      window.__getPlayerPos = getPlayerPos;
+
+      let hp = 20;
+      function onPlayerHurt(dmg) {
+        hp = Math.max(0, hp - (Number.isFinite(dmg) ? dmg : 0));
+        if (hp <= 0) hp = 20; // never let the demo player actually die
+      }
+
+      const manager = new MobManager(scene, world, {
+        getPlayerPos,
+        onPlayerHurt,
+        isDay: () => isDay,
+        dimension,
+        onEvent: (name, detail) => logEvent(name, detail),
+      });
+      window.__manager = manager;
+
+      manager.addEventListener('mobSpawn', (e) => attachLabelForMob(e.detail.mob));
+
+      function attachLabelForMob(mob) {
+        if (!mob || mob.__labeled) return;
+        mob.__labeled = true;
+        const label = makeLabel(mob.species);
+        labelEls.push({ el: label, anchor: mob.headAnchor || mob.group });
+      }
+
+      // Force an initial spawn of all five so the scene is populated
+      // immediately rather than waiting on the random spawn timer.
+      window.__forceSpawnAll();
+
+      document.getElementById('hudDimension').textContent = dimension;
+      document.getElementById('hudDay').textContent = isDay ? 'day' : 'night';
+
+      document.getElementById('toggleDay').addEventListener('click', () => {
+        isDay = !isDay;
+        manager.setDay(isDay);
+        document.getElementById('hudDay').textContent = isDay ? 'day' : 'night';
+      });
+      document.getElementById('forceSpawn').addEventListener('click', () => {
+        window.__forceSpawnAll();
+      });
+
+      camTarget = new THREE.Vector3(0, 1, 0);
+      camRadius = 14;
+      camHeight = 7;
+
+      const clock = new THREE.Clock();
+      function frame() {
+        const dt = Math.min(clock.getDelta(), 0.1);
+        simTime += dt;
+
+        manager.update(dt);
+        document.getElementById('hudCount').textContent = String(manager.mobs.length);
+
+        // Animate the static showcase row too (idle/moving state), driven
+        // by the same simTime so nothing on screen ever looks frozen.
+        ARCHETYPES.forEach((archetype) => {
+          // no-op placeholder; showcase creatures animate themselves below
+        });
+        for (const child of scene.children) {
+          if (child.userData && child.userData.__showcaseAnimate) {
+            const fuse = child.userData.__showcaseArchetype === 'exploder'
+              ? (simTime % 3) / 3 * 0.4 // gentle idle flicker, never detonates
+              : 0;
+            try {
+              child.userData.__showcaseAnimate(simTime, {
+                moving: true,
+                grounded: true,
+                fuse,
+                hurt: 0,
+                dimension,
+              });
+            } catch (e) { /* keep the showcase resilient */ }
+          }
+        }
+
+        updateCamera(dt, 0.05);
+        updateLabels();
+        renderer.render(scene, camera);
+
+        if (!window.__ready) window.__ready = true;
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    }
+  }
+</script>
