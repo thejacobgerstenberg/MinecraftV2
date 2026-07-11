@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Loomfall Avatars — Demo</title>
+<link rel="icon" href="data:," />
+<style>
+  :root {
+    --bg: #0b0f14;
+    --panel: rgba(14, 20, 28, 0.86);
+    --edge: rgba(120, 150, 180, 0.22);
+    --ink: #dfe7ef;
+    --dim: #8ea3b6;
+    --accent: #7fd0a8;
+    --accent2: #f0c674;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 13px/1.5 "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
+    overflow: hidden;
+  }
+  #app { position: fixed; inset: 0; }
+  canvas { display: block; }
+
+  #panel {
+    position: fixed;
+    top: 12px; left: 12px;
+    width: 288px;
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
+    background: var(--panel);
+    border: 1px solid var(--edge);
+    border-radius: 10px;
+    padding: 14px 14px 16px;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+  #panel h1 {
+    margin: 0 0 2px;
+    font-size: 15px;
+    letter-spacing: 0.02em;
+    color: var(--accent);
+  }
+  #panel .sub { color: var(--dim); margin: 0 0 12px; font-size: 11px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  button {
+    flex: 1 1 auto;
+    background: #12202b;
+    color: var(--ink);
+    border: 1px solid var(--edge);
+    border-radius: 7px;
+    padding: 7px 9px;
+    font: inherit;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  button:hover { border-color: var(--accent); background: #16313f; }
+  button.active { border-color: var(--accent2); color: var(--accent2); }
+  .stat {
+    display: flex; justify-content: space-between;
+    border-top: 1px solid var(--edge);
+    padding: 6px 0;
+    color: var(--dim);
+  }
+  .stat b { color: var(--ink); font-weight: 600; }
+  h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--dim); margin: 14px 0 8px;
+  }
+  .theme {
+    border: 1px solid var(--edge);
+    border-radius: 7px;
+    padding: 7px 9px;
+    margin-bottom: 6px;
+  }
+  .theme .tname { color: var(--accent); font-size: 12px; }
+  .theme .tblurb { color: var(--dim); font-size: 10.5px; margin-top: 2px; }
+  #log {
+    margin-top: 10px;
+    font-size: 10.5px;
+    color: var(--dim);
+    height: 46px; overflow: hidden;
+    border-top: 1px solid var(--edge);
+    padding-top: 6px;
+  }
+  #hint {
+    position: fixed; bottom: 10px; right: 12px;
+    color: var(--dim); font-size: 10.5px;
+    background: var(--panel); border: 1px solid var(--edge);
+    border-radius: 7px; padding: 5px 9px;
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<div id="panel">
+  <h1>Loomfall Avatars</h1>
+  <p class="sub">Procedural voxel player-avatar package · drop-in remote renderer</p>
+
+  <div class="row">
+    <button id="btnNames" class="active">Names: on</button>
+    <button id="btnSwing">Swing all</button>
+  </div>
+  <div class="row">
+    <button id="btnPause">Pause</button>
+    <button id="btnArrange">Gallery</button>
+  </div>
+
+  <div class="stat"><span>FPS (avg)</span><b id="fps">–</b></div>
+  <div class="stat"><span>Avatars</span><b id="count">–</b></div>
+  <div class="stat"><span>Mode</span><b id="mode">walk</b></div>
+
+  <h2>Skin gallery</h2>
+  <div id="themes"></div>
+
+  <div id="log"></div>
+</div>
+
+<div id="hint">drag: orbit · scroll: zoom</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.module.js",
+    "three/addons/controls/OrbitControls.js": "./vendor/OrbitControls.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { createAvatar, SKIN_THEMES, resolveSkin } from "./avatars.js";
+
+// The skin seed is hashed to *pick* a theme, so seeding a bot with a theme id
+// does not guarantee that theme renders. For the gallery we want exactly one
+// avatar per theme, so derive a deterministic seed that resolves to each theme.
+const _seedCache = new Map();
+function seedForTheme(themeId) {
+  if (_seedCache.has(themeId)) return _seedCache.get(themeId);
+  let seed = themeId;
+  for (let k = 0; k < 4096; k++) {
+    const candidate = k === 0 ? themeId : `${themeId}#${k}`;
+    try {
+      if (resolveSkin(candidate).id === themeId) { seed = candidate; break; }
+    } catch (_e) { /* keep trying */ }
+  }
+  _seedCache.set(themeId, seed);
+  return seed;
+}
+
+/* ---------------------------------------------------------------- scene --- */
+const app = document.getElementById("app");
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+if ("outputColorSpace" in renderer) renderer.outputColorSpace = THREE.SRGBColorSpace;
+app.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b0f14);
+scene.fog = new THREE.Fog(0x0b0f14, 22, 60);
+
+const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 200);
+camera.position.set(0, 6.5, 15);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1.1, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.maxPolarAngle = Math.PI * 0.49;
+
+/* ---------------------------------------------------------------- lights -- */
+scene.add(new THREE.HemisphereLight(0xbcd3e6, 0x2a2418, 0.75));
+scene.add(new THREE.AmbientLight(0x404a54, 0.4));
+const sun = new THREE.DirectionalLight(0xfff2d8, 1.05);
+sun.position.set(8, 16, 6);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+sun.shadow.camera.left = -18; sun.shadow.camera.right = 18;
+sun.shadow.camera.top = 18; sun.shadow.camera.bottom = -18;
+sun.shadow.camera.near = 1; sun.shadow.camera.far = 50;
+scene.add(sun);
+
+/* ------------------------------------------------- voxel ground (grid) ---- */
+const GROUND = 22;          // cubes per side
+const CELL = 1.4;           // cube world size
+const half = (GROUND * CELL) / 2;
+{
+  const geo = new THREE.BoxGeometry(CELL, CELL, CELL);
+  const mat = new THREE.MeshLambertMaterial({ vertexColors: false, color: 0xffffff });
+  const grid = new THREE.InstancedMesh(geo, mat, GROUND * GROUND);
+  grid.receiveShadow = true;
+  const grass = new THREE.Color(0x32733f);
+  const grassHi = new THREE.Color(0x5f9a4a);
+  const dirt = new THREE.Color(0x6b4f32);
+  const m = new THREE.Matrix4();
+  const col = new THREE.Color();
+  let i = 0;
+  for (let gz = 0; gz < GROUND; gz++) {
+    for (let gx = 0; gx < GROUND; gx++) {
+      const x = -half + CELL * 0.5 + gx * CELL;
+      const z = -half + CELL * 0.5 + gz * CELL;
+      // gentle top-face height jitter for a hand-woven look
+      const edge = (gx + gz) % 7 === 0;
+      m.makeTranslation(x, -CELL * 0.5 + (edge ? 0.06 : 0), z);
+      grid.setMatrixAt(i, m);
+      col.copy(edge ? dirt : ((gx ^ gz) & 1 ? grass : grassHi));
+      grid.setColorAt(i, col);
+      i++;
+    }
+  }
+  grid.instanceMatrix.needsUpdate = true;
+  if (grid.instanceColor) grid.instanceColor.needsUpdate = true;
+  scene.add(grid);
+}
+
+/* --------------------------------------------------------- spawn bots ----- */
+const NAMES = ["Wren", "Halloway", "Ember-9", "Selvage", "Frostkin", "Unpicked", "Dawnmender", "Ashwarden"];
+const bots = []; // { handle, angle, radius, speed, prev:THREE.Vector3, base:THREE.Vector3, swingT }
+
+const RING_R = 8.5;
+SKIN_THEMES.forEach((theme, idx) => {
+  const name = NAMES[idx % NAMES.length];
+  const handle = createAvatar({
+    name,
+    skinSeed: seedForTheme(theme.id), // deterministic seed that resolves to THIS theme
+    onStep: (foot) => logStep(name, foot),
+  });
+  scene.add(handle.group);
+  const n = SKIN_THEMES.length;
+  const a0 = (idx / n) * Math.PI * 2;
+  bots.push({
+    handle,
+    theme,
+    angle: a0,
+    radius: RING_R,
+    speed: 0.55 + (idx % 3) * 0.12, // rad/s around the ring
+    prev: new THREE.Vector3(Math.cos(a0) * RING_R, 0, Math.sin(a0) * RING_R),
+    swingT: 1.5 + idx * 0.6,
+    galleryX: (idx - (n - 1) / 2) * 2.2,
+  });
+});
+
+/* --------------------------------------------------------- controls ------- */
+let namesVisible = true;
+let paused = false;
+let mode = "walk"; // "walk" | "gallery"
+
+const $ = (id) => document.getElementById(id);
+
+function setNamesVisible(b) {
+  namesVisible = !!b;
+  for (const bt of bots) bt.handle.setNameVisible(namesVisible);
+  const el = $("btnNames");
+  el.textContent = "Names: " + (namesVisible ? "on" : "off");
+  el.classList.toggle("active", namesVisible);
+}
+function swingAll() {
+  for (const bt of bots) bt.handle.swing();
+}
+function setPaused(b) {
+  paused = !!b;
+  $("btnPause").textContent = paused ? "Play" : "Pause";
+  $("btnPause").classList.toggle("active", paused);
+}
+function arrange(m) {
+  mode = m === "gallery" ? "gallery" : "walk";
+  $("mode").textContent = mode;
+  $("btnArrange").textContent = mode === "gallery" ? "Patrol" : "Gallery";
+  $("btnArrange").classList.toggle("active", mode === "gallery");
+  if (mode === "gallery") {
+    // snap camera to a clean frontal framing for the screenshot
+    controls.target.set(0, 1.0, 0);
+    camera.position.set(0, 2.4, 12);
+  }
+}
+
+$("btnNames").onclick = () => setNamesVisible(!namesVisible);
+$("btnSwing").onclick = swingAll;
+$("btnPause").onclick = () => setPaused(!paused);
+$("btnArrange").onclick = () => arrange(mode === "gallery" ? "walk" : "gallery");
+
+// legend
+{
+  const box = $("themes");
+  for (const t of SKIN_THEMES) {
+    const d = document.createElement("div");
+    d.className = "theme";
+    d.innerHTML = `<div class="tname">${t.name}</div><div class="tblurb">${t.blurb || ""}</div>`;
+    box.appendChild(d);
+  }
+  $("count").textContent = String(bots.length);
+}
+
+/* --------------------------------------------------------- step log ------- */
+const logEl = $("log");
+const logLines = [];
+function logStep(name, foot) {
+  logLines.unshift(`step · ${name} · foot ${foot} · step.grass`);
+  if (logLines.length > 3) logLines.length = 3;
+  logEl.textContent = logLines.join("\n");
+}
+
+/* --------------------------------------------------------- render loop ---- */
+const clock = new THREE.Clock();
+let fpsAvg = 60;
+const _cur = new THREE.Vector3();
+
+function frame() {
+  requestAnimationFrame(frame);
+  let dt = clock.getDelta();
+  if (dt > 0.1) dt = 0.1; // clamp long stalls
+
+  // fps EMA
+  if (dt > 0) fpsAvg = fpsAvg * 0.9 + (1 / dt) * 0.1;
+
+  if (!paused) {
+    for (const bt of bots) {
+      const h = bt.handle;
+      if (mode === "gallery") {
+        // line up facing +Z (toward the camera at +Z)
+        _cur.set(bt.galleryX, 0, 0);
+        h.setPosition(_cur.x, 0, _cur.z);
+        h.setVelocity(0, 0, 0);
+        h.setLook(0, Math.sin(clock.elapsedTime * 1.3 + bt.galleryX) * 0.08);
+        bt.prev.copy(_cur);
+      } else {
+        // patrol a shared ring; velocity derived from the frame delta
+        bt.angle += bt.speed * dt;
+        _cur.set(Math.cos(bt.angle) * bt.radius, 0, Math.sin(bt.angle) * bt.radius);
+        const vx = dt > 0 ? (_cur.x - bt.prev.x) / dt : 0;
+        const vz = dt > 0 ? (_cur.z - bt.prev.z) / dt : 0;
+        h.setPosition(_cur.x, 0, _cur.z);
+        h.setVelocity(vx, 0, vz);
+        // face the direction of travel; gentle pitch bob
+        const yaw = Math.atan2(vx, vz);
+        const pitch = Math.sin(clock.elapsedTime * 2 + bt.angle) * 0.12;
+        h.setLook(yaw, pitch);
+        bt.prev.copy(_cur);
+        // occasional swing
+        bt.swingT -= dt;
+        if (bt.swingT <= 0) {
+          h.swing();
+          bt.swingT = 3 + Math.random() * 4;
+        }
+      }
+      h.update(dt);
+    }
+  }
+
+  controls.update();
+  renderer.render(scene, camera);
+  $("fps").textContent = String(Math.round(fpsAvg));
+}
+frame();
+
+/* --------------------------------------------------------- resize --------- */
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+/* --------------------------------------------- headless harness surface --- */
+window.avatarsDemo = {
+  THREE,
+  scene,
+  camera,
+  renderer,
+  controls,
+  avatars: bots.map((b) => b.handle),
+  themes: SKIN_THEMES,
+  setNamesVisible,
+  swingAll,
+  setPaused,
+  getFps: () => Math.round(fpsAvg),
+  arrange,
+};
+</script>
+</body>
+</html>

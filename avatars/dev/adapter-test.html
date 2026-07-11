@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>PeerAvatars adapter — headless test</title>
+<link rel="icon" href="data:," />
+<!-- Install error capture BEFORE any module runs, so check 8 sees everything. -->
+<script>
+  window.__errCount = 0;
+  window.__errLog = [];
+  (function () {
+    const oe = console.error;
+    console.error = function () {
+      window.__errCount++;
+      try { window.__errLog.push(Array.prototype.join.call(arguments, " ")); } catch (_e) {}
+      return oe.apply(console, arguments);
+    };
+    window.addEventListener("error", function (e) {
+      window.__errCount++;
+      try { window.__errLog.push(String((e && (e.message || e.error)) || "error")); } catch (_e) {}
+    });
+    window.addEventListener("unhandledrejection", function (e) {
+      window.__errCount++;
+      try { window.__errLog.push("unhandledrejection: " + String(e && e.reason)); } catch (_e) {}
+    });
+  })();
+</script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "../vendor/three.module.js"
+  }
+}
+</script>
+</head>
+<body>
+<pre id="out">running…</pre>
+<script type="module">
+import * as THREE from "three";
+import { PeerAvatars } from "../peer-avatars.js";
+
+const checks = [];
+function check(name, ok, detail) {
+  checks.push({ name, ok: !!ok, detail: String(detail == null ? "" : detail) });
+}
+
+/** Sample a deterministic body color hex: center pixel of the first mesh's weave
+ * map if present, else the material color. Same seed -> same value. */
+function bodyColorHex(group) {
+  let hex = null;
+  group.traverse((o) => {
+    if (hex != null) return;
+    if (o.isMesh && o.material) {
+      const m = o.material;
+      if (m.map && m.map.image) {
+        try {
+          const img = m.map.image;
+          const c = document.createElement("canvas");
+          c.width = img.width; c.height = img.height;
+          const cx = c.getContext("2d");
+          cx.drawImage(img, 0, 0);
+          const px = Math.floor(img.width / 2), py = Math.floor(img.height / 2);
+          const d = cx.getImageData(px, py, 1, 1).data;
+          hex = ((d[0] << 16) | (d[1] << 8) | d[2]).toString(16).padStart(6, "0");
+        } catch (_e) {
+          hex = m.color ? m.color.getHexString() : null;
+        }
+      } else if (m.color) {
+        hex = m.color.getHexString();
+      }
+    }
+  });
+  return hex;
+}
+
+let renderer = null;
+try {
+  renderer = new THREE.WebGLRenderer({ antialias: false });
+  renderer.setSize(320, 240);
+} catch (_e) {
+  renderer = null; // logic tests do not require a live GL context
+}
+
+try {
+  const scene = new THREE.Scene();
+  const peers = new PeerAvatars(scene);
+
+  // --- 1: upsert three peers ---
+  peers.upsert({ id: "alice", name: "Alice", x: 0, y: 0, z: 0, yaw: 0, dim: "overworld" });
+  peers.upsert({ id: "bob", name: "Bob", x: 2, y: 0, z: 0, yaw: 0, dim: "overworld" });
+  peers.upsert({ id: "carol", name: "Carol", x: -2, y: 0, z: 0, yaw: 0, dim: "overworld" });
+  {
+    const ids = peers.ids;
+    const hasAll = ["alice", "bob", "carol"].every((k) => ids.includes(k));
+    check("1 upsert 3 -> count/ids", peers.count === 3 && hasAll,
+      `count=${peers.count} ids=[${ids.join(",")}]`);
+  }
+
+  // --- 2: named group resolves to a Group ---
+  {
+    const g = scene.getObjectByName("peer:alice");
+    check("2 getObjectByName('peer:alice') is Group", !!g && g.isGroup === true,
+      `found=${!!g} isGroup=${g ? g.isGroup : "n/a"}`);
+  }
+
+  // --- 3: same id no duplicate + deterministic skin ---
+  {
+    const beforeHex = bodyColorHex(scene.getObjectByName("peer:alice"));
+    peers.upsert({ id: "alice", name: "Alice", x: 0, y: 0, z: 0, yaw: 0, dim: "overworld" });
+    peers.upsert({ id: "alice", name: "Alice", x: 0, y: 0, z: 0, yaw: 0, dim: "overworld" });
+    const afterHex = bodyColorHex(scene.getObjectByName("peer:alice"));
+
+    // Independent 2nd manager, same id -> identical skin.
+    const scene2 = new THREE.Scene();
+    const peers2 = new PeerAvatars(scene2);
+    peers2.upsert({ id: "alice", name: "Alice", x: 5, y: 1, z: 5, yaw: 0, dim: "overworld" });
+    const otherHex = bodyColorHex(scene2.getObjectByName("peer:alice"));
+    peers2.dispose();
+
+    const noDup = peers.count === 3;
+    const stable = beforeHex === afterHex;
+    const deterministic = beforeHex != null && beforeHex === otherHex;
+    check("3 same-id no dup + deterministic skin", noDup && stable && deterministic,
+      `count=${peers.count} thisHex=${beforeHex} afterHex=${afterHex} otherMgrHex=${otherHex}`);
+  }
+
+  // --- 4: move + smoothing toward target (+0.3 centering) ---
+  const aliceGroup = scene.getObjectByName("peer:alice");
+  {
+    peers.move({ id: "alice", x: 10, y: 0, z: 10, yaw: 1 });
+    for (let i = 0; i < 30; i++) peers.update(1 / 60);
+    const p = aliceGroup.position;
+    const finite = Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z);
+    const dist = Math.hypot(p.x - 10.3, p.z - 10.3);
+    const moved = p.x > 5 && p.z > 5 && p.x <= 10.3 + 1e-6 && p.z <= 10.3 + 1e-6;
+    check("4 move+update smooths toward (10.3,0,10.3)", finite && moved && dist < 1.0,
+      `pos=(${p.x.toFixed(3)},${p.y.toFixed(3)},${p.z.toFixed(3)}) distToTarget=${dist.toFixed(3)}`);
+  }
+
+  // Settle so the walk cycle relaxes (legs return to rest) before measuring feet.
+  for (let i = 0; i < 60; i++) peers.update(1 / 60);
+
+  // --- 5: feet-origin AABB (exclude the billboard name tag) ---
+  {
+    const tag = aliceGroup.getObjectByName("loomfall-nametag");
+    const tagParent = tag && tag.parent;
+    if (tagParent) tagParent.remove(tag);
+    const box = new THREE.Box3().setFromObject(aliceGroup);
+    if (tagParent) tagParent.add(tag);
+    const minY = box.min.y, maxY = box.max.y;
+    check("5 feet-origin: minY~0, maxY in 1.6..2.0",
+      Math.abs(minY) < 0.05 && maxY >= 1.6 && maxY <= 2.0,
+      `minY=${minY.toFixed(4)} maxY=${maxY.toFixed(4)}`);
+  }
+
+  // --- 6: dimension visibility ---
+  {
+    peers.setDimension("nether");
+    const aliceHidden = aliceGroup.visible === false;
+    // upsert an existing peer into 'nether' -> becomes visible under the nether local dim.
+    peers.upsert({ id: "carol", name: "Carol", x: -2, y: 0, z: 0, yaw: 0, dim: "nether" });
+    const carolGroup = scene.getObjectByName("peer:carol");
+    const carolVisible = carolGroup && carolGroup.visible === true;
+    check("6 setDimension hides/shows by dim", aliceHidden && carolVisible,
+      `aliceVisible=${aliceGroup.visible} carolVisible=${carolGroup ? carolGroup.visible : "n/a"}`);
+  }
+
+  // --- 7: remove ---
+  {
+    peers.remove("bob");
+    const gone = scene.getObjectByName("peer:bob") == null;
+    check("7 remove('bob') -> count 2 + detached", peers.count === 2 && gone,
+      `count=${peers.count} bobInScene=${!gone}`);
+  }
+
+  // --- 8: no console/page errors during the run ---
+  check("8 no console/page errors", (window.__errCount | 0) === 0,
+    `errCount=${window.__errCount} log=${JSON.stringify(window.__errLog)}`);
+
+  peers.dispose();
+} catch (e) {
+  check("harness threw", false, String(e && (e.stack || e.message || e)));
+}
+
+const pass = checks.length > 0 && checks.every((c) => c.ok);
+window.__adapterTest = { pass, checks };
+document.getElementById("out").textContent =
+  (pass ? "PASS" : "FAIL") + "\n" +
+  checks.map((c) => `[${c.ok ? "ok" : "XX"}] ${c.name} — ${c.detail}`).join("\n");
+</script>
+</body>
+</html>
