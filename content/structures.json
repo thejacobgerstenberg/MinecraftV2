@@ -47,7 +47,7 @@
       "rarity": "common",
       "spawnRules": "biome:understitch_downs; terrain:river_adjacent, requires:dry_ghost_channel; min_spacing:384",
       "loreHook": "The river remembers running here. On some nights, so does the bridge.",
-      "description": "A low threadstone footbridge arching over a riverbed that holds no river — the water moved when the Weaver re-drew the valley, but the crossing was never unpicked. The dry channel beneath is floored in understitch_loam (harvestable; the best farm soil in the Downs), and pale loomglass shimmer-blocks hang where the old waterline stood, showing the ghost of the current if you look along them at dusk. Wild spoolmares graze the ghost-banks and are calmest here (raised tame chance within the footprint). No loot chest; the structure IS the loot."
+      "description": "A low threadstone footbridge arching over a riverbed that holds no river — the water moved when the Weaver re-drew the valley, but the crossing was never unpicked. The dry channel beneath is floored in understitch_loam (harvestable; the best farm soil in the Downs), and pale loomglass shimmer-blocks hang where the old waterline stood, showing the ghost of the current if you look along them at dusk. Wild spoolmares wade the ghost-banks on their long thread-legs and are calmest here (raised tame chance within the footprint). No loot chest; the structure IS the loot."
     },
     {
       "id": "meadow_beneath",
@@ -95,7 +95,7 @@
       "rarity": "uncommon",
       "spawnRules": "biome:understitch_downs; terrain:open_downs, near:twice_ford<=256 preferred; min_spacing:768",
       "loreHook": "The Wickerkin do not ride. They keep the mares anyway, for the company.",
-      "description": "A seasonal Wickerkin herding camp: a picket ring of thrumwood-bole posts strung with cord, three raw-skein tents on plank platforms, a watch-perch, and one knotlight kept burning against the dark. Two or three Wickerkin herders trade thread-sinew, hide-cloth, and spoolmare tack; a small corral holds 2-4 already-gentled spoolmares (greatly raised tame chance — the intended early path to tame_entity:spoolmare). A feed crate holds raw_skein and a saddle-frame of needle_iron. At night the herders drum softly on the picket posts; the mares stand with their heads together like a conversation."
+      "description": "A seasonal Wickerkin herding camp: a picket ring of thrumwood-bole posts strung with cord, three raw-skein tents on plank platforms, a watch-perch, and one knotlight kept burning against the dark. Two or three Wickerkin herders trade thread-sinew, hide-cloth, and spoolmare tack; a small corral holds 2-4 already-gentled spoolmares (greatly raised tame chance — the intended early path to tame_entity:spoolmare). A feed crate holds raw_skein and a saddle-frame of needle_iron. At night the herders drum softly on the picket posts; the mares fold their long thread-legs and lean their spools together like a conversation."
     },
     {
       "id": "menders_vigil_waystation",

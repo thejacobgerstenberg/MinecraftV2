@@ -552,8 +552,8 @@
     },
     {
       "id": "stitch_ground_beneath_hooves",
-      "name": "Ground Beneath Its Own Hooves",
-      "description": "You rode your bonded spoolmare across a fray in Nevermend, and it stitched a path beneath itself with every stride before coming undone. A gallop over nothing, carried by a thing brave enough to unravel for you.",
+      "name": "Ground Beneath Every Stride",
+      "description": "You rode your bonded spoolmare across a fray in Nevermend, and its six legs stitched a path beneath it with every high slow stride before coming undone. A walk over nothing, carried by a thing brave enough to unravel for you.",
       "trigger": "ride_spoolmare_in:nevermend",
       "tree": "The Menderwork",
       "tier": 3,

@@ -84,7 +84,7 @@
         "groupSize": "2-5",
         "rarity": "uncommon"
       },
-      "behavior": "Wild bands canter along the doubled ghost-rivers of the Downs and shy 12 blocks from any sprinting player. Taming is one mechanic (tame_entity:spoolmare): each mount attempt has a base 15% success chance, +10% for each raw_skein fed to the mare between attempts, capped at 75%; a failed attempt throws the rider without damage. A bonded spoolmare accepts a saddle_frame to sit and answers a whistle within 32 blocks. Ridden in Nevermend, a bonded mare stitches a one-block-wide thread-tread under its hooves across open fray; each stitch of ground unravels 5 seconds after it passes. Tamed spoolmares persist and never despawn. Spoolmares do not foal: new mares are wound where the ghost-rivers run, and the Downs keep their own count. Unpicked, one comes apart into slack sinew — a poor trade for a friend that would have carried you over nothing.",
+      "behavior": "Wild bands stride high and slow along the doubled ghost-rivers of the Downs, spool-bodies swaying on six long thread-legs, and shy 12 blocks from any sprinting player. Taming is one mechanic (tame_entity:spoolmare): each mount attempt has a base 15% success chance, +10% for each raw_skein fed to the mare between attempts, capped at 75%; a failed attempt tips the rider off the spool without damage. A bonded spoolmare accepts a saddle_frame seated atop the spool and answers a whistle within 32 blocks. Ridden in Nevermend, a bonded mare stitches a one-block-wide thread-tread beneath its stepping legs across open fray; each stitch of ground unravels 5 seconds after it passes. Tamed spoolmares persist and never despawn. Spoolmares wind no young: new mares are spun where the ghost-rivers run, and the Downs keep their own count. Unpicked, one comes apart into slack sinew — a poor trade for a friend that would have carried you over nothing.",
       "stats": {
         "hp": 26,
         "damage": 0,
@@ -103,7 +103,7 @@
       },
       "visual": {
         "palette": ["#C8B7E0", "#9E86C2", "#6B5694", "#F0EAF7", "#3A2E52"],
-        "silhouette": "A horse silhouette whose body is visibly bundled parallel thread-lines rather than solid flesh — gaps of background show between strands at the belly and neck; the mane and tail trail off into three or four loose unattached thread-pixels that drift behind it."
+        "silhouette": "A spool-strider silhouette: a stout wound bobbin of bundled parallel thread-lines for a body — gaps of background showing between the strands of the winding — carried well above the grass on six long single-pixel thread-legs that bend high over the back like a harvestman's and rise and fall in slow deliberate strides; the saddle sits flat atop the spool, and three or four loose unattached thread-pixels drift from the spool-ends behind it."
       }
     },
     {
