@@ -1,0 +1,7 @@
+node_modules/
+saves/
+*.log
+.DS_Store
+playwright-report/
+test-results/
+screenshots/*.tmp

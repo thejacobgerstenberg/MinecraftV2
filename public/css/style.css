@@ -1,0 +1,391 @@
+/* ============================================================
+   Voxelheim — base UI theme
+   Blocky / pixel aesthetic, dark game-like palette.
+   System fonts only (no external font loads).
+   ============================================================ */
+
+:root {
+  --bg: #0d0f14;
+  --panel: #1a1e27;
+  --panel-2: #232936;
+  --panel-border: #3a4256;
+  --accent: #5fd35f;
+  --accent-dark: #3fa03f;
+  --accent-hover: #7bee7b;
+  --text: #e8ecf2;
+  --text-dim: #9aa4b5;
+  --danger: #d3565f;
+  --shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
+  --pixel-font: "Courier New", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --ui-font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--ui-font);
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: none;
+}
+
+/* Full-screen render canvas. */
+#game {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  display: block;
+  outline: none;
+}
+
+/* ============================================================
+   Overlays / panels — hidden by default, shown via .visible
+   ============================================================ */
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.overlay.visible {
+  display: flex;
+}
+
+.menu-panel,
+.panel {
+  background: var(--panel);
+  border: 2px solid var(--panel-border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 32px 40px;
+  min-width: 340px;
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow-y: auto;
+  text-align: center;
+}
+
+/* ============================================================
+   Main menu
+   ============================================================ */
+.main-menu {
+  background:
+    radial-gradient(circle at 50% 30%, rgba(95, 211, 95, 0.10), transparent 60%),
+    linear-gradient(180deg, #0b1a2b 0%, #0d0f14 100%);
+}
+
+.game-title {
+  font-family: var(--pixel-font);
+  font-size: 64px;
+  letter-spacing: 8px;
+  font-weight: 800;
+  color: var(--accent);
+  text-shadow:
+    3px 3px 0 var(--accent-dark),
+    6px 6px 0 rgba(0, 0, 0, 0.4);
+  margin-bottom: 8px;
+}
+
+.tagline {
+  color: var(--text-dim);
+  font-size: 15px;
+  letter-spacing: 2px;
+  margin-bottom: 28px;
+  text-transform: uppercase;
+}
+
+.version {
+  margin-top: 22px;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-family: var(--pixel-font);
+}
+
+/* ============================================================
+   Buttons
+   ============================================================ */
+.menu-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.menu-button {
+  appearance: none;
+  cursor: pointer;
+  font-family: var(--ui-font);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  color: #0d1207;
+  background: linear-gradient(180deg, var(--accent-hover), var(--accent));
+  border: 2px solid var(--accent-dark);
+  border-radius: 6px;
+  padding: 12px 22px;
+  transition: transform 0.06s ease, filter 0.12s ease, background 0.12s ease;
+}
+.menu-button:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+.menu-button:active {
+  transform: translateY(1px);
+  filter: brightness(0.95);
+}
+.menu-button.secondary {
+  color: var(--text);
+  background: linear-gradient(180deg, var(--panel-2), var(--panel));
+  border-color: var(--panel-border);
+}
+
+h1, h2 {
+  font-family: var(--pixel-font);
+  letter-spacing: 2px;
+}
+h2 {
+  font-size: 26px;
+  margin-bottom: 20px;
+  color: var(--text);
+}
+
+/* ============================================================
+   World select / settings lists
+   ============================================================ */
+.world-list,
+.settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+  text-align: left;
+}
+.world-list:empty::before {
+  content: "No worlds yet — create one.";
+  color: var(--text-dim);
+  font-size: 14px;
+  display: block;
+  text-align: center;
+  padding: 16px 0;
+}
+
+/* ============================================================
+   HUD — crosshair, hotbar, health
+   ============================================================ */
+.hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 50;
+}
+
+.crosshair {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: 20px;
+  height: 20px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: 0.85;
+}
+.crosshair::before,
+.crosshair::after {
+  content: "";
+  position: absolute;
+  background: #ffffff;
+  mix-blend-mode: difference;
+}
+.crosshair::before {
+  left: 50%;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  transform: translateX(-50%);
+}
+.crosshair::after {
+  top: 50%;
+  left: 0;
+  height: 2px;
+  width: 100%;
+  transform: translateY(-50%);
+}
+
+.hotbar {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: rgba(13, 15, 20, 0.55);
+  border: 2px solid rgba(58, 66, 86, 0.8);
+  border-radius: 6px;
+}
+.hotbar-slot {
+  width: 48px;
+  height: 48px;
+  border: 2px solid rgba(58, 66, 86, 0.9);
+  border-radius: 4px;
+  background: rgba(35, 41, 54, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  image-rendering: pixelated;
+}
+.hotbar-slot.selected {
+  border-color: #ffffff;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35);
+}
+
+.health {
+  position: fixed;
+  left: 50%;
+  bottom: 76px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 2px;
+}
+
+/* ============================================================
+   Debug overlay (F3) — monospace, top-left
+   ============================================================ */
+.debug {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 60;
+  display: none;
+  font-family: var(--pixel-font);
+  font-size: 13px;
+  line-height: 1.45;
+  color: #eaffea;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.9);
+  background: rgba(13, 15, 20, 0.45);
+  padding: 6px 10px;
+  border-radius: 4px;
+  white-space: pre;
+  pointer-events: none;
+}
+.debug.visible {
+  display: block;
+}
+
+/* ============================================================
+   Chat — bottom-left
+   ============================================================ */
+.chat {
+  position: fixed;
+  left: 10px;
+  bottom: 90px;
+  z-index: 60;
+  max-width: 40vw;
+  max-height: 30vh;
+  overflow-y: auto;
+  font-family: var(--pixel-font);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text);
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+}
+.chat .chat-line {
+  padding: 1px 0;
+}
+
+.chat-input {
+  position: fixed;
+  left: 10px;
+  bottom: 60px;
+  z-index: 61;
+  width: 40vw;
+  display: none;
+  font-family: var(--pixel-font);
+  font-size: 14px;
+  color: var(--text);
+  background: rgba(13, 15, 20, 0.85);
+  border: 2px solid var(--panel-border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  outline: none;
+}
+.chat-input.visible {
+  display: block;
+}
+
+/* ============================================================
+   Inventory / creative palette
+   ============================================================ */
+.inventory-screen {
+  background: rgba(4, 6, 10, 0.6);
+}
+.inventory-grid {
+  display: grid;
+  grid-template-columns: repeat(9, 48px);
+  gap: 4px;
+  margin-top: 12px;
+  justify-content: center;
+}
+.inventory-slot {
+  width: 48px;
+  height: 48px;
+  border: 2px solid var(--panel-border);
+  border-radius: 4px;
+  background: var(--panel-2);
+  cursor: pointer;
+  image-rendering: pixelated;
+}
+.inventory-slot:hover {
+  border-color: var(--accent);
+}
+
+/* ============================================================
+   Loading splash
+   ============================================================ */
+.loading {
+  background: linear-gradient(180deg, #0b1a2b 0%, #0d0f14 100%);
+  z-index: 200;
+}
+.loading-inner {
+  text-align: center;
+}
+.loading-title {
+  font-family: var(--pixel-font);
+  font-size: 42px;
+  letter-spacing: 6px;
+  color: var(--accent);
+  text-shadow: 2px 2px 0 var(--accent-dark);
+  margin-bottom: 24px;
+}
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  margin: 0 auto 16px;
+  border: 4px solid rgba(95, 211, 95, 0.25);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+.loading-text {
+  color: var(--text-dim);
+  font-family: var(--pixel-font);
+  font-size: 14px;
+  letter-spacing: 2px;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

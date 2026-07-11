@@ -1,0 +1,80 @@
+# Voxelheim Module Contract (v1)
+
+All client code is browser ES modules under `public/src/`. Three.js is imported as `import * as THREE from 'three'` (resolved by the importmap in index.html to `./vendor/three.module.js`). NO bundler, NO build step. NO three/addons — implement pointer lock and controls manually.
+
+## Coordinate & size conventions
+- `CHUNK_SX = 16`, `CHUNK_SZ = 16`, `CHUNK_SY = 128` (world height). Sea level `SEA_LEVEL = 40`.
+- World (x,y,z) are integer block coords. y in [0, CHUNK_SY). Chunk coords: `cx = floor(x/16)`, `cz = floor(z/16)`.
+- Blocks are integer IDs stored in `Uint8Array` per chunk, indexed `x + z*16 + y*16*16` (x fastest, then z, then y).
+
+## public/src/constants.js  (written by foundation — DO NOT modify)
+Exports: `CHUNK_SX, CHUNK_SZ, CHUNK_SY, SEA_LEVEL, RENDER_DISTANCE_DEFAULT, TILE_PX, ATLAS_COLS, blockIndex(x,y,z)`.
+
+## public/src/blocks/blocks.js  (written by foundation — DO NOT modify the IDs)
+Exports `BLOCKS` (array indexed by id) and `getBlockDef(id)`. Each def: `{ id, name, tiles:{top,bottom,side} OR {all}, solid, transparent, liquid, emissive(0-15), hardness, tool }`. Tile values are STRING tile names consumed by the texture atlas. `air` is id 0 with solid:false, transparent:true.
+
+## public/src/textures/TextureAtlas.js  (Phase: textures)
+- `export const TILE_NAMES` — ordered array of every tile name used by blocks (grass_top, grass_side, dirt, stone, sand, water, log_top, log_side, leaves, planks, glass, cobblestone, coal_ore, iron_ore, gold_ore, diamond_ore, bedrock, snow, snow_side, cactus_top, cactus_side, gravel, netherrack, soul_sand, glowstone, obsidian, end_stone, purpur, red_sand, sandstone, sandstone_top, lava, portal, ...). Provide a stable index for each.
+- `export function buildAtlas(packName='default') -> { canvas, texture, tileUV(name), tileIndex(name), cols, tilePx }` where `texture` is a `THREE.CanvasTexture` (NearestFilter, no mipmaps flicker: use NearestFilter mag, LinearMipmapLinear min OR NearestFilter both — pick crisp look), and `tileUV(name) -> {u0,v0,u1,v1}` in [0,1]. Atlas is `ATLAS_COLS` wide, `TILE_PX` per tile.
+- Textures are drawn PROCEDURALLY (Canvas2D) by the active pack. Must look good, not noise.
+
+## public/src/textures/texturePacks.js  (Phase: textures)
+- `export const PACKS` — object keyed by pack id. At least `default`, `smooth`, `gritty`. Each: `{ id, name, drawTile(ctx, name, px, rng) }` that renders one tile at (0,0,px,px). `rng` is a seeded PRNG function returning [0,1). Provide a `makeRng(seedString)` helper (export it).
+
+## public/src/world/noise.js  (Phase: worldgen)
+- `export function makeNoise2D(seed)` and `export function makeNoise3D(seed)` returning `(x,y?,z)=>[-1,1]` value/perlin noise. Also `export function fbm2D(noise, x, z, octaves, lacunarity, gain)`. Deterministic from integer/string seed.
+
+## public/src/world/TerrainGenerator.js  (Phase: worldgen)
+- `export class TerrainGenerator { constructor(seed, dimension='overworld'){} generateChunk(cx, cz) -> Uint8Array(16*16*128) }`.
+- Overworld: biomes plains, forest, desert, mountains, snow, ocean chosen via temperature+humidity noise; height via fbm; water up to SEA_LEVEL; dirt/grass/sand/snow surface; stone below; bedrock at y=0; caves (3D noise threshold); ore veins (coal/iron common low, gold/diamond deep); trees in plains/forest (log+leaves), cactus in desert.
+- `dimension='nether'`: netherrack, lava seas ~y31, soul sand patches, glowstone, low ceiling, no sky.
+- `dimension='end'`: floating end_stone islands over void, sparse.
+- Must be deterministic from seed.
+
+## public/src/engine/Chunk.js  (Phase: engine)
+- `export class Chunk { constructor(cx, cz){ this.data=Uint8Array(16*16*128) } get(x,y,z) set(x,y,z,id) }` (LOCAL coords 0..15 / 0..127). `key` helper `chunkKey(cx,cz)`.
+
+## public/src/engine/World.js  (Phase: engine)
+- `export class World { constructor(generator){} getBlock(x,y,z)->id  setBlock(x,y,z,id)  getChunk(cx,cz)  ensureChunk(cx,cz)  hasChunk() }`. Handles out-of-range y as air/solid-bottom. `setBlock` marks the affected chunk(s) dirty (and neighbor chunks if on a border) via a `dirtyChunks` Set of keys.
+
+## public/src/engine/ChunkMesher.js  (Phase: engine)
+- `export function buildChunkMesh(world, cx, cz, atlas) -> { opaque: THREE.BufferGeometry|null, transparent: THREE.BufferGeometry|null }`. Use GREEDY MESHING or at minimum face-culling (skip faces between two opaque blocks). Per-face UVs from `atlas.tileUV(tileName)` for the correct face (top/bottom/side). Include per-vertex AO or face shading (top brightest, sides mid, bottom dark) baked into a color attribute. Water/glass/leaves go in the `transparent` geometry. Positions are in WORLD space (offset by cx*16, cz*16) so meshes can be added directly to the scene.
+
+## public/src/engine/ChunkRenderer.js  (Phase: engine)
+- `export class ChunkRenderer { constructor(scene, world, atlas){} update(playerPos, renderDistance)  rebuild(cx,cz)  dispose() }` — loads/unloads chunk meshes around the player, rebuilds dirty chunks, applies frustum culling (rely on THREE frustum via mesh.frustumCulled=true), uses a MeshLambert/Standard material with `map: atlas.texture, vertexColors:true` for opaque and a transparent material for water/glass.
+
+## public/src/engine/Sky.js  (Phase: engine)
+- `export class Sky { constructor(scene){} update(timeOfDay /*0..1*/) }` — gradient sky color, sun + moon directional lights, hemisphere/ambient light, animated clouds (simple). Day/night cycle drives colors.
+
+## public/src/gameplay/physics.js  (Phase: gameplay)
+- `export function moveAndCollide(world, aabb, velocity, dt) -> {position, onGround}` AABB-vs-voxel swept collision. Player AABB ~0.6×1.8×0.6.
+
+## public/src/gameplay/Player.js  (Phase: gameplay)
+- `export class Player { constructor(world, camera){ position, velocity, onGround, flying } update(dt, input)  respawn() }` — gravity, jump, sprint, creative flight toggle (double-tap space), applies physics via physics.js, mounts camera at eye height.
+
+## public/src/gameplay/Controls.js  (Phase: gameplay)
+- `export class Controls { constructor(domElement, camera){} input // {forward,back,left,right,jump,sprint,sneak,mouseDX,mouseDY} lock() unlock() }` — pointer lock, WASD, mouse look (yaw/pitch), space/shift, keys for hotbar 1-9, scroll wheel, E, Esc. Expose an event emitter or callbacks for: break, place, selectSlot(i), toggleInventory, togglePause, toggleFlight.
+
+## public/src/gameplay/raycast.js  (Phase: gameplay)
+- `export function raycastVoxel(world, origin, dir, maxDist) -> { hit:bool, x,y,z (block hit), nx,ny,nz (adjacent empty for placement), face }` DDA voxel raycast.
+
+## public/src/gameplay/Inventory.js  (Phase: gameplay)
+- `export class Inventory { slots[9], selected, creativeBlocks[] }` hotbar + selection.
+
+## public/src/dimensions/dimensions.js  (Phase: dimensions)
+- `export const DIMENSIONS = { overworld, nether, end }` each `{ id, name, fog, skyType, portalBlock }`. `export function portalTarget(current)`.
+
+## public/src/net/NetClient.js  (Phase: multiplayer)
+- `export class NetClient { connect(url, worldId, name){} onState(cb) onPeerMove(cb) onEdit(cb) onChat(cb) sendMove(pos,yaw,pitch) sendEdit(x,y,z,id) sendChat(text) }` WebSocket wrapper. Protocol JSON messages `{t:'join'|'move'|'edit'|'chat'|'peers'|'welcome', ...}`.
+
+## public/src/ui/*  (Phase: ui)
+- `hud.js` (crosshair, hotbar render, health), `debug.js` (F3 overlay: fps, xyz, chunk, biome, facing), `chat.js`, `inventory.js` (E screen, creative block palette), `menu.js` (main menu, settings, world select, pause), `hotbar.js`. Each exports init/update functions operating on DOM elements defined in index.html.
+
+## public/src/main.js  (Phase: integration)
+- Bootstraps everything: creates renderer/camera/scene, atlas, world+generator, player, controls, chunk renderer, sky, UI, net. Runs the requestAnimationFrame loop. Wires menu → start world → game. THIS FILE is written during integration; module authors must NOT edit it (except the integration agent).
+
+## Server: server/index.js  (Phase: multiplayer)
+- Express serves `public/` statically. `ws` WebSocket server on same HTTP server at path `/ws`. REST: `GET /api/worlds`, `POST /api/worlds` (create {name,seed}), `GET /api/worlds/:id`, `PUT /api/worlds/:id` (save edits). World rooms broadcast join/move/edit/chat. Persist worlds to `saves/<id>.json` as `{id,name,seed,createdAt,edits:{"x,y,z":id}}`. Default port 3000 (env PORT).
+
+## Style
+- Modern ES2020+. No TypeScript. Clear names. Small focused modules. Every module is independently importable and side-effect free except main.js and server.

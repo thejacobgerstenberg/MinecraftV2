@@ -1,0 +1,31 @@
+{
+  "name": "voxelheim",
+  "version": "0.1.0",
+  "description": "Voxelheim - a browser-based voxel sandbox game",
+  "type": "module",
+  "private": true,
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node server/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thejacobgerstenberg/MinecraftV2.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.2.1",
+    "three": "^0.185.1",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.61.1"
+  }
+}
