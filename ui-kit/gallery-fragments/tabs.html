@@ -1,0 +1,43 @@
+<section class="lf-gallery-section" id="gallery-tabs" aria-labelledby="gallery-tabs-h">
+  <h2 class="lf-h2" id="gallery-tabs-h">Tabs</h2>
+
+  <figure>
+    <figcaption class="lf-h3">Default — second tab selected (gold edge marker + heading color)</figcaption>
+    <lf-tabs selected="1" label="Create world options">
+      <section data-tab-label="Game">
+        <p>Game rules live here: mode, difficulty, cheats.</p>
+      </section>
+      <section data-tab-label="World">
+        <p>World options: seed, world type, generate structures.</p>
+      </section>
+      <section data-tab-label="More">
+        <p>Extras: data packs, experiments.</p>
+      </section>
+    </lf-tabs>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Hover — an unselected tab shows the hover face (raised bg + heading color)</figcaption>
+    <lf-tabs selected="0" label="Hover demo tabs" data-demo-hover>
+      <section data-tab-label="Game"><p>Selected panel content.</p></section>
+      <section data-tab-label="World"><p>Hovered tab's hidden panel.</p></section>
+    </lf-tabs>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Active (pressed) — tab nudges down 1px</figcaption>
+    <lf-tabs selected="0" label="Active demo tabs" data-demo-active>
+      <section data-tab-label="Game"><p>Selected panel content.</p></section>
+      <section data-tab-label="World"><p>Pressed tab's hidden panel.</p></section>
+    </lf-tabs>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Disabled tab — dimmed, skipped by arrow-key navigation. Focus: Tab to the list and use Left/Right arrows; Enter/Space activates (ring via :focus-visible).</figcaption>
+    <lf-tabs selected="0" label="Disabled demo tabs">
+      <section data-tab-label="Game"><p>Selected panel content.</p></section>
+      <section data-tab-label="World"><p>Reachable panel.</p></section>
+      <section data-tab-label="Experiments" data-tab-disabled><p>Locked panel.</p></section>
+    </lf-tabs>
+  </figure>
+</section>

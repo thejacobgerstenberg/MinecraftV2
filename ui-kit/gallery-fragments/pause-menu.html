@@ -1,0 +1,19 @@
+<section class="lf-gallery-section" id="gallery-pause-menu" aria-labelledby="gallery-pause-menu-h">
+  <h2 class="lf-h2" id="gallery-pause-menu-h">Pause menu</h2>
+  <p class="lf-text-sm lf-text-dim">Centered stack over the screen-dim backdrop; the world keeps rendering behind it (the demo's <code>static</code> mode paints a warpwold-ramp stand-in). Escape emits <code>lf-back</code> (pops exactly one level); every button emits <code>lf-action</code>. Tab to any button to see the token focus ring.</p>
+
+  <figure>
+    <figcaption class="lf-h3">Default — primary "Back to Game" CTA, half-row Advancements | Statistics, Settings, Save &amp; Quit</figcaption>
+    <lf-pause-menu open static></lf-pause-menu>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Hover — <code>data-demo-hover</code> forwarded to the primary button (brighter gold face, ≥5% pixel delta)</figcaption>
+    <lf-pause-menu open static data-demo-hover></lf-pause-menu>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Active (pressed) — <code>data-demo-active</code> on the primary button</figcaption>
+    <lf-pause-menu open static data-demo-active heading="Game Paused"></lf-pause-menu>
+  </figure>
+</section>

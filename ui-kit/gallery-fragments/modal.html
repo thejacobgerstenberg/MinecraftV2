@@ -1,0 +1,39 @@
+<section class="lf-gallery-section" id="gallery-modal" aria-labelledby="gallery-modal-h">
+  <h2 class="lf-h2" id="gallery-modal-h">Modal</h2>
+  <p class="lf-text-sm lf-text-dim">All demos use the <code>static</code> attribute so the dialog renders in-flow for screenshots. Live modals are fixed over a screen-dim backdrop, trap Tab, close on Escape (cancelable lf-close), and return focus to the invoker.</p>
+
+  <figure>
+    <figcaption class="lf-h3">Default — confirm (primary gold CTA) + Cancel</figcaption>
+    <lf-modal static open heading="Save and quit?" confirm-label="Save &amp; Quit" cancel-label="Cancel">
+      <p>Your world will be written to disk before returning to the title screen.</p>
+    </lf-modal>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Destructive confirm — danger button: secondary face, error label, frayed-X glyph (shape cue, never hue alone) with explicit Cancel</figcaption>
+    <lf-modal static open danger heading="Delete world?" confirm-label="Delete" cancel-label="Cancel">
+      <p>&ldquo;Warp Meadow&rdquo; will be gone for good. This cannot be undone.</p>
+    </lf-modal>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Hover — confirm button shows the brighter hover face</figcaption>
+    <lf-modal static open heading="Apply texture pack?" confirm-label="Apply" cancel-label="Cancel" data-demo-hover>
+      <p>The Cartoon pack will hot-swap without a reload.</p>
+    </lf-modal>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Active (pressed) — confirm button nudges down 1px</figcaption>
+    <lf-modal static open heading="Apply texture pack?" confirm-label="Apply" cancel-label="Cancel" data-demo-active>
+      <p>The Cartoon pack will hot-swap without a reload.</p>
+    </lf-modal>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Body-only modal (no footer attributes) — dismiss via Escape. Focus: Tab cycles inside the open dialog (focus trap); ring via :focus-visible.</figcaption>
+    <lf-modal static open heading="Controls">
+      <p>Move with WASD. Press E for inventory, T for chat, F3 for debug.</p>
+    </lf-modal>
+  </figure>
+</section>

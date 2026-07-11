@@ -1,0 +1,33 @@
+<section class="lf-gallery-section" id="gallery-statbars" aria-labelledby="gallery-statbars-h">
+  <h2 class="lf-h2" id="gallery-statbars-h">Statbars</h2>
+  <p class="lf-text-sm lf-text-dim">
+    Health (kite shard), armor (loom-shield), hunger (drumstick) &mdash; each stat has its own
+    silhouette, so rows never rely on hue alone. One pip = 2 points; odd values fill the left
+    half. A screen-reader status region reads "Health 14 of 20. Armor 8 of 20. Hunger 16 of 20."
+  </p>
+
+  <figure>
+    <figcaption class="lf-h3">Default &mdash; health 14/20, armor 8/20, hunger 16/20 (note half pips)</figcaption>
+    <lf-statbars health="14" armor="8" hunger="16"></lf-statbars>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Full &mdash; armor row hidden at 0 (conditional row)</figcaption>
+    <lf-statbars health="20" armor="0" hunger="20"></lf-statbars>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Odd values everywhere &mdash; 13 / 7 / 9 (half-pip position cue)</figcaption>
+    <lf-statbars health="13" armor="7" hunger="9"></lf-statbars>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Low health (auto [low]): pulse + fray-knot triangle glyph</figcaption>
+    <lf-statbars health="4" armor="2" hunger="6"></lf-statbars>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Damage flash ([damaged]): jitter + brighten on the health row</figcaption>
+    <lf-statbars health="9" armor="5" hunger="12" damaged></lf-statbars>
+  </figure>
+</section>

@@ -1,0 +1,118 @@
+/* =========================================================================
+   Loomfall UI Kit — lf-statbars
+   Requires tokens.css + base.css. Colors via var(--lf-*) tokens ONLY.
+   Stat identity = SHAPE first (kite shard / shield / drumstick), color
+   second; half pips are a left-half positional cue; low health = pulse +
+   fray-knot triangle glyph. Reduced motion handled globally by base.css.
+   States: [damaged] (flash), [low] (pulse + glyph), armor row hidden at 0.
+   ========================================================================= */
+
+lf-statbars {
+  display: inline-block;
+}
+
+lf-statbars .lf-statbars__rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lf-space-1);
+}
+
+lf-statbars .lf-statbars__row {
+  display: flex;
+  align-items: center;
+  gap: var(--lf-space-2);
+}
+
+lf-statbars .lf-statbars__pips {
+  display: flex;
+  gap: 2px;
+}
+
+/* Per-stat fill colors (shape already differs per stat). */
+lf-statbars .lf-statbars__row--health { --lf-stat-fill: var(--lf-accent-madder); }
+lf-statbars .lf-statbars__row--armor  { --lf-stat-fill: var(--lf-accent-hemstone-cyan); }
+lf-statbars .lf-statbars__row--hunger { --lf-stat-fill: var(--lf-accent-weld); }
+
+/* ---- Pips: base (empty socket) + fill layer, stacked ---------------------- */
+lf-statbars .lf-statbars__pip {
+  position: relative;
+  width: calc(var(--lf-space-4) + 2px);  /* 18px on the 4/8 rhythm */
+  height: calc(var(--lf-space-4) + 2px);
+}
+
+lf-statbars .lf-statbars__pip-base,
+lf-statbars .lf-statbars__pip-fill {
+  position: absolute;
+  inset: 0;
+}
+
+lf-statbars .lf-statbars__pip svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Empty socket: translucent void body + dim stitch outline, so the row
+   reads over any world background (luminance edge, not hue). */
+lf-statbars .lf-statbars__pip-base svg path {
+  fill: color-mix(in srgb, var(--lf-brand-void) 55%, transparent);
+  stroke: var(--lf-color-text-dim);
+  stroke-width: 1;
+}
+
+/* Fill layer: stat color + light muslin seam for a luminance edge
+   (1.2 seam gives margin vs the empty socket in colorblind sims). */
+lf-statbars .lf-statbars__pip-fill svg path {
+  fill: var(--lf-stat-fill);
+  stroke: var(--lf-brand-muslin);
+  stroke-width: 1.2;
+}
+
+lf-statbars .lf-statbars__pip[data-fill="empty"] .lf-statbars__pip-fill {
+  display: none;
+}
+
+/* Half pip: LEFT half filled — position cue, not a color change. */
+lf-statbars .lf-statbars__pip[data-fill="half"] .lf-statbars__pip-fill {
+  clip-path: inset(0 50% 0 0);
+}
+
+/* ---- Low-health warning: fray-knot triangle (shape) + pulse (motion) ----- */
+lf-statbars .lf-statbars__warn {
+  display: inline-flex;
+  width: calc(var(--lf-space-4) + 2px);
+  height: calc(var(--lf-space-4) + 2px);
+  color: var(--lf-status-warn);
+  filter: drop-shadow(1px 1px 0 var(--lf-brand-void));
+}
+
+/* display:inline-flex above would beat the UA [hidden] rule — restore it. */
+lf-statbars .lf-statbars__warn[hidden] {
+  display: none;
+}
+
+lf-statbars .lf-statbars__warn svg {
+  width: 100%;
+  height: 100%;
+}
+
+lf-statbars[low] .lf-statbars__row--health .lf-statbars__pips {
+  animation: lf-statbars-pulse 1.1s var(--lf-ease) infinite;
+}
+
+@keyframes lf-statbars-pulse {
+  0%, 100% { transform: translateY(0); filter: none; }
+  50% { transform: translateY(-1px); filter: brightness(1.35); }
+}
+
+/* ---- Damage flash: brief jitter + brighten on the health row ------------- */
+lf-statbars[damaged] .lf-statbars__row--health {
+  animation: lf-statbars-damage 0.55s steps(2, jump-none) 2;
+}
+
+@keyframes lf-statbars-damage {
+  0% { transform: translate(0, 0); filter: brightness(1); }
+  25% { transform: translate(-2px, 1px); filter: brightness(1.8); }
+  50% { transform: translate(2px, -1px); filter: brightness(1.4); }
+  75% { transform: translate(-1px, -1px); filter: brightness(1.8); }
+  100% { transform: translate(0, 0); filter: brightness(1); }
+}

@@ -1,0 +1,22 @@
+<section class="lf-gallery-section" id="gallery-world-select" aria-labelledby="gallery-world-select-h">
+  <h2 class="lf-h2" id="gallery-world-select-h">World select</h2>
+  <p class="lf-text-sm lf-text-dim">Listbox of world cards. Selection = 2px knotlight LUMINANCE frame (survives all three colorblind sims — never a hue-only recolor). Keyboard: Up/Down move + select, Enter plays, <kbd>E</kbd> edits, Delete opens the destructive-confirm modal (explicit Cancel — no dead ends), Escape / Back emits <code>lf-back</code>. Right/Left rove within the focused card — card &rarr; Play &rarr; Edit &rarr; Delete (Enter/Space activates, Escape returns to the card) — while the card stays the list's only Tab stop. Double-click a card to play; the action row is revealed on hover, selection, or focus. Cards are <code>role="option"</code> only inside the listbox; standalone cards expose <code>role="group"</code> named by the world.</p>
+
+  <figure>
+    <figcaption class="lf-h3">List — selected card (luminance frame + visible actions), hover card (<code>data-demo-hover</code>: raised face + action row with error-colored Delete paired with frayed-X glyph), default card; one thumbnail ramp per dimension</figcaption>
+    <lf-world-select label="Worlds">
+      <lf-world-card name="Warp Meadow" mode="Survival" played="2 days ago" ramp="warpwold" selected></lf-world-card>
+      <lf-world-card name="Cinder Depths" mode="Hardcore" played="3 weeks ago" ramp="cinderloom" data-demo-hover></lf-world-card>
+      <lf-world-card name="Nevermend Reach" mode="Creative" played="yesterday" ramp="nevermend"></lf-world-card>
+    </lf-world-select>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Standalone cards — default / selected / hover (long name truncates with ellipsis). Outside a <code>role="listbox"</code> these are <code>role="group"</code>, never orphan options</figcaption>
+    <div class="lf-stack">
+      <lf-world-card name="Fresh Loom" mode="Survival" played="just now" ramp="warpwold"></lf-world-card>
+      <lf-world-card name="The Long Warp of the Western Hemstones and Other Tales" mode="Creative" played="4 months ago" ramp="nevermend" selected></lf-world-card>
+      <lf-world-card name="Ember Terrace" mode="Hardcore" played="1 hour ago" ramp="cinderloom" data-demo-hover></lf-world-card>
+    </div>
+  </figure>
+</section>

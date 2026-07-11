@@ -1,0 +1,238 @@
+/* =========================================================================
+   Loomfall UI Kit — tokens.css
+   GENERATED FILE — do not edit by hand.
+   Source of truth: brand/palette.json ("Light Through the Warp")
+   Regenerate: node scratchpad/gen-tokens.mjs <palette.json> <tokens.css>
+   Dark theme is the :root default; light theme via [data-theme="light"].
+   Rule: component CSS uses var(--lf-*) only — never raw hex.
+   ========================================================================= */
+
+:root {
+  /* ==== Brand — theme-independent ==================================== */
+  --lf-brand-primary: #F2C14E;          /* Everthread Gold */
+  --lf-brand-primary-glow: #FFDE8A;
+  --lf-brand-primary-pale: #FFF6DF;
+  --lf-brand-primary-deep-ochre: #6E4E07;
+  --lf-brand-secondary: #4A3670;        /* Duskwarp Violet */
+  --lf-brand-secondary-lift: #A48FD4;
+  --lf-brand-secondary-mid: #61539E;
+  --lf-brand-secondary-deep: #292050;
+  --lf-brand-void: #14101F;             /* Void Ink — never pure black */
+  --lf-brand-muslin: #EDE7DA;           /* Unbleached Muslin — never pure white */
+
+  /* ==== Brand accents ================================================= */
+  --lf-accent-warp-green: #5F8A46;
+  --lf-accent-dye-indigo: #35509E;
+  --lf-accent-madder: #B03A52;
+  --lf-accent-weld: #D9B93A;
+  --lf-accent-knotlight: #FFDE8A;
+  --lf-accent-hemstone-cyan: #9CC8D6;
+
+  /* ==== Dimension ramps (world palettes, 8 stops each) =============== */
+  --lf-ramp-warpwold-0: #2C3247;
+  --lf-ramp-warpwold-1: #355040;
+  --lf-ramp-warpwold-2: #436844;
+  --lf-ramp-warpwold-3: #5F8A46;
+  --lf-ramp-warpwold-4: #87AB4C;
+  --lf-ramp-warpwold-5: #B8BC5E;
+  --lf-ramp-warpwold-6: #E4D68A;
+  --lf-ramp-warpwold-7: #F6ECC8;
+  --lf-ramp-cinderloom-0: #191210;
+  --lf-ramp-cinderloom-1: #33221B;
+  --lf-ramp-cinderloom-2: #55291E;
+  --lf-ramp-cinderloom-3: #8A3220;
+  --lf-ramp-cinderloom-4: #C24A20;
+  --lf-ramp-cinderloom-5: #E8722A;
+  --lf-ramp-cinderloom-6: #F7A93E;
+  --lf-ramp-cinderloom-7: #FFDF96;
+  --lf-ramp-nevermend-0: #0C0A16;
+  --lf-ramp-nevermend-1: #181330;
+  --lf-ramp-nevermend-2: #292050;
+  --lf-ramp-nevermend-3: #453672;
+  --lf-ramp-nevermend-4: #61539E;
+  --lf-ramp-nevermend-5: #7F7BC2;
+  --lf-ramp-nevermend-6: #9CC8D6;
+  --lf-ramp-nevermend-7: #DDF3F0;
+
+  /* ==== WCAG-verified fg/bg pairs (palette.json ui.pairs) ============ */
+  /* Use when you need a guaranteed-contrast combination regardless of   */
+  /* active theme (e.g. tooltips are a dark loom-room card in BOTH).     */
+  --lf-pair-dark-text-body-fg: #EDE7DA; --lf-pair-dark-text-body-bg: #221B33; /* >=4.5:1 — body text on panel (dark) */
+  --lf-pair-dark-text-body-root-fg: #EDE7DA; --lf-pair-dark-text-body-root-bg: #14101F; /* >=4.5:1 — body text on root (dark) */
+  --lf-pair-dark-text-heading-fg: #F7F2E4; --lf-pair-dark-text-heading-bg: #14101F; /* >=4.5:1 — headings on root (dark) */
+  --lf-pair-dark-text-dim-fg: #B4AAC9; --lf-pair-dark-text-dim-bg: #221B33; /* >=4.5:1 — secondary/dim text on panel (dark) */
+  --lf-pair-dark-link-fg: #F2C14E; --lf-pair-dark-link-bg: #221B33; /* >=4.5:1 — links on panel (dark); underline always on */
+  --lf-pair-dark-link-hover-fg: #FFDE8A; --lf-pair-dark-link-hover-bg: #221B33; /* >=4.5:1 — link hover (dark) */
+  --lf-pair-dark-button-primary-fg: #1B1528; --lf-pair-dark-button-primary-bg: #F2C14E; /* >=4.5:1 — primary CTA — void-ink label on Everthread gold */
+  --lf-pair-dark-button-primary-hover-fg: #14101F; --lf-pair-dark-button-primary-hover-bg: #FFDE8A; /* >=4.5:1 — primary CTA hover — brighten bg, deepen label (>=5% pixel diff) */
+  --lf-pair-dark-button-secondary-fg: #F4EFE3; --lf-pair-dark-button-secondary-bg: #3B3158; /* >=4.5:1 — secondary button label (dark) */
+  --lf-pair-dark-warn-fg: #FFD24A; --lf-pair-dark-warn-bg: #221B33; /* >=4.5:1 — warning text + fray-knot triangle glyph (dark) */
+  --lf-pair-dark-error-fg: #FF8578; --lf-pair-dark-error-bg: #221B33; /* >=4.5:1 — error text + frayed-X glyph (dark) */
+  --lf-pair-dark-success-fg: #A3E060; --lf-pair-dark-success-bg: #221B33; /* >=4.5:1 — success/XP text + stitch-check glyph (dark) */
+  --lf-pair-dark-info-fg: #A9CBF0; --lf-pair-dark-info-bg: #221B33; /* >=4.5:1 — info/water text + droplet glyph (dark); hue ~213, not cyan */
+  --lf-pair-dark-hud-fg: #F7F2E4; --lf-pair-dark-hud-bg: #14101F; /* >=4.5:1 — HUD values; over world, 1px #14101F outline carries contrast */
+  --lf-pair-dark-input-fg: #EDE7DA; --lf-pair-dark-input-bg: #1A1430; /* >=4.5:1 — input text (dark) */
+  --lf-pair-dark-placeholder-fg: #8E84A8; --lf-pair-dark-placeholder-bg: #1A1430; /* >=4.5:1 — input placeholder (dark) */
+  --lf-pair-dark-tooltip-fg: #EDE7DA; --lf-pair-dark-tooltip-bg: #100C1B; /* >=4.5:1 — tooltip text — dark loom-room card */
+  --lf-pair-dark-focus-ring-fg: #FFD24A; --lf-pair-dark-focus-ring-bg: #14101F; /* >=3:1 — focus ring vs root (dark); non-text indicator */
+  --lf-pair-dark-icon-fg: #CFC6E0; --lf-pair-dark-icon-bg: #221B33; /* >=3:1 — UI glyphs/icons on panel (dark); non-text */
+  --lf-pair-light-text-body-fg: #2A2338; --lf-pair-light-text-body-bg: #E4DCC7; /* >=4.5:1 — body text on panel (light) */
+  --lf-pair-light-text-body-root-fg: #2A2338; --lf-pair-light-text-body-root-bg: #EFE9DB; /* >=4.5:1 — body text on root (light) */
+  --lf-pair-light-text-heading-fg: #1B1528; --lf-pair-light-text-heading-bg: #EFE9DB; /* >=4.5:1 — headings on root (light) */
+  --lf-pair-light-text-dim-fg: #5B5370; --lf-pair-light-text-dim-bg: #E4DCC7; /* >=4.5:1 — secondary/dim text on panel (light) */
+  --lf-pair-light-link-fg: #6E4E07; --lf-pair-light-link-bg: #EFE9DB; /* >=4.5:1 — links (light) — Everthread darkened to ochre; underline always on */
+  --lf-pair-light-link-hover-fg: #4A3670; --lf-pair-light-link-hover-bg: #EFE9DB; /* >=4.5:1 — link hover (light) — duskwarp violet */
+  --lf-pair-light-button-primary-fg: #1B1528; --lf-pair-light-button-primary-bg: #F2C14E; /* >=4.5:1 — primary CTA — same gold thread in both themes */
+  --lf-pair-light-button-secondary-fg: #F4EFE3; --lf-pair-light-button-secondary-bg: #463668; /* >=4.5:1 — secondary button label (light) */
+  --lf-pair-light-warn-fg: #7A4E00; --lf-pair-light-warn-bg: #E4DCC7; /* >=4.5:1 — warning text + fray-knot triangle glyph (light) */
+  --lf-pair-light-error-fg: #9C2A1D; --lf-pair-light-error-bg: #E4DCC7; /* >=4.5:1 — error text + frayed-X glyph (light) */
+  --lf-pair-light-success-fg: #38601A; --lf-pair-light-success-bg: #E4DCC7; /* >=4.5:1 — success/XP text + stitch-check glyph (light) */
+  --lf-pair-light-info-fg: #2C517E; --lf-pair-light-info-bg: #E4DCC7; /* >=4.5:1 — info/water text + droplet glyph (light) */
+  --lf-pair-light-hud-fg: #1B1528; --lf-pair-light-hud-bg: #EFE9DB; /* >=4.5:1 — HUD values (light) */
+  --lf-pair-light-input-fg: #2A2338; --lf-pair-light-input-bg: #FBF7ED; /* >=4.5:1 — input text (light) */
+  --lf-pair-light-placeholder-fg: #6E6683; --lf-pair-light-placeholder-bg: #FBF7ED; /* >=4.5:1 — input placeholder (light) */
+  --lf-pair-light-tooltip-fg: #F4EFE3; --lf-pair-light-tooltip-bg: #2A2338; /* >=4.5:1 — tooltip — inverts to dark loom-room card in light theme */
+  --lf-pair-light-focus-ring-fg: #463668; --lf-pair-light-focus-ring-bg: #EFE9DB; /* >=3:1 — focus ring vs root (light); non-text indicator */
+  --lf-pair-light-icon-fg: #4E4566; --lf-pair-light-icon-bg: #E4DCC7; /* >=3:1 — UI glyphs/icons on panel (light); non-text */
+
+  /* ==== Kit scales (spacing / radii / z / focus / type / motion) ===== */
+  /* -- Spacing: 8px rhythm (half-step 4px for tight pixel UI) -------- */
+  --lf-space-0: 0;
+  --lf-space-1: 4px;   /* half step */
+  --lf-space-2: 8px;   /* base unit */
+  --lf-space-3: 12px;
+  --lf-space-4: 16px;
+  --lf-space-5: 24px;
+  --lf-space-6: 32px;
+  --lf-space-7: 48px;
+  --lf-space-8: 64px;
+
+  /* -- Radii (kept small: woven/pixel aesthetic, crisp hems) --------- */
+  --lf-radius-none: 0;
+  --lf-radius-sm: 2px;
+  --lf-radius-md: 4px;
+  --lf-radius-lg: 8px;
+  --lf-radius-pill: 999px;
+
+  /* -- Z-index scale (mirrors UX_SPEC 0.1 layering) ------------------ */
+  --lf-z-canvas: 0;
+  --lf-z-overlay: 5;    /* full-viewport overlays (vignettes, dim) */
+  --lf-z-hud: 10;       /* HUD anchor containers */
+  --lf-z-screen: 20;    /* screen stack (menus, inventory, modal screens) */
+  --lf-z-toast: 30;     /* toast rack, top-right */
+  --lf-z-tooltip: 40;   /* tooltips/popovers float above everything */
+
+  /* -- Focus ring geometry (color is themed, below) ------------------ */
+  --lf-focus-ring-width: 2px;
+  --lf-focus-ring-offset: 1px;
+  --lf-focus-ring: var(--lf-focus-ring-width) solid var(--lf-color-focus-ring);
+
+  /* -- Type: system stacks only (no webfonts) ------------------------ */
+  --lf-font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --lf-font-mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --lf-font-display: var(--lf-font-ui);
+
+  /* -- Type scale (px so game gp/scale math stays integer-friendly) -- */
+  --lf-text-xs: 11px;
+  --lf-text-sm: 13px;
+  --lf-text-md: 15px;   /* body default */
+  --lf-text-lg: 18px;
+  --lf-text-xl: 24px;
+  --lf-text-2xl: 32px;
+  --lf-leading: 1.45;
+  --lf-leading-tight: 1.2;
+
+  /* -- Motion ---------------------------------------------------------- */
+  --lf-dur-fast: 120ms;
+  --lf-dur-med: 200ms;
+  --lf-dur-slow: 320ms;
+  --lf-ease: cubic-bezier(0.2, 0, 0.2, 1);
+
+  /* -- Borders / hems --------------------------------------------------- */
+  --lf-border-width: 1px;
+  --lf-border-hem: var(--lf-border-width) solid var(--lf-color-border-hem);
+}
+
+/* ==== Theme: DARK (default) ==== */
+:root {
+  --lf-color-bg-root: #14101F;
+  --lf-color-bg-panel: #221B33;
+  --lf-color-bg-raised: #2E2645;
+  --lf-color-bg-input: #1A1430;
+  --lf-color-bg-tooltip: #100C1B;
+  --lf-color-border-hem: #6A5F8C;
+  --lf-color-text-body: #EDE7DA;
+  --lf-color-text-heading: #F7F2E4;
+  --lf-color-text-dim: #B4AAC9;
+  --lf-color-text-disabled: #6E6584;
+  --lf-color-link: #F2C14E;
+  --lf-color-link-hover: #FFDE8A;
+  --lf-color-button-primary-bg: #F2C14E;
+  --lf-color-button-primary-fg: #1B1528;
+  --lf-color-button-primary-hover-bg: #FFDE8A;
+  --lf-color-button-primary-hover-fg: #14101F;
+  --lf-color-button-secondary-bg: #3B3158;
+  --lf-color-button-secondary-fg: #F4EFE3;
+  --lf-color-button-secondary-hover-bg: #4B3F70;
+  --lf-color-button-disabled-bg: #282239;
+  --lf-color-warn: #FFD24A;
+  --lf-color-error: #FF8578;
+  --lf-color-success: #A3E060;
+  --lf-color-info: #A9CBF0;
+  --lf-color-input-text: #EDE7DA;
+  --lf-color-input-placeholder: #8E84A8;
+  --lf-color-tooltip-text: #EDE7DA;
+  --lf-color-focus-ring: #FFD24A;
+  --lf-color-icon-glyph: #CFC6E0;
+  --lf-color-screen-dim: rgb(20 16 31 / 0.55);
+  --lf-color-hud-shadow: #14101F;
+  /* status aliases */
+  --lf-status-warn: var(--lf-color-warn);
+  --lf-status-error: var(--lf-color-error);
+  --lf-status-success: var(--lf-color-success);
+  --lf-status-info: var(--lf-color-info);
+}
+
+/* ==== Theme: LIGHT (opt-in via data-theme="light" on :root or a subtree) ==== */
+[data-theme="light"] {
+  --lf-color-bg-root: #EFE9DB;
+  --lf-color-bg-panel: #E4DCC7;
+  --lf-color-bg-raised: #F7F2E6;
+  --lf-color-bg-input: #FBF7ED;
+  --lf-color-bg-tooltip: #2A2338;
+  --lf-color-border-hem: #B9AE94;
+  --lf-color-text-body: #2A2338;
+  --lf-color-text-heading: #1B1528;
+  --lf-color-text-dim: #5B5370;
+  --lf-color-text-disabled: #8A8270;
+  --lf-color-link: #6E4E07;
+  --lf-color-link-hover: #4A3670;
+  --lf-color-button-primary-bg: #F2C14E;
+  --lf-color-button-primary-fg: #1B1528;
+  --lf-color-button-primary-hover-bg: #FFDE8A;
+  --lf-color-button-primary-hover-fg: #14101F;
+  --lf-color-button-secondary-bg: #463668;
+  --lf-color-button-secondary-fg: #F4EFE3;
+  --lf-color-button-secondary-hover-bg: #574680;
+  --lf-color-button-disabled-bg: #C9C2B2;
+  --lf-color-warn: #7A4E00;
+  --lf-color-error: #9C2A1D;
+  --lf-color-success: #38601A;
+  --lf-color-info: #2C517E;
+  --lf-color-input-text: #2A2338;
+  --lf-color-input-placeholder: #6E6683;
+  --lf-color-tooltip-text: #F4EFE3;
+  --lf-color-focus-ring: #463668;
+  --lf-color-icon-glyph: #4E4566;
+  --lf-color-screen-dim: rgb(20 16 31 / 0.45);
+  --lf-color-hud-shadow: #EFE9DB;
+  /* status aliases */
+  --lf-status-warn: var(--lf-color-warn);
+  --lf-status-error: var(--lf-color-error);
+  --lf-status-success: var(--lf-color-success);
+  --lf-status-info: var(--lf-color-info);
+}
+
+/* color-scheme hints for form controls / scrollbars */
+:root { color-scheme: dark; }
+[data-theme="light"] { color-scheme: light; }

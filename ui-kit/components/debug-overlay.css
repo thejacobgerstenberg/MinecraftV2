@@ -1,0 +1,103 @@
+/* =========================================================================
+   Loomfall UI Kit — lf-debug-overlay
+   F3-style monospace two-column readout on translucent void-ink strips.
+   Text uses the theme-independent dark HUD pair (light text + void-ink
+   shadow) because the strip itself is screen-dim in BOTH themes.
+   Colors from tokens only.
+   ========================================================================= */
+
+lf-debug-overlay {
+  display: none;
+}
+
+lf-debug-overlay[open] {
+  display: flex;
+  position: fixed;
+  top: var(--lf-space-2);
+  left: var(--lf-space-2);
+  right: var(--lf-space-2);
+  z-index: var(--lf-z-hud);
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--lf-space-6);
+  pointer-events: none;
+  font-family: var(--lf-font-mono);
+  font-size: var(--lf-text-xs);
+  line-height: var(--lf-leading-tight);
+  /* Theme-independent: readout sits over the 3D world in both themes. */
+  color: var(--lf-pair-dark-hud-fg);
+  text-shadow: 1px 1px 0 var(--lf-brand-void);
+}
+
+/* Gallery/demo mode: render in-flow for screenshots. */
+lf-debug-overlay[open][static] {
+  position: static;
+  pointer-events: auto;
+}
+
+lf-debug-overlay .lf-debug-overlay__col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lf-space-2);
+  max-width: 46ch;
+}
+
+/* Right column right-aligns like the classic F3 system column. */
+lf-debug-overlay .lf-debug-overlay__col:last-child {
+  align-items: flex-end;
+  text-align: right;
+}
+
+/* Strip base: translucent VOID INK (not the themed screen-dim) so the
+   light text keeps >=4.5:1 whatever sits behind — world or light page. */
+lf-debug-overlay .lf-debug-overlay__title {
+  font-weight: 700;
+  color: var(--lf-brand-primary-glow);
+  background: color-mix(in srgb, var(--lf-brand-void) 80%, transparent);
+  padding: var(--lf-space-1) var(--lf-space-2);
+  width: max-content;
+}
+
+lf-debug-overlay .lf-debug-overlay__section {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+lf-debug-overlay .lf-debug-overlay__section-title {
+  color: var(--lf-accent-knotlight);
+  background: color-mix(in srgb, var(--lf-brand-void) 80%, transparent);
+  padding: var(--lf-space-1) var(--lf-space-2) 0;
+  width: max-content;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+lf-debug-overlay .lf-debug-overlay__col:last-child .lf-debug-overlay__section-title,
+lf-debug-overlay .lf-debug-overlay__col:last-child .lf-debug-overlay__row {
+  margin-left: auto;
+}
+
+lf-debug-overlay .lf-debug-overlay__row {
+  display: flex;
+  gap: var(--lf-space-2);
+  background: color-mix(in srgb, var(--lf-brand-void) 80%, transparent);
+  padding: 1px var(--lf-space-2);
+  width: max-content;
+  max-width: 100%;
+}
+
+lf-debug-overlay .lf-debug-overlay__key {
+  color: var(--lf-pair-dark-text-dim-fg);
+  min-width: 10ch;
+}
+
+lf-debug-overlay .lf-debug-overlay__key::after {
+  content: ':';
+}
+
+lf-debug-overlay .lf-debug-overlay__val {
+  color: var(--lf-pair-dark-hud-fg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

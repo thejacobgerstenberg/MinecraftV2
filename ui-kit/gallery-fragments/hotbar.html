@@ -1,0 +1,50 @@
+<section class="lf-gallery-section" id="gallery-hotbar" aria-labelledby="gallery-hotbar-h">
+  <h2 class="lf-h2" id="gallery-hotbar-h">Hotbar</h2>
+  <p class="lf-text-sm lf-text-dim">
+    9-slot toolbar. Selection = stitched knotlight border + notch marker (luminance + shape,
+    survives all colorblind projections). Number keys 1&ndash;9, arrows, wheel and click all select.
+    Tab into the bar to see the focus ring on a slot.
+  </p>
+
+  <figure>
+    <figcaption class="lf-h3">Default &mdash; slot 1 selected, item-name popup pinned</figcaption>
+    <lf-hotbar selected="0" show-label>
+      <lf-item-slot item="Warpstone" count="12"></lf-item-slot>
+      <lf-item-slot item="Loomwood Plank" count="64" swatch="warpwold-5"></lf-item-slot>
+      <lf-item-slot item="Everthread Pick" rarity="rare" durability="0.7" swatch="nevermend-5"></lf-item-slot>
+      <lf-item-slot item="Cinder Lantern" rarity="uncommon" swatch="cinderloom-5"></lf-item-slot>
+      <lf-item-slot item="Knotlight Charm" rarity="epic" swatch="cinderloom-6"></lf-item-slot>
+      <lf-item-slot item="Hemstone" count="3" swatch="nevermend-6"></lf-item-slot>
+    </lf-hotbar>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Rarity-colored item-name popup &mdash; rare item selected, popup pinned (rarity word appended: non-hue cue)</figcaption>
+    <lf-hotbar selected="2" show-label>
+      <lf-item-slot item="Warpstone" count="12"></lf-item-slot>
+      <lf-item-slot item="Loomwood Plank" count="64" swatch="warpwold-5"></lf-item-slot>
+      <lf-item-slot item="Everthread Pick" rarity="rare" durability="0.7" swatch="nevermend-5"></lf-item-slot>
+      <lf-item-slot item="Cinder Lantern" rarity="uncommon" swatch="cinderloom-5"></lf-item-slot>
+      <lf-item-slot item="Knotlight Charm" rarity="epic" swatch="cinderloom-6"></lf-item-slot>
+    </lf-hotbar>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Hover on slot 2 (demo) + selected slot 3</figcaption>
+    <lf-hotbar selected="2">
+      <lf-item-slot item="Warpstone" count="12"></lf-item-slot>
+      <lf-item-slot item="Loomwood Plank" count="64" swatch="warpwold-5" data-demo-hover></lf-item-slot>
+      <lf-item-slot item="Everthread Pick" rarity="rare" durability="0.7" swatch="nevermend-5"></lf-item-slot>
+      <lf-item-slot item="Madder Dye" count="7" swatch="cinderloom-4"></lf-item-slot>
+    </lf-hotbar>
+  </figure>
+
+  <figure>
+    <figcaption class="lf-h3">Active press (demo), a disabled (locked) slot, and empties</figcaption>
+    <lf-hotbar selected="8">
+      <lf-item-slot item="Warpstone" count="12" data-demo-active></lf-item-slot>
+      <lf-item-slot item="Sealed Relic" rarity="epic" swatch="nevermend-3" disabled></lf-item-slot>
+      <lf-item-slot item="Weld Blossom" swatch="warpwold-6"></lf-item-slot>
+    </lf-hotbar>
+  </figure>
+</section>

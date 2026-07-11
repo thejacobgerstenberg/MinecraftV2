@@ -1,0 +1,86 @@
+/* =========================================================================
+   Loomfall UI Kit — lf-pause-menu
+   Centered button stack on a screen-dim backdrop; the world keeps
+   rendering behind it. Colors from tokens only.
+   [static] = gallery/demo mode: in-flow over a placeholder world ramp.
+   ========================================================================= */
+
+lf-pause-menu {
+  display: none;
+}
+
+lf-pause-menu[open] {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: var(--lf-z-screen);
+}
+
+lf-pause-menu .lf-pause-menu__backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--lf-color-screen-dim);
+}
+
+/* Gallery/demo mode: contained block with a warpwold-ramp stand-in for
+   the still-rendering world underneath the dim. */
+lf-pause-menu[open][static] {
+  position: relative;
+  inset: auto;
+  min-height: 420px;
+  border-radius: var(--lf-radius-md);
+  overflow: hidden;
+  background:
+    linear-gradient(
+      180deg,
+      var(--lf-ramp-warpwold-6) 0%,
+      var(--lf-ramp-warpwold-4) 38%,
+      var(--lf-ramp-warpwold-2) 62%,
+      var(--lf-ramp-warpwold-0) 100%
+    );
+}
+
+lf-pause-menu .lf-pause-menu__panel {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--lf-space-4);
+  width: min(320px, calc(100vw - var(--lf-space-6)));
+}
+
+/* Title floats on the dim: theme-independent light text + void shadow
+   (same rule as HUD text over the world). */
+lf-pause-menu .lf-pause-menu__title {
+  color: var(--lf-pair-dark-hud-fg);
+  text-shadow: 1px 1px 0 var(--lf-brand-void);
+  text-align: center;
+}
+
+lf-pause-menu .lf-pause-menu__stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lf-space-2);
+  width: 100%;
+}
+
+lf-pause-menu .lf-pause-menu__row {
+  display: flex;
+  gap: var(--lf-space-2);
+  width: 100%;
+}
+
+/* Buttons stretch: full-width rows; the half-row (Advancements|Statistics)
+   splits evenly. */
+lf-pause-menu .lf-pause-menu__row > lf-button {
+  flex: 1 1 0;
+  display: flex;
+}
+
+lf-pause-menu .lf-pause-menu__row > lf-button > .lf-button__face {
+  width: 100%;
+  justify-content: center;
+}
