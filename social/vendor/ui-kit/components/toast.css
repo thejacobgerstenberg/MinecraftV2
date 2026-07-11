@@ -1,0 +1,134 @@
+/* =========================================================================
+   Loomfall UI Kit — lf-toast / lf-toast-rack
+   Notification cards. Status is signalled by glyph + color (never hue
+   alone): info=droplet, success=stitch-check, warn=fray-knot triangle,
+   error=frayed-X. Colors from tokens only.
+   Every :hover rule doubled with [data-demo-hover]; :active with
+   [data-demo-active] (gallery convention).
+   ========================================================================= */
+
+/* ---- Rack: fixed top-right stack, max 3 visible (JS queues extras) ---- */
+lf-toast-rack {
+  position: fixed;
+  top: var(--lf-space-3);
+  right: var(--lf-space-3);
+  z-index: var(--lf-z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: var(--lf-space-2);
+  width: 320px;
+  max-width: calc(100vw - var(--lf-space-5));
+  pointer-events: none; /* only the cards themselves catch the pointer */
+}
+
+lf-toast-rack lf-toast {
+  pointer-events: auto;
+}
+
+/* Gallery/demo mode: in-flow, screenshot-friendly. */
+lf-toast-rack[static] {
+  position: static;
+  z-index: auto;
+}
+
+/* ---- Card -------------------------------------------------------------- */
+lf-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--lf-space-2);
+  width: 320px;
+  max-width: 100%;
+  background: var(--lf-color-bg-raised);
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-md);
+  padding: var(--lf-space-2) var(--lf-space-2) var(--lf-space-2) var(--lf-space-3);
+  color: var(--lf-color-text-body);
+  box-shadow: 0 var(--lf-space-1) var(--lf-space-3) var(--lf-color-screen-dim);
+  transition: opacity var(--lf-dur-med) var(--lf-ease),
+    transform var(--lf-dur-med) var(--lf-ease);
+}
+
+lf-toast[hidden] {
+  display: none;
+}
+
+lf-toast[leaving] {
+  opacity: 0;
+  transform: translateX(var(--lf-space-3));
+}
+
+/* Status accent: colored left hem (position cue) + glyph color. */
+lf-toast .lf-toast__glyph {
+  flex: none;
+  display: inline-flex;
+  margin-top: 2px;
+}
+
+lf-toast:not([status]) .lf-toast__glyph,
+lf-toast[status="info"] .lf-toast__glyph { color: var(--lf-status-info); }
+lf-toast[status="success"] .lf-toast__glyph { color: var(--lf-status-success); }
+lf-toast[status="warn"] .lf-toast__glyph { color: var(--lf-status-warn); }
+lf-toast[status="error"] .lf-toast__glyph { color: var(--lf-status-error); }
+
+lf-toast:not([status]),
+lf-toast[status="info"] { box-shadow: inset 3px 0 0 0 var(--lf-status-info), 0 var(--lf-space-1) var(--lf-space-3) var(--lf-color-screen-dim); }
+lf-toast[status="success"] { box-shadow: inset 3px 0 0 0 var(--lf-status-success), 0 var(--lf-space-1) var(--lf-space-3) var(--lf-color-screen-dim); }
+lf-toast[status="warn"] { box-shadow: inset 3px 0 0 0 var(--lf-status-warn), 0 var(--lf-space-1) var(--lf-space-3) var(--lf-color-screen-dim); }
+lf-toast[status="error"] { box-shadow: inset 3px 0 0 0 var(--lf-status-error), 0 var(--lf-space-1) var(--lf-space-3) var(--lf-color-screen-dim); }
+
+lf-toast .lf-toast__content {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+lf-toast .lf-toast__heading {
+  font-weight: 700;
+  font-size: var(--lf-text-sm);
+  line-height: var(--lf-leading-tight);
+  color: var(--lf-color-text-heading);
+  margin-bottom: 2px;
+}
+
+lf-toast .lf-toast__heading[hidden],
+lf-toast .lf-toast__message[hidden] {
+  display: none;
+}
+
+lf-toast .lf-toast__message {
+  font-size: var(--lf-text-sm);
+  line-height: var(--lf-leading);
+  color: var(--lf-color-text-body);
+}
+
+/* ---- Dismiss button ----------------------------------------------------- */
+lf-toast .lf-toast__dismiss {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  min-width: var(--lf-hit-min, 24px);
+  min-height: var(--lf-hit-min, 24px);
+  padding: 0;
+  border: 0;
+  border-radius: var(--lf-radius-sm);
+  background: none;
+  color: var(--lf-color-icon-glyph);
+  cursor: pointer;
+  transition: background-color var(--lf-dur-fast) var(--lf-ease),
+    color var(--lf-dur-fast) var(--lf-ease);
+}
+
+lf-toast .lf-toast__dismiss:hover,
+lf-toast .lf-toast__dismiss[data-demo-hover] {
+  background: var(--lf-color-bg-panel);
+  color: var(--lf-color-text-heading);
+}
+
+lf-toast .lf-toast__dismiss:active,
+lf-toast .lf-toast__dismiss[data-demo-active] {
+  background: var(--lf-color-bg-panel);
+  color: var(--lf-color-text-heading);
+  transform: translateY(1px);
+}

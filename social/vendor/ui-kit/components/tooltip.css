@@ -1,0 +1,97 @@
+/* =========================================================================
+   Loomfall UI Kit — lf-tooltip
+   Dark loom-room card in BOTH themes: --lf-color-bg-tooltip /
+   --lf-color-tooltip-text already invert correctly per theme.
+   Visibility is driven by the host [open] attribute (hover + focus + demo).
+   ========================================================================= */
+
+lf-tooltip {
+  position: relative;
+  display: inline-block;
+}
+
+lf-tooltip .lf-tooltip__bubble {
+  position: absolute;
+  z-index: var(--lf-z-tooltip);
+  max-width: 260px;
+  width: max-content;
+  background: var(--lf-color-bg-tooltip);
+  color: var(--lf-color-tooltip-text);
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-md);
+  padding: var(--lf-space-1) var(--lf-space-2);
+  font-size: var(--lf-text-sm);
+  line-height: var(--lf-leading);
+  pointer-events: none; /* never interactive content inside */
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--lf-dur-fast) var(--lf-ease),
+    visibility var(--lf-dur-fast) var(--lf-ease);
+}
+
+lf-tooltip[open] .lf-tooltip__bubble {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Stitch-arrow: a small rotated square in the card color, hemmed. */
+lf-tooltip .lf-tooltip__bubble::after {
+  content: "";
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: var(--lf-color-bg-tooltip);
+  border-right: var(--lf-border-hem);
+  border-bottom: var(--lf-border-hem);
+}
+
+/* ---- Placements (default: top) ---------------------------------------- */
+lf-tooltip:not([placement]) .lf-tooltip__bubble,
+lf-tooltip[placement="top"] .lf-tooltip__bubble {
+  bottom: calc(100% + var(--lf-space-2));
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+lf-tooltip:not([placement]) .lf-tooltip__bubble::after,
+lf-tooltip[placement="top"] .lf-tooltip__bubble::after {
+  top: 100%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+lf-tooltip[placement="bottom"] .lf-tooltip__bubble {
+  top: calc(100% + var(--lf-space-2));
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+lf-tooltip[placement="bottom"] .lf-tooltip__bubble::after {
+  bottom: 100%;
+  left: 50%;
+  transform: translate(-50%, 50%) rotate(-135deg);
+}
+
+lf-tooltip[placement="right"] .lf-tooltip__bubble {
+  left: calc(100% + var(--lf-space-2));
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+lf-tooltip[placement="right"] .lf-tooltip__bubble::after {
+  right: 100%;
+  top: 50%;
+  transform: translate(50%, -50%) rotate(135deg);
+}
+
+lf-tooltip[placement="left"] .lf-tooltip__bubble {
+  right: calc(100% + var(--lf-space-2));
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+lf-tooltip[placement="left"] .lf-tooltip__bubble::after {
+  left: 100%;
+  top: 50%;
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
