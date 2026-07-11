@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loomfall.game/ux/schemas/captions.schema.json",
+  "title": "Loomfall sound captions (subtitles)",
+  "description": "Schema for captions.json — the caption table the captions overlay (ux/captions/) uses to subtitle audio-engine events. 'sound' keys are the EXACT registered names from audio/sfx/index.js (see audio/README.md 'Sound names'), or wildcard patterns. Wildcard convention: a '*' replaces exactly one dot-separated segment ('step.*' matches step.stone..step.wool; 'mob.*.hurt' matches all archetypes' hurt). A trailing '*' matches ONE trailing segment, not many. Resolution: the entry with the most literal (non-*) segments wins; on a tie, the later entry in the array wins, so authors can put broad rules first and overrides after. Sounds with no matching entry are silently uncaptioned. Music modes (calm, nether, upbeat, melancholy, mysterious) are captionable under the 'music.<mode>' pseudo-key emitted by the game shell when startMusic runs — the engine itself has no music.* play() keys.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "captions"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "type": "integer", "const": 1 },
+    "captions": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/caption" }
+    }
+  },
+  "$defs": {
+    "caption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sound", "text", "category"],
+      "properties": {
+        "sound": {
+          "type": "string",
+          "description": "Exact audio-engine key ('break.stone', 'ui.click', 'thunder.distant', 'mob.groaner.death') or a one-segment-per-* wildcard pattern ('place.*', 'mob.exploder.*', 'mob.*.idle'). Known key families: break/place/step x 11 materials, mob.<grazer|groaner|exploder|screecher|trader>.<idle|hurt|death>, splash, wind, cave, portal, rain, thunder, thunder.distant, ui.click, hurt, pop, door.open, door.close, chest.open, eat, drink, levelup, achievement, explosion, and the shell pseudo-keys music.<mode>.",
+          "pattern": "^([a-z][a-z0-9]*|\\*)(\\.([a-z][a-z0-9]*|\\*)){0,3}$"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Caption text as displayed, sentence case, no trailing period for sub-sentence cues (e.g. 'Footsteps', 'Thunder rumbles in the distance'). May contain the placeholder {material} or {mob} which the overlay fills from the matched wildcard segment's display name (naming.json) when present."
+        },
+        "category": {
+          "type": "string",
+          "enum": ["ambient", "mob", "action", "music", "alert"],
+          "description": "Visual grouping and default styling bucket: ambient (wind/cave/rain/splash beds), mob (creature voices), action (player-caused: break/place/step/ui/door/eat...), music (music.<mode> pseudo-keys and discs), alert (danger-relevant: thunder, explosion, exploder hiss, player hurt). Alert captions always pair the color cue with the fray-knot glyph per the kit's no-hue-only rule."
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "default": 5,
+          "description": "Higher wins. When the overlay's visible-line budget is full, lower-priority captions are dropped/evicted first; equal-priority evicts oldest. Guidance: alerts 8-10, mob 5-7, actions 3-5, ambient/music 1-2."
+        },
+        "durationMs": {
+          "type": "integer",
+          "minimum": 500,
+          "maximum": 15000,
+          "default": 3000,
+          "description": "How long the caption stays visible after the sound starts. For looped sounds (wind, cave, rain) the overlay re-arms the timer while the loop handle is alive, so this acts as the linger-after-stop time."
+        },
+        "directional": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true the overlay shows a direction indicator (left/right/behind chevrons derived from the sound's pos relative to the listener). Only meaningful for positional one-shots and mob voices; ambient beds and UI sounds should be false."
+        }
+      }
+    }
+  }
+}

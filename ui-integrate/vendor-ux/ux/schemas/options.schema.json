@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loomfall.game/ux/schemas/options.schema.json",
+  "title": "Loomfall accessibility & game options",
+  "description": "Schema for the options object the options screen (ux/options/) edits and the game shell persists. Persistence: merged into the existing localStorage 'loomfall.settings' object (menu.js SETTINGS_SPEC) — fov and the three volumes already exist there as fov/volumeMaster/volumeSfx/volumeMusic; this schema is the canonical UX-side shape, and the shell maps volumes.master->volumeMaster etc. on save/load. Propagation at runtime: see the architecture contract — document.documentElement dataset flags + CSS custom properties + a bubbling 'lf-options-change' CustomEvent. All properties have defaults; a valid file may be {} and consumers must fill defaults.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "colorblindMode": {
+      "type": "string",
+      "enum": ["none", "deuteranopia", "protanopia", "tritanopia"],
+      "default": "none",
+      "description": "Selects an alternate accent/status palette (token overrides under html[data-lf-cvd='<mode>']). Never the only channel: kit status cues already pair color with shape glyphs."
+    },
+    "uiScale": {
+      "type": "number",
+      "minimum": 0.75,
+      "maximum": 1.5,
+      "default": 1,
+      "multipleOf": 0.05,
+      "description": "Global HUD/menu scale factor. Applied as --lf-ui-scale on :root; kit sizes derive from rem so the shell sets font-size: calc(16px * var(--lf-ui-scale)) on html."
+    },
+    "reducedMotion": {
+      "type": "string",
+      "enum": ["system", "on", "off"],
+      "default": "system",
+      "description": "'system' defers to prefers-reduced-motion (base.css already collapses kit animations under the media query); 'on' forces the collapse via html[data-lf-reduced-motion='on']; 'off' forces animations on even if the OS asks otherwise."
+    },
+    "subtitles": {
+      "type": "boolean",
+      "default": false,
+      "description": "Master switch for the captions overlay (ux/captions/). When false the overlay unmounts entirely (no hidden live region churn)."
+    },
+    "fov": {
+      "type": "integer",
+      "minimum": 60,
+      "maximum": 110,
+      "default": 75,
+      "description": "Camera field of view in degrees. Mirrors menu.js SETTINGS_SPEC fov."
+    },
+    "volumes": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Bus gains forwarded to AudioEngine setMasterVolume/setSfxVolume/setMusicVolume (via GameAudio.setVolumes). Stored flat in loomfall.settings as volumeMaster/volumeSfx/volumeMusic.",
+      "properties": {
+        "master": { "type": "number", "minimum": 0, "maximum": 1, "default": 1 },
+        "sfx":    { "type": "number", "minimum": 0, "maximum": 1, "default": 1 },
+        "music":  { "type": "number", "minimum": 0, "maximum": 1, "default": 0.7 }
+      }
+    },
+    "difficulty": {
+      "type": "string",
+      "enum": ["gentle", "standard", "unraveling"],
+      "default": "standard",
+      "description": "Loomfall difficulty: gentle (reduced mob aggression/hunger drain), standard, unraveling (hard). Read by gameplay systems, not the UI layer; included here because the options screen owns the control."
+    }
+  }
+}

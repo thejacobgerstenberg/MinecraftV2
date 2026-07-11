@@ -1,0 +1,224 @@
+/* =========================================================================
+   Loomfall UX — <lf-keybinds>
+   Requires ui-kit/tokens.css + ui-kit/base.css (+ button.css, modal.css,
+   toast.css for the composed kit pieces). Colors via var(--lf-*) ONLY.
+
+   Non-hue state cues:
+     [capturing]  — dashed focus-ring hem + "Press a key…" text + pulse
+                    (pulse is motion-gated, see bottom).
+     [unbound]    — italic dim "Not bound" text.
+     row[conflict]— dashed error hem on the row + fray-knot triangle glyph
+                    beside the action name (shape + color, never hue alone).
+   ========================================================================= */
+
+lf-keybinds {
+  display: block;
+  font-family: var(--lf-font-ui);
+  color: var(--lf-color-text-body);
+}
+
+lf-keybinds .lf-keybinds__heading {
+  margin: 0 0 var(--lf-space-1);
+  font-size: var(--lf-text-lg);
+  line-height: var(--lf-leading-tight);
+  color: var(--lf-color-text-heading);
+}
+
+lf-keybinds .lf-keybinds__help {
+  margin: 0 0 var(--lf-space-4);
+  font-size: var(--lf-text-sm);
+  color: var(--lf-color-text-dim);
+}
+
+lf-keybinds .lf-keybinds__empty {
+  margin: 0;
+  font-size: var(--lf-text-sm);
+  color: var(--lf-color-text-dim);
+  font-style: italic;
+}
+
+/* Rows can get wide; scroll inside the panel, never the page. */
+lf-keybinds .lf-keybinds__scroller {
+  overflow-x: auto;
+}
+
+lf-keybinds .lf-keybinds__groups {
+  min-width: 532px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--lf-space-5);
+}
+
+lf-keybinds .lf-keybinds__group-name {
+  margin: 0 0 var(--lf-space-2);
+  font-size: var(--lf-text-md);
+  color: var(--lf-color-text-heading);
+  border-bottom: var(--lf-border-hem);
+  padding-bottom: var(--lf-space-1);
+}
+
+/* ---- Row grid ----------------------------------------------------------- */
+lf-keybinds .lf-keybinds__row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.5fr) repeat(3, minmax(104px, 1fr)) 36px;
+  gap: var(--lf-space-2);
+  align-items: center;
+  padding: var(--lf-space-1) var(--lf-space-2);
+  border-radius: var(--lf-radius-sm);
+  /* reserve hem space so the conflict border does not shift layout */
+  border: var(--lf-border-width) dashed transparent;
+}
+
+lf-keybinds .lf-keybinds__row--head {
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: var(--lf-text-xs);
+  color: var(--lf-color-text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+lf-keybinds .lf-keybinds__row:not(.lf-keybinds__row--head):nth-child(odd) {
+  background: var(--lf-color-bg-raised);
+}
+
+/* Conflict: dashed error hem + revealed fray-knot glyph (shape cue). */
+lf-keybinds .lf-keybinds__row[conflict] {
+  border-color: var(--lf-color-error);
+}
+
+lf-keybinds .lf-keybinds__conflict-glyph {
+  display: none;
+  color: var(--lf-color-warn);
+  flex: none;
+}
+
+lf-keybinds .lf-keybinds__row[conflict] .lf-keybinds__conflict-glyph {
+  display: inline-flex;
+}
+
+/* ---- Action name + note -------------------------------------------------- */
+lf-keybinds .lf-keybinds__name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+lf-keybinds .lf-keybinds__name-line {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--lf-space-1);
+  font-size: var(--lf-text-md);
+}
+
+lf-keybinds .lf-keybinds__note {
+  font-size: var(--lf-text-xs);
+  color: var(--lf-color-text-dim);
+  line-height: var(--lf-leading-tight);
+}
+
+/* ---- Bind buttons (keycap look) ------------------------------------------ */
+lf-keybinds .lf-keybinds__bind {
+  min-height: var(--lf-hit-min, 32px);
+  padding: var(--lf-space-1) var(--lf-space-2);
+  font-family: var(--lf-font-mono);
+  font-size: var(--lf-text-sm);
+  line-height: var(--lf-leading-tight);
+  color: var(--lf-color-input-text);
+  background: var(--lf-color-bg-input);
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-sm);
+  box-shadow: inset 0 -2px 0 color-mix(in oklab, var(--lf-color-bg-input), var(--lf-brand-void) 45%);
+  cursor: pointer;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background-color var(--lf-dur-fast) var(--lf-ease);
+}
+
+lf-keybinds .lf-keybinds__bind:hover {
+  background: var(--lf-color-bg-raised);
+}
+
+lf-keybinds .lf-keybinds__bind[unbound] {
+  color: var(--lf-color-text-dim);
+  font-style: italic;
+}
+
+lf-keybinds .lf-keybinds__bind[capturing] {
+  border: var(--lf-focus-ring-width) dashed var(--lf-color-focus-ring);
+  color: var(--lf-color-text-dim);
+  animation: lf-keybinds-pulse 1s var(--lf-ease) infinite alternate;
+}
+
+@keyframes lf-keybinds-pulse {
+  from {
+    box-shadow: inset 0 0 0 0 transparent;
+  }
+  to {
+    box-shadow: inset 0 0 0 2px var(--lf-color-focus-ring);
+  }
+}
+
+/* ---- Per-row reset (icon button) ----------------------------------------- */
+lf-keybinds .lf-keybinds__reset {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--lf-color-icon-glyph);
+  background: var(--lf-color-button-secondary-bg);
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-sm);
+  cursor: pointer;
+  transition: background-color var(--lf-dur-fast) var(--lf-ease);
+}
+
+lf-keybinds .lf-keybinds__reset:hover:not(:disabled) {
+  background: var(--lf-color-button-secondary-hover-bg);
+  color: var(--lf-color-button-secondary-fg);
+}
+
+lf-keybinds .lf-keybinds__reset:disabled {
+  background: var(--lf-color-button-disabled-bg);
+  color: var(--lf-color-text-disabled);
+  cursor: not-allowed;
+}
+
+/* ---- Footer --------------------------------------------------------------- */
+lf-keybinds .lf-keybinds__footer {
+  margin-top: var(--lf-space-5);
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Extra body button in the conflict modal. */
+lf-keybinds .lf-keybinds__modal-extra,
+lf-modal .lf-keybinds__modal-extra {
+  margin: var(--lf-space-3) 0 0;
+}
+
+/* ---- Motion gating (contract §5) ------------------------------------------
+   base.css already collapses everything under prefers-reduced-motion; the
+   forced override attribute must win in BOTH directions. */
+@media (prefers-reduced-motion: reduce) {
+  lf-keybinds .lf-keybinds__bind[capturing] {
+    animation: none;
+    box-shadow: inset 0 0 0 2px var(--lf-color-focus-ring);
+  }
+}
+
+html[data-lf-reduced-motion="on"] lf-keybinds .lf-keybinds__bind[capturing] {
+  animation: none !important;
+  box-shadow: inset 0 0 0 2px var(--lf-color-focus-ring);
+}
+
+html[data-lf-reduced-motion="off"] lf-keybinds .lf-keybinds__bind[capturing] {
+  animation: lf-keybinds-pulse 1s var(--lf-ease) infinite alternate !important;
+  animation-duration: 1s !important;
+  animation-iteration-count: infinite !important;
+}

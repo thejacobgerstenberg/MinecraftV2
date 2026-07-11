@@ -1,0 +1,7 @@
+/* =========================================================================
+   Loomfall UX — colorblind.css (alias)
+   The canonical file is ux/options/cvd.css (architecture contract §5).
+   This alias exists for shells wired against the older "colorblind.css"
+   name; it must never diverge — all rules live in cvd.css.
+   ========================================================================= */
+@import url("./cvd.css");

@@ -1,0 +1,155 @@
+/* =========================================================================
+   Loomfall UX — <lf-captions> sound-caption overlay
+   Fixed caption region docked to a viewport corner (default bottom-left),
+   pointer-transparent, HUD z-layer (below toasts).
+
+   Contrast: caption lines are a dark loom-room card in BOTH themes, so all
+   colors use the theme-INDEPENDENT --lf-pair-dark-* / brand tokens (same
+   strategy as the kit tooltip). No raw hex anywhere.
+
+   Category is never hue-only: each category pairs its color with a distinct
+   glyph shape (ambient=wind-waves, mob=pawprint, action=pick, music=note,
+   alert=fray-knot triangle) and alert lines add bold weight + a warn hem.
+   Direction is shape-carried via ◀ ▶ ▼ ▲ chevrons + screen-edge alignment
+   (see DIRECTIONAL.md).
+   ========================================================================= */
+
+lf-captions {
+  position: fixed;
+  z-index: var(--lf-z-hud);
+  width: 400px;
+  max-width: calc(100vw - var(--lf-space-6));
+  pointer-events: none; /* captions are read-only HUD */
+  font-family: var(--lf-font-ui);
+}
+
+/* ---- Corner docking (attribute-driven) --------------------------------- */
+lf-captions,
+lf-captions[corner="bottom-left"] {
+  left: var(--lf-space-4);
+  right: auto;
+  bottom: var(--lf-space-6);
+  top: auto;
+}
+lf-captions[corner="bottom-right"] {
+  left: auto;
+  right: var(--lf-space-4);
+  bottom: var(--lf-space-6);
+  top: auto;
+}
+lf-captions[corner="top-left"] {
+  left: var(--lf-space-4);
+  right: auto;
+  top: var(--lf-space-6);
+  bottom: auto;
+}
+lf-captions[corner="top-right"] {
+  left: auto;
+  right: var(--lf-space-4);
+  top: var(--lf-space-6);
+  bottom: auto;
+}
+
+lf-captions .lf-captions__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--lf-space-1);
+  align-items: flex-start; /* new lines join at the docked edge */
+}
+lf-captions[corner="bottom-right"] .lf-captions__list,
+lf-captions[corner="top-right"] .lf-captions__list {
+  align-items: flex-end;
+}
+
+/* ---- Caption line ------------------------------------------------------- */
+lf-captions .lf-captions__line {
+  display: flex;
+  align-items: center;
+  gap: var(--lf-space-2);
+  max-width: 100%;
+  background: var(--lf-pair-dark-tooltip-bg);
+  color: var(--lf-pair-dark-tooltip-fg);
+  border: var(--lf-border-width) solid var(--lf-brand-secondary-deep);
+  border-radius: var(--lf-radius-sm);
+  padding: var(--lf-space-1) var(--lf-space-2);
+  font-size: var(--lf-text-sm);
+  line-height: var(--lf-leading-tight);
+  opacity: 1;
+  transition: opacity var(--lf-dur-med) var(--lf-ease);
+  animation: lf-captions-in var(--lf-dur-med) var(--lf-ease);
+}
+
+@keyframes lf-captions-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--lf-space-1));
+  }
+}
+
+lf-captions .lf-captions__line[leaving] {
+  opacity: 0;
+}
+
+lf-captions .lf-captions__text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ---- Category glyph + color (shape carries the meaning too) ------------- */
+lf-captions .lf-captions__icon {
+  flex: none;
+  display: inline-flex;
+}
+lf-captions .lf-captions__line[data-category="ambient"] .lf-captions__icon { color: var(--lf-pair-dark-info-fg); }
+lf-captions .lf-captions__line[data-category="mob"]     .lf-captions__icon { color: var(--lf-brand-secondary-lift); }
+lf-captions .lf-captions__line[data-category="action"]  .lf-captions__icon { color: var(--lf-pair-dark-icon-fg); }
+lf-captions .lf-captions__line[data-category="music"]   .lf-captions__icon { color: var(--lf-accent-knotlight); }
+lf-captions .lf-captions__line[data-category="alert"]   .lf-captions__icon { color: var(--lf-pair-dark-warn-fg); }
+
+/* Alerts escalate beyond color: bold text + warn-colored hem. */
+lf-captions .lf-captions__line[data-category="alert"] {
+  border-color: var(--lf-pair-dark-warn-fg);
+  font-weight: 700;
+}
+
+/* Ambient/music beds sit back a little (still >=4.5:1 on the dark card). */
+lf-captions .lf-captions__line[data-category="ambient"],
+lf-captions .lf-captions__line[data-category="music"] {
+  color: var(--lf-pair-dark-text-body-fg);
+}
+
+/* ---- Directional chevrons + screen-edge alignment (DIRECTIONAL.md) ------ */
+lf-captions .lf-captions__dir {
+  flex: none;
+  font-size: var(--lf-text-xs);
+  color: var(--lf-pair-dark-hud-fg);
+}
+
+/* left / right sources hug their screen edge inside the caption column;
+   behind / front center themselves and wear chevrons on both edges. */
+lf-captions .lf-captions__line[data-direction="left"] { align-self: flex-start; }
+lf-captions .lf-captions__line[data-direction="right"] { align-self: flex-end; }
+lf-captions .lf-captions__line[data-direction="behind"],
+lf-captions .lf-captions__line[data-direction="front"] { align-self: center; }
+
+/* ---- Reduced motion ------------------------------------------------------
+   Collapse entry/exit fades under the system preference AND the forced
+   override html[data-lf-reduced-motion="on"]; restore under ="off".
+   (JS removal skips the transitionend wait in the same conditions.) */
+@media (prefers-reduced-motion: reduce) {
+  lf-captions .lf-captions__line {
+    animation: none;
+    transition: none;
+  }
+  html[data-lf-reduced-motion="off"] lf-captions .lf-captions__line {
+    animation: lf-captions-in var(--lf-dur-med) var(--lf-ease);
+    transition: opacity var(--lf-dur-med) var(--lf-ease);
+  }
+}
+html[data-lf-reduced-motion="on"] lf-captions .lf-captions__line {
+  animation: none;
+  transition: none;
+}

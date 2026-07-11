@@ -1,0 +1,280 @@
+/* =========================================================================
+   Loomfall UX — <lf-tutorial> coach-mark overlay
+   Tokens only (ui-kit/tokens.css); import order: tokens.css -> base.css ->
+   ui-kit component css (button/modal/toggle) -> this file.
+   ========================================================================= */
+
+lf-tutorial {
+  position: fixed;
+  inset: 0;
+  z-index: var(--lf-z-screen);
+  pointer-events: none; /* game input passes through; card/dialog opt in */
+  font-family: var(--lf-font-ui);
+}
+
+lf-tutorial:not([active]) {
+  display: none;
+}
+
+/* ---- Background dim (center-modal beats) ------------------------------ */
+.lf-tutorial__dim {
+  position: fixed;
+  inset: 0;
+  background: var(--lf-color-screen-dim);
+}
+
+.lf-tutorial__dim[hidden] {
+  display: none;
+}
+
+/* ---- Spotlight: stitched hem around the anchor; the huge box-shadow
+       dims everything EXCEPT the anchored element ----------------------- */
+.lf-tutorial__spot {
+  position: fixed;
+  border: 2px dashed var(--lf-brand-primary);
+  border-radius: var(--lf-radius-md);
+  box-shadow: 0 0 0 200vmax var(--lf-color-screen-dim);
+  pointer-events: none;
+  transition:
+    left var(--lf-dur-med) var(--lf-ease),
+    top var(--lf-dur-med) var(--lf-ease),
+    width var(--lf-dur-med) var(--lf-ease),
+    height var(--lf-dur-med) var(--lf-ease);
+}
+
+.lf-tutorial__spot[hidden] {
+  display: none;
+}
+
+/* ---- Coach-mark card --------------------------------------------------- */
+.lf-tutorial__card {
+  position: fixed;
+  box-sizing: border-box;
+  min-width: 240px;
+  max-width: 340px;
+  padding: var(--lf-space-4);
+  background: var(--lf-color-bg-panel);
+  color: var(--lf-color-text-body);
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-lg);
+  box-shadow: 0 8px 24px var(--lf-color-screen-dim);
+  pointer-events: auto;
+  animation: lf-tutorial-in var(--lf-dur-med) var(--lf-ease) both;
+}
+
+.lf-tutorial__card[hidden] {
+  display: none;
+}
+
+@keyframes lf-tutorial-in {
+  from {
+    opacity: 0;
+    translate: 0 4px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+.lf-tutorial__card--center {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  max-width: 420px;
+}
+
+.lf-tutorial__card--toast {
+  left: 50%;
+  bottom: var(--lf-space-6);
+  top: auto;
+  transform: translateX(-50%);
+}
+
+/* Final beat: vellum journal page. Colors are the WCAG-verified light
+   body pair so the page reads as parchment in BOTH themes. */
+.lf-tutorial__card--journal {
+  max-width: 520px;
+  background: var(--lf-pair-light-text-body-bg);
+  color: var(--lf-pair-light-text-body-fg);
+  border-color: var(--lf-brand-primary-deep-ochre);
+}
+
+.lf-tutorial__card--journal .lf-tutorial__title {
+  color: var(--lf-pair-light-text-heading-fg);
+}
+
+.lf-tutorial__card--journal .lf-tutorial__step,
+.lf-tutorial__card--journal .lf-tutorial__hint {
+  color: var(--lf-pair-light-text-dim-fg);
+}
+
+/* ---- Pointer arrow (hidden for center/toast/journal cards) ------------ */
+.lf-tutorial__arrow {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: var(--lf-color-bg-panel);
+  border: var(--lf-border-hem);
+  transform: rotate(45deg);
+  display: none;
+}
+
+.lf-tutorial__card[data-placement] .lf-tutorial__arrow {
+  display: block;
+}
+
+.lf-tutorial__card[data-placement='top'] .lf-tutorial__arrow {
+  bottom: -7px;
+  left: calc(var(--lf-tut-arrow-x, 50%) - 6px);
+  border-top: none;
+  border-left: none;
+}
+
+.lf-tutorial__card[data-placement='bottom'] .lf-tutorial__arrow {
+  top: -7px;
+  left: calc(var(--lf-tut-arrow-x, 50%) - 6px);
+  border-bottom: none;
+  border-right: none;
+}
+
+.lf-tutorial__card[data-placement='left'] .lf-tutorial__arrow {
+  right: -7px;
+  top: calc(var(--lf-tut-arrow-y, 50%) - 6px);
+  border-left: none;
+  border-bottom: none;
+}
+
+.lf-tutorial__card[data-placement='right'] .lf-tutorial__arrow {
+  left: -7px;
+  top: calc(var(--lf-tut-arrow-y, 50%) - 6px);
+  border-right: none;
+  border-top: none;
+}
+
+/* ---- Card content ------------------------------------------------------ */
+.lf-tutorial__step {
+  margin: 0 0 var(--lf-space-1);
+  font-size: var(--lf-text-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--lf-color-text-dim);
+}
+
+.lf-tutorial__title {
+  margin: 0 0 var(--lf-space-2);
+  font-size: var(--lf-text-lg);
+  line-height: var(--lf-leading-tight);
+  color: var(--lf-color-text-heading);
+}
+
+.lf-tutorial__body {
+  margin: 0;
+  font-size: var(--lf-text-md);
+  line-height: var(--lf-leading);
+}
+
+.lf-tutorial__keys {
+  white-space: nowrap;
+}
+
+.lf-tutorial__kbd {
+  font-family: var(--lf-font-mono);
+  font-size: var(--lf-text-xs);
+  padding: 1px var(--lf-space-1);
+  margin: 0 1px;
+  border: 1px solid var(--lf-color-border-hem);
+  border-bottom-width: 2px;
+  border-radius: var(--lf-radius-sm);
+  background: var(--lf-color-bg-raised);
+  color: var(--lf-color-text-heading);
+}
+
+.lf-tutorial__card--journal .lf-tutorial__kbd {
+  background: transparent;
+  border-color: currentColor;
+  color: inherit;
+}
+
+/* ---- Progress dots (state = size + fill, never hue alone) ------------- */
+.lf-tutorial__dots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--lf-space-1);
+  margin: var(--lf-space-3) 0 0;
+}
+
+.lf-tutorial__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--lf-radius-pill);
+  border: 1px solid var(--lf-color-text-dim);
+  background: transparent;
+  box-sizing: border-box;
+}
+
+.lf-tutorial__dot[data-state='done'] {
+  background: var(--lf-color-text-dim);
+}
+
+.lf-tutorial__dot[data-state='current'] {
+  width: 18px; /* elongated pill = shape cue for "you are here" */
+  background: var(--lf-brand-primary);
+  border-color: var(--lf-brand-primary-deep-ochre);
+}
+
+.lf-tutorial__card--journal .lf-tutorial__dot {
+  border-color: var(--lf-pair-light-text-dim-fg);
+}
+
+.lf-tutorial__card--journal .lf-tutorial__dot[data-state='done'] {
+  background: var(--lf-pair-light-text-dim-fg);
+}
+
+/* ---- Hint + actions ---------------------------------------------------- */
+.lf-tutorial__hint {
+  margin: var(--lf-space-2) 0 0;
+  font-size: var(--lf-text-sm);
+  font-style: italic;
+  color: var(--lf-color-text-dim);
+}
+
+.lf-tutorial__hint[hidden] {
+  display: none;
+}
+
+.lf-tutorial__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--lf-space-2);
+  margin-top: var(--lf-space-3);
+}
+
+.lf-tutorial__actions lf-button[hidden] {
+  display: none;
+}
+
+/* The skip-confirm dialog must accept pointer events despite the
+   pointer-events:none overlay root. */
+lf-tutorial lf-modal {
+  pointer-events: auto;
+}
+
+/* ---- Reduced motion (system preference AND forced override) ----------- */
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-lf-reduced-motion='off']) .lf-tutorial__card {
+    animation: none;
+  }
+
+  html:not([data-lf-reduced-motion='off']) .lf-tutorial__spot {
+    transition: none;
+  }
+}
+
+html[data-lf-reduced-motion='on'] .lf-tutorial__card {
+  animation: none !important;
+}
+
+html[data-lf-reduced-motion='on'] .lf-tutorial__spot {
+  transition: none !important;
+}
