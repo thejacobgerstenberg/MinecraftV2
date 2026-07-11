@@ -1,0 +1,208 @@
+{
+  "$comment": "Loomfall final encounter wiring. The Last Needle is not killed — it is bound, turned, and taught for a while to mend; the trigger id kill_entity:last_needle is retained for systems compatibility with achievements.json (id: taught_to_mend). Arena, gauntlet, and hazards mirror structures.json id eye_of_the_last_hem exactly. Prose/design companion: boss.md.",
+  "boss": {
+    "id": "last_needle",
+    "name": "The Last Needle",
+    "epithet": "The Ravelling Given Form",
+    "dimension": "nevermend",
+    "biome": "last_selvage",
+    "arena": {
+      "structure": "eye_of_the_last_hem",
+      "note": "Unique, exactly one per world, anchored to the selvage edge per structures.json spawnRules. The fighting floor is finished hem — unbreakable and unbuildable except at the prepared voidknot stitch-points ringing the arena, left by earlier Menders."
+    },
+    "gauntlet": {
+      "name": "The Approach Causeway",
+      "description": "Four Selvage Warden outposts stand the approach causeway. Each felled warden (kill_entity:selvage_warden; achievement argue_past_certainty on the first) lowers one strand of the everthread barrier-chords at the arena mouth. All four must fall before the eye opens.",
+      "outposts": 4,
+      "barrier": "everthread barrier-chords, one lowered per outpost cleared"
+    },
+    "arenaFeatures": {
+      "floor": "Concentric bands of finished hem that unravel and re-knit on a cycle; unravelled bands drop to the Loosened Dark below.",
+      "stitchPoints": "Prepared voidknot stitch-points ring the arena — the only places a Mender can lay emergency footing when a band unravels. Not the Needle's work, nor the Weaver's: Menders came this far before you, and left what they could.",
+      "beaconPyres": "Mothdust_brick beacon-pyres at the four cardinal points; lit, each grants a brief safe zone the Needle's sweeps will not cross.",
+      "bindingAnvil": "A single everthread stitch-point at the center — the binding-anvil where the encounter resolves. Requires an everthread_needle (items.json) to work."
+    },
+    "summonRequirement": "all_of[ kill_count:selvage_warden:4 (scope: the four causeway outposts of structure eye_of_the_last_hem; each felled warden lowers one strand of the everthread barrier-chords at the arena mouth; the first kill fires the existing achievement argue_past_certainty via its canonical trigger kill_entity:selvage_warden), structure_unlocked:eye_of_the_last_hem (per structures.json spawnRules — approach_with_everthread_gear OR ride_spoolmare_in:nevermend), set_anchor (scope: evaluated only within the 199x199 footprint of eye_of_the_last_hem; the anchor is set by placing a knotlight on any prepared voidknot stitch-point and knotting to it) ] — no composite trigger string is required: each condition is an individually-evaluable canonical trigger or structure predicate, checked in order by arena-local logic. The encounter begins the instant the anchor-knot is tied. A new permanence, declared at the rim of everything, on the Ravelling's own doorstep: it is the one provocation the Last Needle is constitutionally unable to ignore, and it comes to unpick it.",
+    "stats": {
+      "hp": 800,
+      "defense": "Unwoundable along its length — the shaft takes 0 from every weapon, arrow, and hazard; no knockback, no fire, no status. Damage lands only through the Eye (a 3x3x3 hitbox) during defined exposure windows: 4s after every Hemstroke dive and 5s after every Seam-Rip drag (Phase 1), 3s after every Wide Unweaving plus automatic weapon damage x3 when passing through the Eye during Threading the Dark (Phase 2). Weapon damage versus the Eye per melee hit: needle_iron 4, dawnthread 6, everthread 8 (ranged bolts land at tier value minus 2); hit cadence 1 per 0.8s; each exposure window caps at 48 damage, and total damage clamps at every phase-boundary hp value (480, 120) so no window or bind-chain can skip a phase. In Phase 2 only, each bind_block completed inside the arena strikes for 8 through all defenses (max 10 such binds counted per phase; clamped at 120 hp). From 120 hp (15%) the Needle is fully immune to all damage: the last 120 hp can only be sewn off, 15 per stitch, eight stitches, the eighth drawn taut through the central everthread binding-anvil. It cannot be killed. kill_entity:last_needle fires at the anvil when the eighth stitch is drawn taut."
+    },
+    "phases": [
+      {
+        "index": 1,
+        "name": "The Long Unpicking",
+        "hpRange": "100%-60%",
+        "description": "The Needle does not deign to land — at first. It circles the Eye of the Last Hem at horizon distance, a hairline of dawnthread-pale light longer than the sky, and strikes the ring in long passes the way a seamstress strikes cloth: without anger, without pause, correcting a flaw. Wounded through the Eye, it stops circling and comes down to work at close hand — dragging its point through the ring like a stitch being torn out, seizing the floor cycle and conducting it while Ravelers slough off its length to spend the Mender's work back into the void. The player learns the fight's grammar here: read the drawn line, watch the fraylight, keep a stitch-point in reach, bridge and bind under fire, and hit the Eye in the windows each stroke leaves behind.",
+        "attacks": [
+          {
+            "id": "hemstroke",
+            "name": "Hemstroke",
+            "description": "The Needle dives through the ring along a straight chord, converting every floor block on that line to loose thread for 20 seconds and hurling anyone standing on it. Cooldown 12s; the phase's metronome while the Needle still circles.",
+            "damage": 6,
+            "telegraph": "A taut silver thread draws itself glowing across the floor exactly 2 seconds before the dive, and the Thrum rises a note.",
+            "counterplay": "Step two blocks off the drawn line. A knotlight bound in Bindwax on a perimeter stitch-point is never converted — the eight stitch-points are the phase's fixed safe squares. After the dive the Eye is exposed at the exit point for 4 seconds (up to 5 melee hits, window cap 48): this is your main damage window early in the phase."
+          },
+          {
+            "id": "drawn_thread",
+            "name": "Drawn Thread",
+            "description": "A single filament loops the Mender's torso and reels them, one block per second, toward the rim — faster once they cross into band E's loosened gravity. Cooldown 15s. It deals no damage at all: the Needle's opening argument is not that you will be hurt, but that you will be removed, gently, like a stray thread from a sleeve.",
+            "damage": 0,
+            "telegraph": "The Thrum drops to a low sawing note and a visible thread settles around you; the pull begins after 1.5 seconds.",
+            "counterplay": "Strike the filament (it parts to one hit from any needle_iron-or-better tool), stand on a stitch-point you have knotlighted and sneak to hold fast, or let a bonded spoolmare shear it as she passes. Doing nothing is how Menders leave this fight without ever dying to damage."
+          },
+          {
+            "id": "seam_rip",
+            "name": "Seam-Rip",
+            "description": "Once the Needle comes down to close work, it plants its point and drags a tear clear across the ring, forcing every floor band it crosses open out-of-cycle and holding them open until their next re-knit. Cooldown 20s. Nothing is permanent — the hem always re-knits — but for those long seconds the arena is mostly sky.",
+            "damage": 8,
+            "telegraph": "The point dips and touches the floor; red fraylight races ahead of it along the coming tear line for 2.5 seconds.",
+            "counterplay": "Cross the fraylight line before the drag or commit to one side and bridge: emergency footing stitch-points accept voidknot or hemstone, and a bound placement rides out every later unweaving. The Eye lies low and exposed for 5 seconds at the end of every drag (window cap 48) — the phase's richest damage window, and the first one melee reaches without a sprint."
+          },
+          {
+            "id": "shed_of_ravelers",
+            "name": "Shed of Ravelers",
+            "description": "The Needle shakes its length and four Ravelers slough off it, drifting straight for stitch-point placements, held items, and the perimeter knotlights. What they carry over the rim is deleted from the record, not dropped. Cooldown 25s. Kills fire kill_entity:raveler and its achievements as normal.",
+            "damage": 3,
+            "telegraph": "Loose thread visibly gathers and knots along the Needle's shaft for 3 seconds before dropping.",
+            "counterplay": "Kill them before they reach the rim and they drop everything they took. A Raveler takes 5 seconds to work a placement loose — a bound one it cannot take at all. Bind your perimeter knotlights between waves; you will want all eight alive in the final phase, and a lost one can always be re-placed on its stitch-point."
+          }
+        ],
+        "mechanics": [
+          "Eye exposure: 4 seconds at every Hemstroke exit while the Needle circles; 5 seconds at the end of every Seam-Rip once it comes down to close work; all other damage refused; window damage cap 48; phase-boundary clamp at 480 hp",
+          "Floor cycle escalates within the phase: one band open at a time on a 24s cycle at the start (3s fraylight telegraph, 9s open, 12s re-knit; band E exempt), conducted up to two bands at once on an 18s cycle — with Seam-Rip forcing bands open out of turn and band E entering the rotation — once the Needle lands",
+          "The Bindwax rule is established: a bound knotlight or bound stitch-point placement survives every unweaving effect in the fight, without exception — the arena teaches the counter-language before it demands it",
+          "Raveler theft is real loss: items and placements carried over the rim are gone from the record — but the floor itself always re-knits; the fight steals your resources, never its own winnability",
+          "Recommended homework this phase: knotlight the perimeter stitch-points (up to 8, anchor included) and bind them as bindwax allows; the fight never says why yet, which is the point",
+          "Phase length at everthread weapon-tier: roughly 7-10 Eye windows, 3-5 minutes"
+        ],
+        "transition": "Wounded to 480 hp, the Needle stops treating the Mender as a flaw in the cloth and starts treating them as THE flaw — and the Ravelling stops being an opponent and becomes the weather."
+      },
+      {
+        "index": 2,
+        "name": "The Weather of Endings",
+        "hpRange": "60%-15%",
+        "description": "The Needle stops treating the Mender as a flaw in the cloth and starts treating them as the flaw — the one thread refusing to lie down. The Ravelling stops being an opponent and becomes the weather: the Thrum gutters, unbound work dissolves in pulses, and the only safe ground is ground the player has declared permanent or light the player has lit. The revelation of the phase is that Binding is not just defense — every stitch of Bindwax worked inside the Eye of the Last Hem is an argument the Needle must stop and answer, and it bleeds for each one.",
+        "attacks": [
+          {
+            "id": "wide_unweaving",
+            "name": "The Wide Unweaving",
+            "description": "A ring-wide pulse every 40 seconds exactly, unravelling every unbound stitch-point placement at once and setting a fraying on every Mender caught outside sanctuary — 4 damage over 4 seconds as their own threads loosen. The Eye hangs spent and exposed for 3 seconds after each pulse.",
+            "damage": 4,
+            "telegraph": "The Thrum — faint everywhere in the waking world, loud only in the raw places, and never before silent — goes completely dead for exactly 3 seconds. The silence IS the telegraph.",
+            "counterplay": "Be standing on a bound placement, on a knotlighted stitch-point, or inside the 6-block glow of a lit mothdust_brick beacon-pyre when the pulse lands; all three negate the fraying entirely. Pyres are lit by hand, burn 60 seconds, and relight on a 10-second cooldown — the cardinal points are the phase's rhythm section. Then take the 3-second Eye window the pulse leaves behind."
+          },
+          {
+            "id": "threading_the_dark",
+            "name": "Threading the Dark",
+            "description": "Every 25 seconds the Needle lays itself flat and sweeps the entire ring at chest height, horizon-long, one full revolution. There is no cover tall enough and no gap in its length — except the Eye. The only way through the attack is through the Needle itself, and passing through the glowing Eye deals your held weapon's damage x3 automatically.",
+            "damage": 12,
+            "telegraph": "It aligns level with the floor and the Eye kindles dawnthread-gold, drifting slowly so the player can line up their run; 4 seconds to the sweep.",
+            "counterplay": "Sprint-jump through the kindled Eye as the sweep arrives — or ride a bonded spoolmare through it, and she will stitch temporary footing across any open band in your path. The phase's best damage is inside its worst attack. Dropping through an open floor band also ducks the sweep, if you trust the fray below to hold ten seconds."
+          },
+          {
+            "id": "a_gap_the_pattern_forgets",
+            "name": "A Gap the Pattern Forgets",
+            "description": "Every 35 seconds the Needle reaches across the ring and unpicks the nearest UNBOUND knotlight outright — including, if it is unbound, the anchor the Mender knotted to summon it. If every knotlight in the arena is bound, the attack spends itself on nothing: a long reach, a hesitation, a withdrawal.",
+            "damage": 0,
+            "telegraph": "One knotlight's flame turns gray and gutters for 3 seconds before it is taken.",
+            "counterplay": "A knotlight worked in Bindwax cannot be taken — bind your anchor before this phase and the attack is scenery. Otherwise, sprint to the guttering light and strike the reaching filament (one hit parts it) to save it, or re-place a spare knotlight on the emptied stitch-point afterward. This attack exists to punish exactly one player: the one who ignored Bindwax for forty hours."
+          }
+        ],
+        "mechanics": [
+          "Binding becomes offense: each bind_block completed inside the arena strikes the Needle for 8 through any defense with a full flinch — a declared permanence is a wound to the Ravelling by definition. Capped at 10 counted binds this phase (80 hp) so binding is supplemental, not a stockpile skip; binds outside the arena footprint count for nothing",
+          "Damage clamp: the bar cannot pass below 120 hp (15%) by any means — weapon, pass-through, or bind — until the final phase's stitching begins; The Binding is the fight's payoff and cannot be skipped",
+          "Eye exposure: 3s after every Wide Unweaving, plus automatic weapon damage x3 per Threading the Dark pass-through; the aggressive line is going through it",
+          "At 20% hp the Needle reaches for all four cardinal stitch-points at once: bound knotlights hold; unbound ones are taken (and can be re-placed) — the last warning before the grading",
+          "Floor cycle at storm speed: two bands staggered, 12s cycle; rim-gravity band E now floats knockback x1.4",
+          "Phase length: roughly 3.5-5 minutes for a player mixing all three damage channels; the phase cannot stall unwinnably — Wide Unweaving windows alone finish it eventually"
+        ],
+        "transition": "At 120 hp the Needle plunges its point into the heart of the ring beside the binding-anvil, thrashes — and stops taking damage from anything at all."
+      },
+      {
+        "index": 3,
+        "name": "The Binding",
+        "hpRange": "15%-0%",
+        "description": "The last of its false blood spent, the Needle plunges its point into the heart of the ring beside the binding-anvil and thrashes — and stops taking damage from anything at all. It cannot be killed. It was never going to be killed. The Mender must now do the one thing no weapon does: thread it. With Everthread in hand — the First Thread, won from Molthkin in the fire that made the world, tempered in this same void — the player threads the exposed Eye and stitches the Needle down: seven stitches drawn taut to knotlighted perimeter stitch-points, and the eighth — the last — drawn through the everthread binding-anvil at the center, where the four lowered barrier-chords of the causeway wait coiled to be the thread. Each stitch drawn taut removes 15 hp. The eighth turns it. The fight ends not with a corpse but with the Ravelling itself held in a seam and taught, for a while, to mend.",
+        "attacks": [
+          {
+            "id": "it_will_not_be_held",
+            "name": "It Will Not Be Held",
+            "description": "Six seconds after any stitch is drawn taut to an UNBOUND knotlight, the Needle wrenches against it and rips the stitch out — refunding that stitch's 15 hp to its bar and lashing the freed thread across the ring. Stitches to bound knotlights, and the anvil-stitch, can never be ripped.",
+            "damage": 7,
+            "telegraph": "The target stitch-line hums up to a shriek and glows white along its length for 2 seconds.",
+            "counterplay": "Bound knotlights make ripping impossible — every plinth you bound in Phases 1-2 is progress that cannot be lost. For unbound points, stand on the stitch-line and strike the wrench-filament during the shriek to hold the stitch. The whole fight's Bindwax economy is graded here, but never failed permanently: an emptied stitch-point re-arms the moment a fresh knotlight is placed on it, bound or not."
+          },
+          {
+            "id": "the_last_sweep",
+            "name": "The Last Sweep",
+            "description": "Every 30 seconds between stitches the Needle drags its full length across the ring in a grinding half-circle, scouring everything standing — a slower, angrier Threading the Dark with the Eye clenched shut.",
+            "damage": 14,
+            "telegraph": "It draws back to the rim and the Thrum falls silent, then returns as a single sustained struck-wire note; 3 seconds to the sweep.",
+            "counterplay": "The Eye is shut — do not try to thread this one. Shelter behind a bound stitch-point placement, or drop into an open floor band and let it pass overhead: the sweep cannot reach below floor level or take what is bound. The gaps the fight has been tearing all along are the cover that finishes it."
+          },
+          {
+            "id": "shed_the_hollow",
+            "name": "Shed the Hollow",
+            "description": "At six stitches remaining and again at three, the Needle sheds its last escort — two Unpicked and two Ravelers at once — and sends the Ravelers not for the player but for the taut stitches themselves.",
+            "damage": 5,
+            "telegraph": "Four knots of shadow slide down the Needle's shaft toward the floor over 3 seconds.",
+            "counterplay": "A Raveler takes 5 seconds to unpick a stitch, and killing it mid-theft restores the stitch instantly (no hp refund to the boss for an interrupted theft; a completed theft refunds 15 hp exactly as a rip does). Prioritize the Ravelers; the Unpicked are slow enough to ignore until the next stitch is placed."
+          }
+        ],
+        "mechanics": [
+          "Full damage immunity: hp is removed only by stitching. Sequence per stitch: the thrash brings the Eye low every 15 seconds; holding everthread (the item, or any everthread tool), channel 3 seconds on the Eye to thread it (interrupted by taking damage); run the live thread to a knotlighted perimeter stitch-point and draw taut (1.5s interact) — minus 15 hp. Stitches 1-7 may use any seven of the eight perimeter points in any order; stitch 8 only threads at the central everthread binding-anvil",
+          "Exact accounting: 8 stitches x 15 hp = 120 hp = the full 15%. A ripped or fully-stolen stitch refunds exactly 15 hp; an interrupted theft refunds nothing. The bar can rise in this phase; it cannot rise past 120",
+          "No softlock is reachable: an emptied perimeter stitch-point is re-armed by placing any knotlight on it (binding optional but protective); knotlights are craftable and carriable, and the anvil-stitch can never be lost. A player who bound all eight faces a fair, tense finish; a player who bound none faces a long one — but never an unwinnable one",
+          "Encounter reset, fully specified: if the Mender is unpicked while holding no anchor inside the arena (e.g. an unbound anchor was taken in Phase 2), they re-stitch at their previous knot and the encounter resets — Needle returns to horizon rest at 800 hp; all stitches release; all floor bands re-knit completely (the finished hem takes no permanent damage, ever); bound knotlights and bound placements persist through the reset (Binding is permanence — not even failure takes it); unbound knotlights and unbound placements are unpicked and lost; consumed bindwax is not refunded; anything Ravelers carried into the dark stays gone. Repeat attempts cost resources, never the arena",
+          "When the eighth stitch is drawn taut through the binding-anvil, the Needle stills, turns in the seam, and begins — slowly, correctly — to mend. kill_entity:last_needle fires here, at the anvil, exactly as structures.json registers",
+          "There is no enrage timer: the Loom does not care how long this takes, and neither does the design"
+        ],
+        "transition": "Completion of the binding fires the victory condition. Do not mistake it for a victory. It is a mending."
+      }
+    ],
+    "victoryCondition": {
+      "trigger": "kill_entity:last_needle",
+      "note": "Fires on completion of the final-phase binding at the anvil. Canonically the Needle is bound, not killed; the trigger id is retained verbatim to match achievements.json (taught_to_mend)."
+    },
+    "onVictory": [
+      {
+        "action": "grant_achievement",
+        "achievementId": "taught_to_mend"
+      },
+      {
+        "action": "show_document",
+        "file": "ending.md",
+        "title": "The Turning of the Needle",
+        "presentation": "full-screen vellum page over the stilled arena; the Thrum audio changes its note beneath it"
+      },
+      {
+        "action": "present_choice",
+        "prompt": "The choice was always this, and always yours.",
+        "options": [
+          {
+            "id": "finish_the_weaving",
+            "label": "Finish the Weaving",
+            "flavor": "Draw the thread on. Mend against the void by momentum of your own, and hold the long beloved cloth open a while longer.",
+            "trigger": "choice:finish_the_weaving",
+            "achievementId": "to_finish_the_weaving"
+          },
+          {
+            "id": "still_the_loom",
+            "label": "Still the Loom",
+            "flavor": "Draw the last thread gently through, and let the tired, unminded, lovely cloth come at last and gently to rest.",
+            "trigger": "choice:still_the_loom",
+            "achievementId": "let_it_come_to_rest"
+          }
+        ],
+        "note": "Both endings are framed as love; neither is wrong. The choice may be deferred — a Mender may walk back out of the arena and decide later at the binding-anvil."
+      }
+    ],
+    "rewards": [
+      "No loot tables. What you leave with is the ending you choose. (Verbatim the registered arena's closing rule, structures.json: eye_of_the_last_hem — the fight drops no materials, and everthread gearing was the price of admission, not the prize)",
+      "The unstitched choice itself: choice:finish_the_weaving (achievement to_finish_the_weaving) or choice:still_the_loom (achievement let_it_come_to_rest) — the only two things in the game the Weaver left for you alone",
+      "The changed Thrum: a new, lower, mended note heard everywhere in all three realms thereafter — faint everywhere, as it always was, but different now in the raw places; purely cosmetic, and the reward most players will remember",
+      "The mended Eye of the Last Hem: the arena persists as a hemmed monument with the Needle's dark eye set in the binding-anvil, every bound knotlight of the fight still burning where you declared it — the world's edge, kept",
+      "The hemmed way home: a permanent gentle return-fray from the arena to your last Warpwold knot — leaving Nevermend, from now on, is a finished edge and not a fall"
+    ]
+  }
+}
