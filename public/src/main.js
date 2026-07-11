@@ -1,78 +1,786 @@
-// PLACEHOLDER main — replaced during integration
+// Loomfall — main bootstrap (integration phase).
 //
-// This minimal bootstrap proves the pipeline boots: Three.js loads via the
-// importmap, a WebGLRenderer draws into #game, and a spinning textured cube
-// renders in a requestAnimationFrame loop with a sky-blue scene. It must run
-// with zero console errors. The integration agent replaces this file wholesale.
+// Wires every verified subsystem into the playable game:
+//   menus -> world select -> game session (world, chunks, player, controls,
+//   sky, HUD, chat, inventory, debug overlay, multiplayer peers), with live
+//   settings, texture-pack hot-swap, and a clean teardown back to the title.
+//
+// QA hooks: window.__game (see docs/DEV.md).
 
 import * as THREE from 'three';
+import { CHUNK_SX, CHUNK_SZ, CHUNK_SY } from './constants.js';
+import { getBlockDef } from './blocks/blocks.js';
+import { buildAtlas } from './textures/TextureAtlas.js';
+import { PACKS } from './textures/texturePacks.js';
+import { TerrainGenerator } from './world/TerrainGenerator.js';
+import { World } from './engine/World.js';
+import { ChunkRenderer } from './engine/ChunkRenderer.js';
+import { Sky } from './engine/Sky.js';
+import { Player } from './gameplay/Player.js';
+import { Controls } from './gameplay/Controls.js';
+import { raycastVoxel } from './gameplay/raycast.js';
+import { Inventory } from './gameplay/Inventory.js';
+import { DIMENSIONS } from './dimensions/dimensions.js';
+import { NetClient } from './net/NetClient.js';
+import { PeerAvatars } from './net/PeerAvatars.js';
+import { makeIconFactory } from './ui/icons.js';
+import { initMenus } from './ui/menu.js';
+import { initHUD } from './ui/hud.js';
+import { initHotbar } from './ui/hotbar.js';
+import { initChat } from './ui/chat.js';
+import { initInventory } from './ui/inventory.js';
+import { initDebug } from './ui/debug.js';
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const VERSION = '0.1.0';
+const NAME_KEY = 'loomfall.name';
+const DAY_LENGTH_S = 600; // full day/night cycle: 10 minutes
+const START_TIME_OF_DAY = 0.42; // late morning, so new worlds open in daylight
+const REACH = 6; // block interaction distance
+const BASE_SENSITIVITY = 0.002; // radians per pixel at settings.sensitivity=1
+const MAX_DT = 0.05; // clamp frame gaps to 50 ms
 
 const canvas = document.getElementById('game');
 
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.setSize(window.innerWidth, window.innerHeight);
+// ---------------------------------------------------------------------------
+// REST API helpers
+// ---------------------------------------------------------------------------
 
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87ceeb); // sky blue
-
-const camera = new THREE.PerspectiveCamera(
-  70,
-  window.innerWidth / window.innerHeight,
-  0.1,
-  1000,
-);
-camera.position.set(0, 0, 3);
-
-// Lights.
-const ambient = new THREE.AmbientLight(0xffffff, 0.6);
-scene.add(ambient);
-const sun = new THREE.DirectionalLight(0xffffff, 0.9);
-sun.position.set(3, 5, 2);
-scene.add(sun);
-
-// A simple procedural canvas texture so the cube looks "textured", not flat.
-function makePlaceholderTexture() {
-  const c = document.createElement('canvas');
-  c.width = c.height = 32;
-  const ctx = c.getContext('2d');
-  ctx.fillStyle = '#4caf50';
-  ctx.fillRect(0, 0, 32, 32);
-  ctx.fillStyle = '#3c8f3c';
-  for (let y = 0; y < 32; y += 8) {
-    for (let x = 0; x < 32; x += 8) {
-      if (((x + y) / 8) % 2 === 0) ctx.fillRect(x, y, 8, 8);
-    }
-  }
-  const tex = new THREE.CanvasTexture(c);
-  tex.magFilter = THREE.NearestFilter;
-  tex.minFilter = THREE.NearestFilter;
-  return tex;
+async function apiGetWorlds() {
+  const res = await fetch('/api/worlds');
+  if (!res.ok) throw new Error(`GET /api/worlds -> ${res.status}`);
+  return res.json();
 }
 
-const geometry = new THREE.BoxGeometry(1, 1, 1);
-const material = new THREE.MeshLambertMaterial({ map: makePlaceholderTexture() });
-const cube = new THREE.Mesh(geometry, material);
-scene.add(cube);
+async function apiCreateWorld({ name, seed }) {
+  const res = await fetch('/api/worlds', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(seed != null ? { name, seed } : { name }),
+  });
+  if (!res.ok) throw new Error(`POST /api/worlds -> ${res.status}`);
+  return res.json();
+}
+
+async function apiGetWorld(id) {
+  const res = await fetch(`/api/worlds/${encodeURIComponent(id)}`);
+  if (!res.ok) throw new Error(`GET /api/worlds/${id} -> ${res.status}`);
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
+// Small helpers
+// ---------------------------------------------------------------------------
+
+function getPlayerName() {
+  let name = null;
+  try { name = localStorage.getItem(NAME_KEY); } catch { /* storage off */ }
+  if (!name) {
+    name = `Wanderer${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`;
+    try { localStorage.setItem(NAME_KEY, name); } catch { /* storage off */ }
+  }
+  return name;
+}
+
+/** Pointer lock without unhandled-rejection noise (needs a user gesture). */
+function safeLock() {
+  try {
+    const p = canvas.requestPointerLock?.();
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+  } catch { /* not available (headless) */ }
+}
+
+function safeUnlock() {
+  try { document.exitPointerLock?.(); } catch { /* not locked */ }
+}
+
+/** Compass sector from yaw (yaw 0 faces -Z = North; +yaw turns West). */
+function facingFromYaw(yaw) {
+  const idx = ((Math.round(yaw / (Math.PI / 2)) % 4) + 4) % 4;
+  return ['N', 'W', 'S', 'E'][idx];
+}
+
+/** Apply an edits bucket ({"x,y,z": id}) to a World via setBlock. */
+function applyEdits(world, bucket) {
+  if (!bucket) return;
+  for (const [key, id] of Object.entries(bucket)) {
+    const [x, y, z] = key.split(',').map(Number);
+    if (Number.isInteger(x) && Number.isInteger(y) && Number.isInteger(z)) {
+      world.setBlock(x, y, z, id);
+    }
+  }
+}
+
+/** Deep-copy welcome edits into a canonical {overworld,nether,end} record. */
+function normalizeEditRecord(edits) {
+  const out = { overworld: {}, nether: {}, end: {} };
+  if (edits && typeof edits === 'object') {
+    for (const dim of Object.keys(out)) {
+      if (edits[dim] && typeof edits[dim] === 'object') {
+        Object.assign(out[dim], edits[dim]);
+      }
+    }
+  }
+  return out;
+}
+
+/** Dispose every geometry/material/texture reachable from a THREE object. */
+function deepDispose(object3d) {
+  object3d.traverse((obj) => {
+    if (obj.geometry) obj.geometry.dispose();
+    const mats = Array.isArray(obj.material) ? obj.material : (obj.material ? [obj.material] : []);
+    for (const m of mats) {
+      if (m.map) m.map.dispose();
+      m.dispose();
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Persistent pieces (created once, reused across game sessions)
+// ---------------------------------------------------------------------------
+
+/** Live settings object — same reference for the whole page lifetime. */
+const settings = {};
+
+/** Current game session (null on the title screen). */
+let G = null;
+
+let renderer = null; // one WebGLRenderer for the page (context is per-canvas)
+
+const ui = {}; // menus, hud, hotbar, chat, inventoryUI, debug — initialized at boot
+
+// ---------------------------------------------------------------------------
+// Boot: menus first
+// ---------------------------------------------------------------------------
+
+const packsList = Object.values(PACKS).map((p) => ({ id: p.id, name: p.name }));
+
+ui.menus = initMenus({
+  packsList,
+  getWorlds: apiGetWorlds,
+  onPlayWorld: (world) => { startGame(world); },
+  onCreateWorld: async ({ name, seed }) => {
+    try {
+      const world = await apiCreateWorld({ name, seed });
+      startGame(world);
+    } catch (err) {
+      console.warn('[loomfall] world creation failed:', err);
+      ui.menus.setLoading(null);
+      ui.menus.showWorldSelect();
+    }
+  },
+  onSettingsChange: (s) => applySettings(s),
+  onResume: () => resumeGame(),
+  onQuitToTitle: () => quitToTitle(),
+});
+Object.assign(settings, ui.menus.getSettings());
+
+ui.hud = initHUD();
+ui.hotbar = initHotbar({ iconFor: (id) => (G ? G.iconFor(id) : null) });
+ui.chat = initChat({ onSend: (text) => { G?.net.sendChat(text); } });
+ui.inventoryUI = initInventory({
+  iconFor: (id) => (G ? G.iconFor(id) : null),
+  onPick: (id) => {
+    if (!G) return;
+    G.inventory.setSlot(G.inventory.selected, id);
+    ui.hotbar.setSlots(G.inventory.slots);
+    ui.hotbar.setSelected(G.inventory.selected);
+  },
+});
+ui.debug = initDebug();
+
+ui.hud.showCrosshair(false); // hidden until a game starts
+ui.menus.setLoading(null);
+ui.menus.showMain();
+
+// Clicking the canvas (re-)locks the pointer during play.
+canvas.addEventListener('click', () => {
+  if (G && !G.paused && !ui.inventoryUI.isOpen() && !ui.chat.isOpen()) safeLock();
+});
 
 window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
+  if (!G || !renderer) return;
+  G.camera.aspect = window.innerWidth / window.innerHeight;
+  G.camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-let last = performance.now();
-function loop(now) {
-  const dt = (now - last) / 1000;
-  last = now;
-  cube.rotation.x += dt * 0.6;
-  cube.rotation.y += dt * 0.9;
-  renderer.render(scene, camera);
-  requestAnimationFrame(loop);
+// ---------------------------------------------------------------------------
+// Live settings
+// ---------------------------------------------------------------------------
+
+function applySettings(next) {
+  Object.assign(settings, next);
+  if (!G) return;
+  G.camera.fov = settings.fov;
+  G.camera.updateProjectionMatrix();
+  G.controls.sensitivity = BASE_SENSITIVITY * settings.sensitivity;
+  updateFog();
+  if (settings.texturePack !== G.pack) hotSwapTexturePack(settings.texturePack);
+  // renderDistance is read live by the loop's chunkRenderer.update call.
 }
 
-// Hide the loading splash once the loop is running.
-const loading = document.getElementById('loading');
-if (loading) loading.classList.remove('visible');
+/**
+ * Texture-pack hot-swap: redraw the atlas canvas in place and flag the
+ * CanvasTexture for re-upload. UV layout is pack-independent, so no re-mesh
+ * (or material swap) is needed — every chunk picks it up next frame.
+ */
+function hotSwapTexturePack(packId) {
+  const fresh = buildAtlas(packId);
+  const ctx = G.atlas.canvas.getContext('2d');
+  ctx.clearRect(0, 0, G.atlas.canvas.width, G.atlas.canvas.height);
+  ctx.drawImage(fresh.canvas, 0, 0);
+  G.atlas.texture.needsUpdate = true;
+  fresh.texture.dispose();
+  G.pack = packId;
+  // Refresh UI icons (they are crops of the atlas canvas).
+  G.iconFor.invalidate();
+  ui.hotbar.setSlots(G.inventory.slots);
+  ui.hotbar.setSelected(G.inventory.selected);
+  ui.inventoryUI.setBlocks(G.inventory.creativeBlocks);
+}
 
-requestAnimationFrame(loop);
+function updateFog() {
+  if (!G) return;
+  const far = Math.max(48, (settings.renderDistance + 0.5) * CHUNK_SX);
+  G.scene.fog.color.set(DIMENSIONS[G.dim].fog);
+  G.scene.fog.near = Math.max(24, far * 0.55);
+  G.scene.fog.far = far;
+}
+
+// ---------------------------------------------------------------------------
+// Game session lifecycle
+// ---------------------------------------------------------------------------
+
+function startGame(worldMeta) {
+  if (G) return;
+  ui.menus.hideAll();
+  ui.menus.setLoading('Weaving the world…');
+  bootSession(worldMeta).catch((err) => {
+    console.warn('[loomfall] failed to start game:', err);
+    if (G) teardownSession();
+    ui.menus.setLoading(null);
+    ui.menus.showMain();
+  });
+}
+
+async function bootSession(worldMeta) {
+  const dim = 'overworld';
+
+  // --- Rendering core --------------------------------------------------------
+  const atlas = buildAtlas(settings.texturePack);
+  if (!renderer) {
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+    renderer.setPixelRatio(1);
+  }
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  const camera = new THREE.PerspectiveCamera(
+    settings.fov, window.innerWidth / window.innerHeight, 0.1, 1000);
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.Fog(DIMENSIONS[dim].fog, 60, 120);
+  const sky = new Sky(scene);
+
+  // Dedicated lights for skyless dimensions (nether/end); off in overworld.
+  const dimLights = {
+    group: new THREE.Group(),
+    ambient: new THREE.AmbientLight(0xffffff, 0.7),
+    hemi: new THREE.HemisphereLight(0xffffff, 0x444444, 0.5),
+  };
+  dimLights.group.add(dimLights.ambient, dimLights.hemi);
+  dimLights.group.visible = false;
+  scene.add(dimLights.group);
+
+  // --- World + network -------------------------------------------------------
+  ui.menus.setLoading('Joining world…');
+  const net = new NetClient();
+  const welcome = await net.connect(location.origin, worldMeta.id, getPlayerName(), dim);
+  const editsByDim = normalizeEditRecord(welcome.world.edits);
+
+  const generator = new TerrainGenerator(welcome.world.seed, dim);
+  const world = new World(generator);
+  // Apply persisted edits BEFORE the first mesh build.
+  applyEdits(world, editsByDim[dim]);
+
+  ui.menus.setLoading('Weaving the world…');
+
+  // --- Player + controls -----------------------------------------------------
+  // Generate the spawn neighborhood so respawn() sees real ground.
+  for (let dz = -1; dz <= 1; dz++) {
+    for (let dx = -1; dx <= 1; dx++) world.ensureChunk(dx, dz);
+  }
+  const player = new Player(world, camera);
+  player.respawn();
+
+  const controls = new Controls(canvas, camera);
+  controls.sensitivity = BASE_SENSITIVITY * settings.sensitivity;
+
+  const chunkRenderer = new ChunkRenderer(scene, world, atlas);
+  const inventory = new Inventory();
+  const iconFor = makeIconFactory(atlas);
+  const peers = new PeerAvatars(scene);
+
+  // Targeted-block outline (black wireframe box).
+  const outline = new THREE.LineSegments(
+    new THREE.EdgesGeometry(new THREE.BoxGeometry(1.002, 1.002, 1.002)),
+    new THREE.LineBasicMaterial({ color: 0x000000 }),
+  );
+  outline.visible = false;
+  scene.add(outline);
+
+  // --- Session object ---------------------------------------------------------
+  const S = {
+    worldMeta: { id: welcome.world.id, name: welcome.world.name, seed: welcome.world.seed },
+    dim,
+    atlas,
+    pack: settings.texturePack,
+    scene,
+    camera,
+    sky,
+    dimLights,
+    net,
+    editsByDim,
+    generator,
+    world,
+    player,
+    controls,
+    chunkRenderer,
+    inventory,
+    iconFor,
+    peers,
+    outline,
+    paused: false,
+    debugVisible: false,
+    suppressPause: 0, // pending intentional unlocks that must not open the pause menu
+    elapsed: 0,
+    rafId: 0,
+    lastFrame: performance.now(),
+    fps: 0,
+    fpsFrames: 0,
+    fpsTime: 0,
+    loadingShown: true,
+    active: true,
+    tmpDir: new THREE.Vector3(),
+  };
+  G = S;
+
+  // --- Network handlers -------------------------------------------------------
+  for (const p of welcome.peers || []) peers.upsert(p);
+  peers.setDimension(S.dim);
+
+  net.onPeerJoin((msg) => {
+    peers.upsert(msg);
+    peers.setDimension(S.dim);
+  });
+  net.onPeerLeave((msg) => peers.remove(msg.id));
+  net.onPeerMove((msg) => peers.move(msg));
+  net.onEdit((msg) => {
+    recordEdit(msg.dim, msg.x, msg.y, msg.z, msg.block);
+    if (msg.dim === S.dim) S.world.setBlock(msg.x, msg.y, msg.z, msg.block);
+  });
+  net.onChat((msg) => ui.chat.addMessage({ name: msg.name, text: msg.text }));
+  net.onDisconnect((info) => {
+    if (S.active && !info.intentional) {
+      ui.chat.addMessage({ system: true, text: 'Disconnected from server.' });
+    }
+  });
+
+  // --- Controls events ---------------------------------------------------------
+  controls.on('break', onBreak);
+  controls.on('place', onPlace);
+  controls.on('selectSlot', (i) => {
+    if (!gameplayActive()) return;
+    S.inventory.select(i);
+    ui.hotbar.setSelected(S.inventory.selected);
+  });
+  controls.on('scroll', (dir) => {
+    if (!gameplayActive()) return;
+    S.inventory.cycle(dir);
+    ui.hotbar.setSelected(S.inventory.selected);
+  });
+  controls.on('toggleFlight', () => { if (gameplayActive()) S.player.toggleFlight(); });
+  controls.on('toggleDebug', () => {
+    S.debugVisible = !S.debugVisible;
+    ui.debug.setVisible(S.debugVisible);
+  });
+  controls.on('toggleInventory', () => {
+    if (!G || S.paused || ui.chat.isOpen()) return;
+    if (ui.inventoryUI.isOpen()) {
+      ui.inventoryUI.close();
+      safeLock();
+    } else {
+      clearMovementInput();
+      if (document.pointerLockElement) S.suppressPause++;
+      safeUnlock();
+      ui.inventoryUI.open();
+    }
+  });
+  controls.on('openChat', () => {
+    if (!G || S.paused || ui.chat.isOpen() || ui.inventoryUI.isOpen()) return;
+    clearMovementInput();
+    // Defer past this keydown so the "t" itself is not typed into the input.
+    setTimeout(() => { if (G && !S.paused) ui.chat.open(); }, 0);
+  });
+  controls.on('togglePause', () => {
+    if (!G) return;
+    if (S.suppressPause > 0) { S.suppressPause--; return; }
+    if (ui.inventoryUI.isOpen()) { ui.inventoryUI.close(); safeLock(); return; }
+    if (ui.chat.isOpen()) { ui.chat.close(); safeLock(); return; }
+    if (S.paused) resumeGame();
+    else pauseGame();
+  });
+
+  // --- UI per-session state ----------------------------------------------------
+  ui.hotbar.setSlots(inventory.slots);
+  ui.hotbar.setSelected(inventory.selected);
+  ui.inventoryUI.setBlocks(inventory.creativeBlocks);
+  ui.hud.setHealth(player.health);
+  ui.hud.showCrosshair(true);
+  ui.chat.addMessage({
+    system: true,
+    text: `Joined "${welcome.world.name}" — T to chat, E for blocks, F3 for debug`,
+  });
+
+  applyDimensionEnvironment(S.dim);
+  publishHooks();
+
+  // --- Session helpers (close over S) -------------------------------------------
+
+  function gameplayActive() {
+    return !!G && !S.paused && !ui.chat.isOpen() && !ui.inventoryUI.isOpen();
+  }
+
+  function clearMovementInput() {
+    const inp = S.controls.input;
+    inp.forward = inp.back = inp.left = inp.right = false;
+    inp.jump = inp.sprint = inp.sneak = false;
+  }
+
+  function recordEdit(dimId, x, y, z, id) {
+    const bucket = S.editsByDim[dimId];
+    if (bucket) bucket[`${x},${y},${z}`] = id;
+  }
+
+  /** Raycast from the camera center through the crosshair. */
+  function computeTarget() {
+    const dir = S.camera.getWorldDirection(S.tmpDir);
+    const eye = S.player.eyePosition;
+    return raycastVoxel(S.world, eye, { x: dir.x, y: dir.y, z: dir.z }, REACH);
+  }
+
+  function onBreak() {
+    if (!gameplayActive()) return;
+    const t = computeTarget();
+    if (!t.hit) return;
+    const def = getBlockDef(S.world.getBlock(t.x, t.y, t.z));
+    if (def.hardness < 0) return; // bedrock & co are unbreakable
+    S.world.setBlock(t.x, t.y, t.z, 0);
+    recordEdit(S.dim, t.x, t.y, t.z, 0);
+    S.net.sendEdit(t.x, t.y, t.z, 0);
+    // Instant break for now: brief full-bar flash.
+    ui.hud.setBreakProgress(1);
+    setTimeout(() => ui.hud.setBreakProgress(null), 140);
+  }
+
+  function onPlace() {
+    if (!gameplayActive()) return;
+    const t = computeTarget();
+    if (!t.hit || t.nx == null) return;
+    const { nx, ny, nz } = t;
+    if (ny < 0 || ny >= CHUNK_SY) return;
+    // Only into air or liquid.
+    const curDef = getBlockDef(S.world.getBlock(nx, ny, nz));
+    if (!(curDef.id === 0 || curDef.liquid)) return;
+    // Reject cells intersecting the player AABB.
+    const p = S.player.position;
+    const sz = S.player.size;
+    const overlaps =
+      nx < p.x + sz.x && nx + 1 > p.x &&
+      ny < p.y + sz.y && ny + 1 > p.y &&
+      nz < p.z + sz.z && nz + 1 > p.z;
+    if (overlaps) return;
+    const id = S.inventory.selectedBlock;
+    if (!id) return;
+    S.world.setBlock(nx, ny, nz, id);
+    recordEdit(S.dim, nx, ny, nz, id);
+    S.net.sendEdit(nx, ny, nz, id);
+  }
+
+  // --- Main loop -----------------------------------------------------------------
+  S.lastFrame = performance.now();
+  const loop = (now) => {
+    if (!S.active) return;
+    S.rafId = requestAnimationFrame(loop);
+    const rawDt = Math.max(0, (now - S.lastFrame) / 1000); // real frame time (fps)
+    const dt = Math.min(MAX_DT, rawDt); // simulation dt, clamped to 50 ms
+    S.lastFrame = now;
+
+    // Simulation (frozen while paused or with the inventory screen open;
+    // chat leaves physics running but movement keys are cleared/guarded).
+    if (!S.paused && !ui.inventoryUI.isOpen()) {
+      S.player.update(dt, S.controls.input, S.controls.yaw);
+    }
+
+    // Chunk streaming (renderDistance applied live from settings).
+    S.chunkRenderer.update(S.player.position, settings.renderDistance);
+
+    // Day/night cycle + sky (overworld only; nether/end use static ambience).
+    S.elapsed += dt;
+    const timeOfDay = (START_TIME_OF_DAY + S.elapsed / DAY_LENGTH_S) % 1;
+    if (S.dim === 'overworld') sky.update(timeOfDay, S.player.eyePosition);
+
+    // Crosshair target outline.
+    const target = computeTarget();
+    if (target.hit) {
+      S.outline.position.set(target.x + 0.5, target.y + 0.5, target.z + 0.5);
+      S.outline.visible = true;
+    } else {
+      S.outline.visible = false;
+    }
+
+    // Peers + network.
+    S.peers.update(dt);
+    S.net.sendMove(S.player.position, S.controls.yaw, S.controls.pitch);
+
+    // HUD.
+    ui.hud.setHealth(S.player.health);
+
+    renderer.render(S.scene, S.camera);
+
+    // FPS (1 s rolling, real frame time — not the clamped sim dt) + debug.
+    S.fpsFrames++;
+    S.fpsTime += rawDt;
+    if (S.fpsTime >= 1) {
+      S.fps = Math.round(S.fpsFrames / S.fpsTime);
+      S.fpsFrames = 0;
+      S.fpsTime = 0;
+    }
+    if (S.debugVisible) {
+      ui.debug.setData({
+        fps: S.fps,
+        pos: S.player.position,
+        chunk: {
+          cx: Math.floor(S.player.position.x / CHUNK_SX),
+          cz: Math.floor(S.player.position.z / CHUNK_SZ),
+        },
+        dim: DIMENSIONS[S.dim].name,
+        facing: facingFromYaw(S.controls.yaw),
+        tris: renderer.info.render.triangles,
+        calls: renderer.info.render.calls,
+        chunks: S.chunkRenderer.stats.chunksLoaded,
+      });
+    }
+
+    // Drop the loading overlay once the spawn area is meshed.
+    if (S.loadingShown &&
+        (S.chunkRenderer.stats.chunksLoaded >= 9 || S.elapsed > 8)) {
+      S.loadingShown = false;
+      ui.menus.setLoading(null);
+    }
+  };
+  S.rafId = requestAnimationFrame(loop);
+}
+
+// ---------------------------------------------------------------------------
+// Pause / resume / quit
+// ---------------------------------------------------------------------------
+
+function pauseGame() {
+  if (!G || G.paused) return;
+  G.paused = true;
+  if (document.pointerLockElement) {
+    G.suppressPause++;
+    safeUnlock();
+  }
+  ui.menus.showPause();
+}
+
+function resumeGame() {
+  if (!G) return;
+  G.paused = false;
+  ui.menus.hideAll();
+  safeLock();
+}
+
+function quitToTitle() {
+  if (!G) return;
+  teardownSession();
+  // menu.js shows the main screen right after this callback returns; the
+  // world list re-fetches whenever the world-select screen is shown.
+}
+
+function teardownSession() {
+  const S = G;
+  S.active = false;
+  cancelAnimationFrame(S.rafId);
+
+  S.net.close();
+  S.controls.dispose();
+  S.peers.dispose();
+  S.chunkRenderer.dispose();
+
+  S.outline.geometry.dispose();
+  S.outline.material.dispose();
+  deepDispose(S.sky.group);
+  S.scene.clear();
+  S.atlas.texture.dispose();
+  renderer.renderLists.dispose();
+
+  ui.debug.setVisible(false);
+  ui.inventoryUI.close();
+  ui.chat.close();
+  ui.hud.showCrosshair(false);
+  ui.hud.setBreakProgress(null);
+  ui.menus.setLoading(null);
+  safeUnlock();
+
+  G = null;
+  window.__game = null;
+}
+
+// ---------------------------------------------------------------------------
+// Dimension plumbing (debug/QA only for now — portals arrive next phase)
+// ---------------------------------------------------------------------------
+
+function applyDimensionEnvironment(dimId) {
+  const spec = DIMENSIONS[dimId];
+  updateFog();
+  if (dimId === 'overworld') {
+    G.sky.group.visible = true;
+    G.dimLights.group.visible = false;
+    // sky.update() reclaims scene.background on the next frame.
+  } else {
+    G.sky.group.visible = false;
+    G.scene.background = new THREE.Color(spec.fog);
+    G.dimLights.group.visible = true;
+    if (dimId === 'nether') {
+      G.dimLights.ambient.color.set(0xffd9c2);
+      G.dimLights.ambient.intensity = 0.7;
+      G.dimLights.hemi.color.set(0xff8a5c);
+      G.dimLights.hemi.groundColor.set(0x54160c);
+      G.dimLights.hemi.intensity = 0.55;
+    } else {
+      G.dimLights.ambient.color.set(0xd6ccf5);
+      G.dimLights.ambient.intensity = 0.6;
+      G.dimLights.hemi.color.set(0xb9a8ff);
+      G.dimLights.hemi.groundColor.set(0x120b22);
+      G.dimLights.hemi.intensity = 0.5;
+    }
+  }
+}
+
+/** Find a safe standing spot near the origin for nether/end spawns. */
+function findSafeSpawn(world, dimId) {
+  // Generate a working area first.
+  for (let cz = -2; cz <= 2; cz++) {
+    for (let cx = -2; cx <= 2; cx++) world.ensureChunk(cx, cz);
+  }
+  const minY = dimId === 'nether' ? 33 : 1; // nether: above the lava sea (~y31)
+  const maxY = dimId === 'nether' ? 100 : CHUNK_SY - 3;
+  const fits = (x, y, z) =>
+    getBlockDef(world.getBlock(x, y, z)).solid &&
+    world.getBlock(x, y + 1, z) === 0 &&
+    world.getBlock(x, y + 2, z) === 0;
+  let best = null;
+  for (let r = 0; r <= 40 && !best; r += 2) {
+    for (let dz = -r; dz <= r && !best; dz += 2) {
+      for (let dx = -r; dx <= r && !best; dx += 2) {
+        if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue; // ring only
+        const x = 8 + dx;
+        const z = 8 + dz;
+        if (dimId === 'nether') {
+          // Scan UP from just above the lava sea: the first solid-with-
+          // headroom match is the cavern floor (not the ceiling roof).
+          for (let y = minY; y <= maxY; y++) {
+            if (fits(x, y, z)) { best = { x, y: y + 1, z }; break; }
+          }
+        } else {
+          // End: islands float over void — take the topmost surface.
+          for (let y = maxY; y >= minY; y--) {
+            if (fits(x, y, z)) { best = { x, y: y + 1, z }; break; }
+          }
+        }
+      }
+    }
+  }
+  return best;
+}
+
+async function switchDimension(dimId) {
+  if (!G || !DIMENSIONS[dimId] || dimId === G.dim) return;
+  const S = G;
+
+  // Best-effort refresh of edits made in other dimensions while we were away.
+  try {
+    const fresh = await apiGetWorld(S.worldMeta.id);
+    const record = normalizeEditRecord(fresh.edits);
+    for (const d of Object.keys(record)) Object.assign(S.editsByDim[d], record[d]);
+  } catch { /* offline — use the local record */ }
+  if (G !== S) return; // torn down while fetching
+
+  // Teardown current chunk meshes, then rebuild the world for the target dim.
+  S.chunkRenderer.dispose();
+  S.dim = dimId;
+  S.generator = new TerrainGenerator(S.worldMeta.seed, dimId);
+  S.world = new World(S.generator);
+  applyEdits(S.world, S.editsByDim[dimId]);
+  S.player.world = S.world;
+  S.chunkRenderer = new ChunkRenderer(S.scene, S.world, S.atlas);
+
+  // Respawn appropriately for the dimension.
+  if (dimId === 'overworld') {
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dx = -1; dx <= 1; dx++) S.world.ensureChunk(dx, dz);
+    }
+    S.player.spawn = { x: 8.5, z: 8.5 };
+    S.player.respawn();
+  } else {
+    const spot = findSafeSpawn(S.world, dimId);
+    const feet = spot || { x: 8, y: 72, z: 8 }; // fallback: drop in near origin
+    S.player.spawn = { x: feet.x + 0.5, z: feet.z + 0.5 };
+    S.player.position.x = feet.x + 0.5 - S.player.size.x / 2;
+    S.player.position.y = feet.y;
+    S.player.position.z = feet.z + 0.5 - S.player.size.z / 2;
+    S.player.velocity.x = 0; S.player.velocity.y = 0; S.player.velocity.z = 0;
+    S.player.onGround = true;
+    S.player.health = 20;
+  }
+
+  applyDimensionEnvironment(dimId);
+  S.net.setDimension(dimId);
+  S.peers.setDimension(dimId);
+  publishHooks(); // world/chunkRenderer references changed
+  ui.chat.addMessage({ system: true, text: `Now entering: ${DIMENSIONS[dimId].name}` });
+}
+
+// ---------------------------------------------------------------------------
+// QA hooks (documented in docs/DEV.md)
+// ---------------------------------------------------------------------------
+
+function publishHooks() {
+  if (!G) return;
+  window.__game = {
+    version: VERSION,
+    player: G.player,
+    world: G.world,
+    controls: G.controls,
+    inventory: G.inventory,
+    net: G.net,
+    chunkRenderer: G.chunkRenderer,
+    sky: G.sky,
+    peers: G.peers,
+    setDimension: switchDimension,
+    ui: {
+      menus: ui.menus,
+      chat: ui.chat,
+      hud: ui.hud,
+      debugOverlay: ui.debug,
+      inventoryUI: ui.inventoryUI,
+      hotbar: ui.hotbar,
+    },
+    settings,
+  };
+}

@@ -470,6 +470,37 @@ input[type="range"].vx-range {
   line-height: 1.05;
 }
 
+/* Splash: yellow angled one-liner pinned to the title's lower-right corner. */
+.menu-title-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.menu-splash {
+  position: absolute;
+  right: -8%;
+  bottom: -4px;
+  max-width: 300px;
+  transform: rotate(-11deg);
+  transform-origin: center;
+  color: #ffff55;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.7);
+  animation: splash-pulse 0.9s ease-in-out infinite alternate;
+  pointer-events: none;
+  z-index: 2;
+}
+
+@keyframes splash-pulse {
+  from { transform: rotate(-11deg) scale(1); }
+  to   { transform: rotate(-11deg) scale(1.06); }
+}
+
 .menu-tagline {
   color: var(--dim);
   font-size: 14px;

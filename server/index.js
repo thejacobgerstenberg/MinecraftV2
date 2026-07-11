@@ -303,15 +303,33 @@ function peerSnapshot(player) {
 }
 
 async function handleJoin(ws, msg) {
-  if (ws.player) {
+  // ws.joining guards the await below: two join frames processed in the same
+  // tick would otherwise both pass the ws.player check and double-register.
+  if (ws.player || ws.joining) {
     return send(ws, { t: 'error', code: 'already_joined', message: 'this socket already joined a world' });
   }
   const worldId = typeof msg.worldId === 'string' ? msg.worldId : '';
   if (!ID_RE.test(worldId)) {
     return send(ws, { t: 'error', code: 'bad_join', message: 'invalid worldId' });
   }
-  // Auto-create on direct join (dev convenience); menu flow uses POST first.
-  const room = await loadRoom(worldId, { create: true });
+  ws.joining = true;
+  let room;
+  try {
+    // Auto-create on direct join (dev convenience); menu flow uses POST first.
+    room = await loadRoom(worldId, { create: true });
+  } finally {
+    ws.joining = false;
+  }
+  // Re-check after the await: a concurrent frame may have joined, or the
+  // socket may have closed while the world was loading (a player registered
+  // now would never be cleaned up by the close handler -> ghost peer).
+  if (ws.player) {
+    return send(ws, { t: 'error', code: 'already_joined', message: 'this socket already joined a world' });
+  }
+  if (ws.readyState !== ws.OPEN) {
+    unloadRoomIfEmpty(room);
+    return;
+  }
   const name = (typeof msg.name === 'string' ? msg.name.trim().slice(0, 24) : '') || 'player';
   const dim = DIMENSIONS.includes(msg.dim) ? msg.dim : 'overworld';
 

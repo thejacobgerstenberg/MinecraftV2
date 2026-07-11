@@ -24,7 +24,7 @@
 //                                 { id?, name, seed?, createdAt? }.
 //   packsList                   — [{id, name}] for the texture-pack <select>.
 //
-//   Settings shape (persisted to localStorage "voxelheim.settings"):
+//   Settings shape (persisted to localStorage "loomfall.settings"):
 //     { renderDistance: 2..12 (6), fov: 60..110 (75),
 //       sensitivity: 0.1..2 (1.0), texturePack: packId ('default') }
 //
@@ -34,7 +34,34 @@
 //   setLoading(null) hides it. hideAll() hides every menu screen but does
 //   NOT touch the loading overlay.
 
-const SETTINGS_KEY = 'voxelheim.settings';
+const SETTINGS_KEY = 'loomfall.settings';
+
+// Splash lines shown under the title (random pick per visit). Sourced from
+// the story-content branch (content/splashes.json) — original text.
+const SPLASHES = [
+  'The Loom is not currently accepting feedback.',
+  'No hand has been on the shuttle for some time.',
+  'Please do not feed the fire things that should not burn.',
+  'The Weaver is out of office. Indefinitely.',
+  'Warranty void where cloth is void.',
+  'All frays are final.',
+  'Bind responsibly. Binding is permanent.',
+  'The Thrum is a feature, not a fault.',
+  'Menders build at their own risk.',
+  "Death has been rebranded 'unpicked.'",
+  'Your knot has been logged.',
+  'Guaranteed cloth all the way down.',
+  'Warpwold: settled, not safe.',
+  'Gravity in Nevermend is a suggestion, not a policy.',
+  'The peace is real, borrowed, and thin.',
+  'Pull a thread, see what happens!',
+  "The Loom won't stop and neither will I!",
+  'Made of string and bad decisions!',
+  'Do NOT tug that!',
+  'Snip snip!',
+  'Mildly haunted, aggressively cozy!',
+  'The Cinderloom regrets nothing and remembers everything.',
+];
 
 const SETTINGS_SPEC = {
   renderDistance: { min: 2, max: 12, def: 6 },
@@ -104,7 +131,7 @@ export function initMenus(opts = {}) {
   if (!titleEl) {
     titleEl = document.createElement('h1');
     titleEl.id = 'game-title';
-    titleEl.textContent = (document.title || 'VOXELHEIM').toUpperCase();
+    titleEl.textContent = (document.title || 'LOOMFALL').toUpperCase();
   }
   titleEl.hidden = false;
   titleEl.classList.add('game-title');
@@ -180,7 +207,12 @@ export function initMenus(opts = {}) {
   // --- Main menu -------------------------------------------------------------
   {
     const wrap = el('div', 'menu-main-wrap', screens.main);
-    wrap.appendChild(titleEl);
+    const titleWrap = el('div', 'menu-title-wrap', wrap);
+    titleWrap.appendChild(titleEl);
+    if (SPLASHES.length > 0) {
+      el('div', 'menu-splash', titleWrap,
+        SPLASHES[Math.floor(Math.random() * SPLASHES.length)]);
+    }
     el('p', 'menu-tagline', wrap, 'An open-world voxel sandbox');
     const buttons = el('div', 'menu-buttons', wrap);
     button('Play', 'vx-btn vx-btn--primary vx-btn--big', buttons, () => show('worlds'));

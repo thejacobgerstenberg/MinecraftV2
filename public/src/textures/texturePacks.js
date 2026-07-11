@@ -884,7 +884,7 @@ function makeDrawTile(S) {
 //   gritty  — desaturated darker palette, high contrast, cracks & wear
 // ---------------------------------------------------------------------------
 export const PACKS = {
-  default: { id: 'default', name: 'Voxelheim Classic', drawTile: makeDrawTile(STYLES.default) },
+  default: { id: 'default', name: 'Loomfall Classic',  drawTile: makeDrawTile(STYLES.default) },
   smooth:  { id: 'smooth',  name: 'Softstone',         drawTile: makeDrawTile(STYLES.smooth) },
   gritty:  { id: 'gritty',  name: 'Gritstone',         drawTile: makeDrawTile(STYLES.gritty) },
 };

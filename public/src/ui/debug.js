@@ -77,7 +77,7 @@ export function initDebug() {
 
   const title = document.createElement('div');
   title.className = 'dbg-title';
-  title.textContent = 'Voxelheim 0.1.0 [debug]';
+  title.textContent = 'Loomfall 0.1.0 [debug]';
   root.appendChild(title);
 
   const valueEls = {};

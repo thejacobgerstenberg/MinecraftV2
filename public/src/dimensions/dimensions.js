@@ -3,30 +3,30 @@
 // PURE module: no three.js import — must run under plain node.
 //
 // Original dimension names (no third-party trademarks):
-//   overworld -> "Overworld"      (the surface world)
-//   nether    -> "Emberdeep"      (a sealed magma cavern-world)
-//   end       -> "The Pale Expanse" (pale islands adrift in the void)
+//   overworld -> "Warpwold"    (the surface world — settled, not safe)
+//   nether    -> "Cinderloom"  (a sealed magma cavern-world)
+//   end       -> "Nevermend"   (pale islands adrift in the void)
 
 import { BLOCK_ID } from '../blocks/blocks.js';
 
 export const DIMENSIONS = {
   overworld: {
     id: 'overworld',
-    name: 'Overworld',
+    name: 'Warpwold',
     fog: 0xaad4ff,
     skyType: 'day',
     portalBlock: BLOCK_ID.portal,
   },
   nether: {
     id: 'nether',
-    name: 'Emberdeep',
+    name: 'Cinderloom',
     fog: 0x3d0f08,
     skyType: 'nether',
     portalBlock: BLOCK_ID.portal,
   },
   end: {
     id: 'end',
-    name: 'The Pale Expanse',
+    name: 'Nevermend',
     fog: 0x140d21,
     skyType: 'end',
     portalBlock: BLOCK_ID.portal,
@@ -34,7 +34,7 @@ export const DIMENSIONS = {
 };
 
 // Portal travel forms a cycle so every dimension is reachable:
-// overworld -> nether (Emberdeep) -> end (The Pale Expanse) -> overworld.
+// overworld (Warpwold) -> nether (Cinderloom) -> end (Nevermend) -> overworld.
 const PORTAL_CYCLE = {
   overworld: 'nether',
   nether: 'end',
