@@ -1,0 +1,298 @@
+#!/bin/sh
+# deploy/backup — world-saves backup / restore tool for Loomfall.
+#
+# The server persists each world as a single JSON file under <repo>/saves/<id>.json
+# (SAVES_DIR = server/../saves). Writes are atomic (tmp file + rename), so copying
+# the saves directory while the server runs is safe: a reader never sees a partial
+# JSON file. For a fully consistent point-in-time snapshot you may still prefer to
+# briefly pause writes (stop the server, or a filesystem/volume snapshot) — but a
+# hot tar of atomically-written per-world files is fine for routine backups.
+#
+# Subcommands:
+#   backup  [--dir <saves>] [--out <backupdir>] [--timestamp <ts>]
+#   restore <archive> [--dir <saves>] [--force]
+#   list    [--backupdir <backupdir>]
+#
+# Env:
+#   WORLD_DIR   overrides the saves directory (default: <repo>/saves)
+#   BACKUP_DIR  overrides the default backup output directory (<repo>/backups)
+#
+# Exit status is non-zero on any error (set -eu).
+
+set -eu
+
+# ---------------------------------------------------------------------------
+# Paths / defaults
+# ---------------------------------------------------------------------------
+
+PROG="backup"
+
+# Resolve the directory this script lives in, then the repo root (its parent).
+script_path="$0"
+# Resolve one level of symlink if possible (readlink -f may be absent on some sh).
+case "$script_path" in
+  */*) script_dir=$(CDPATH= cd -- "$(dirname -- "$script_path")" && pwd) ;;
+  *)   script_dir=$(CDPATH= cd -- "$(dirname -- "$(command -v -- "$script_path")")" && pwd) ;;
+esac
+REPO_DIR=$(CDPATH= cd -- "$script_dir/.." && pwd)
+
+# Saves dir: WORLD_DIR wins, else <repo>/saves.
+DEFAULT_SAVES="${WORLD_DIR:-$REPO_DIR/saves}"
+# Backup output dir: BACKUP_DIR wins, else <repo>/backups.
+DEFAULT_BACKUPDIR="${BACKUP_DIR:-$REPO_DIR/backups}"
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+err() { printf '%s: %s\n' "$PROG" "$*" >&2; }
+die() { err "$*"; exit 1; }
+info() { printf '%s\n' "$*" >&2; }
+
+usage() {
+  cat >&2 <<EOF
+$PROG — Loomfall world-saves backup / restore tool
+
+Usage:
+  $PROG backup  [--dir <saves>] [--out <backupdir>] [--timestamp <ts>]
+  $PROG restore <archive> [--dir <saves>] [--force]
+  $PROG list    [--backupdir <backupdir>]
+  $PROG --help
+
+Subcommands:
+  backup    Tar+gzip the saves directory into a timestamped archive, verify it,
+            and print the archive path (to stdout).
+  restore   Restore a saves archive. The current saves dir is backed up first,
+            then the archive is extracted. Refuses to clobber unless the pre-backup
+            succeeds (or --force is given).
+  list      List existing archives in the backup directory, newest first.
+
+Defaults:
+  saves dir     ${DEFAULT_SAVES}
+                (override with --dir or the WORLD_DIR env var)
+  backup dir    ${DEFAULT_BACKUPDIR}
+                (override with --out/--backupdir or the BACKUP_DIR env var)
+
+Notes:
+  Saves live at <saves>/<id>.json. Server writes are atomic (tmp+rename), so a hot
+  backup of a running server is safe. For a strictly consistent snapshot, briefly
+  stop the server or use a filesystem/volume snapshot.
+EOF
+}
+
+# Portable timestamp: UTC, sortable, filename-safe (YYYYmmdd-HHMMSS).
+gen_timestamp() {
+  date -u +%Y%m%d-%H%M%S
+}
+
+# ---------------------------------------------------------------------------
+# backup
+# ---------------------------------------------------------------------------
+
+cmd_backup() {
+  saves="$DEFAULT_SAVES"
+  outdir="$DEFAULT_BACKUPDIR"
+  ts=""
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --dir)       [ $# -ge 2 ] || die "--dir requires a value"; saves="$2"; shift 2 ;;
+      --out)       [ $# -ge 2 ] || die "--out requires a value"; outdir="$2"; shift 2 ;;
+      --timestamp) [ $# -ge 2 ] || die "--timestamp requires a value"; ts="$2"; shift 2 ;;
+      -h|--help)   usage; exit 0 ;;
+      --)          shift; break ;;
+      -*)          die "unknown option: $1 (see --help)" ;;
+      *)           die "unexpected argument: $1 (see --help)" ;;
+    esac
+  done
+
+  [ -d "$saves" ] || die "saves directory not found: $saves"
+
+  # Resolve to an absolute path so tar's -C is unambiguous.
+  saves=$(CDPATH= cd -- "$saves" && pwd)
+  saves_parent=$(dirname -- "$saves")
+  saves_base=$(basename -- "$saves")
+
+  [ -n "$ts" ] || ts=$(gen_timestamp)
+
+  mkdir -p -- "$outdir"
+  outdir=$(CDPATH= cd -- "$outdir" && pwd)
+
+  archive="$outdir/saves-$ts.tar.gz"
+  if [ -e "$archive" ]; then
+    die "archive already exists: $archive (pass a different --timestamp)"
+  fi
+
+  info "Backing up $saves -> $archive"
+
+  # Tar the saves dir itself (so it restores as a self-contained directory).
+  # -C to the parent keeps the archive rooted at the directory name, not full path.
+  if ! tar -czf "$archive" -C "$saves_parent" -- "$saves_base"; then
+    rm -f -- "$archive"
+    die "failed to create archive"
+  fi
+
+  # Verify the archive is a readable, non-corrupt gzip tarball.
+  if ! gzip -t -- "$archive" 2>/dev/null; then
+    rm -f -- "$archive"
+    die "archive failed gzip integrity check: $archive"
+  fi
+  if ! tar -tzf "$archive" >/dev/null 2>&1; then
+    rm -f -- "$archive"
+    die "archive failed tar listing check: $archive"
+  fi
+
+  count=$(tar -tzf "$archive" 2>/dev/null | grep -c '\.json$' || true)
+  info "OK: archive verified ($count world file(s))"
+
+  # The archive path is the machine-readable result -> stdout.
+  printf '%s\n' "$archive"
+}
+
+# ---------------------------------------------------------------------------
+# restore
+# ---------------------------------------------------------------------------
+
+cmd_restore() {
+  archive=""
+  saves="$DEFAULT_SAVES"
+  force=0
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --dir)     [ $# -ge 2 ] || die "--dir requires a value"; saves="$2"; shift 2 ;;
+      --force)   force=1; shift ;;
+      -h|--help) usage; exit 0 ;;
+      --)        shift; break ;;
+      -*)        die "unknown option: $1 (see --help)" ;;
+      *)         if [ -z "$archive" ]; then archive="$1"; shift; else die "unexpected argument: $1"; fi ;;
+    esac
+  done
+
+  [ -n "$archive" ] || die "restore requires an <archive> argument (see --help)"
+  [ -f "$archive" ] || die "archive not found: $archive"
+
+  # Validate the archive before touching anything on disk.
+  gzip -t -- "$archive" 2>/dev/null || die "archive failed gzip integrity check: $archive"
+  tar -tzf "$archive" >/dev/null 2>&1 || die "archive is not a readable tarball: $archive"
+
+  # Ensure the saves dir exists (may be empty / absent on a fresh box).
+  mkdir -p -- "$saves"
+  saves=$(CDPATH= cd -- "$saves" && pwd)
+  saves_parent=$(dirname -- "$saves")
+  saves_base=$(basename -- "$saves")
+
+  # Refuse to clobber a non-empty saves dir without first backing it up.
+  has_content=0
+  if [ -n "$(ls -A -- "$saves" 2>/dev/null)" ]; then
+    has_content=1
+  fi
+
+  if [ "$has_content" -eq 1 ]; then
+    ts=$(gen_timestamp)
+    prebackup="$saves_parent/$saves_base.pre-restore-$ts.tar.gz"
+    info "Existing saves found; backing up current state -> $prebackup"
+    if ! tar -czf "$prebackup" -C "$saves_parent" -- "$saves_base"; then
+      rm -f -- "$prebackup"
+      if [ "$force" -eq 1 ]; then
+        err "pre-restore backup FAILED but --force given; continuing (current saves may be lost)"
+      else
+        die "pre-restore backup failed; refusing to clobber saves (use --force to override)"
+      fi
+    else
+      if ! gzip -t -- "$prebackup" 2>/dev/null; then
+        rm -f -- "$prebackup"
+        [ "$force" -eq 1 ] || die "pre-restore backup failed verification; refusing to clobber (use --force)"
+        err "pre-restore backup failed verification but --force given; continuing"
+      else
+        info "OK: current saves safely backed up"
+      fi
+    fi
+  else
+    info "Saves directory is empty; no pre-restore backup needed"
+  fi
+
+  # Extract into a staging dir, then swap into place. The archive contains a top
+  # directory (its original basename); we copy its contents into the target saves.
+  staging="$saves_parent/.restore-staging.$$"
+  rm -rf -- "$staging"
+  mkdir -p -- "$staging"
+  # Best-effort cleanup on exit.
+  trap 'rm -rf -- "$staging"' EXIT INT TERM
+
+  if ! tar -xzf "$archive" -C "$staging"; then
+    die "extraction failed: $archive"
+  fi
+
+  # The archive's top-level entry is the original saves dir name; find it.
+  top=$(tar -tzf "$archive" 2>/dev/null | sed 's#/.*##' | sort -u | grep -v '^$' | head -n1)
+  [ -n "$top" ] || die "could not determine archive root directory"
+  src="$staging/$top"
+  [ -d "$src" ] || die "archive root '$top' missing after extraction"
+
+  # Clear current saves and copy the restored files in.
+  # (Removes .json world files; leaves the directory itself in place.)
+  find "$saves" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + 2>/dev/null || true
+  # Copy restored contents (including dotfiles) into saves.
+  if [ -n "$(ls -A -- "$src" 2>/dev/null)" ]; then
+    cp -a -- "$src"/. "$saves"/
+  fi
+
+  rm -rf -- "$staging"
+  trap - EXIT INT TERM
+
+  rcount=$(find "$saves" -maxdepth 1 -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
+  info "OK: restored $rcount world file(s) into $saves"
+  printf '%s\n' "$saves"
+}
+
+# ---------------------------------------------------------------------------
+# list
+# ---------------------------------------------------------------------------
+
+cmd_list() {
+  outdir="$DEFAULT_BACKUPDIR"
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --backupdir|--out|--dir)
+        [ $# -ge 2 ] || die "$1 requires a value"; outdir="$2"; shift 2 ;;
+      -h|--help) usage; exit 0 ;;
+      --)        shift; break ;;
+      -*)        die "unknown option: $1 (see --help)" ;;
+      *)         die "unexpected argument: $1 (see --help)" ;;
+    esac
+  done
+
+  if [ ! -d "$outdir" ]; then
+    info "No backup directory yet: $outdir"
+    exit 0
+  fi
+
+  found=0
+  # Newest first. -t sorts by mtime; guard against no matches.
+  for f in $(ls -1t -- "$outdir"/*.tar.gz 2>/dev/null); do
+    found=1
+    size=$(ls -l -- "$f" 2>/dev/null | awk '{print $5}')
+    printf '%s\t%s bytes\n' "$f" "$size"
+  done
+
+  if [ "$found" -eq 0 ]; then
+    info "No archives found in $outdir"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
+
+[ $# -ge 1 ] || { usage; exit 2; }
+
+sub="$1"; shift
+case "$sub" in
+  backup)      cmd_backup "$@" ;;
+  restore)     cmd_restore "$@" ;;
+  list)        cmd_list "$@" ;;
+  -h|--help|help) usage; exit 0 ;;
+  *)           die "unknown subcommand: $sub (see --help)" ;;
+esac

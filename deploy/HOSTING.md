@@ -351,6 +351,43 @@ they all land in the same world. Have fun out there!
 
 ---
 
+## Operations & verification
+
+Once it's running, these `deploy/` tools help you prove multiplayer works, watch
+it live, back up worlds, and run it responsibly.
+
+- **Prove multiplayer end-to-end — `deploy/e2e-multiplayer.mjs`.** Boots the real
+  server, opens two independent browser clients in the same world, and asserts
+  that client B genuinely observes client A's MOVE, PLACE, BREAK, and CHAT (plus
+  persistence across a rejoin). Run it with:
+
+  ```bash
+  node deploy/e2e-multiplayer.mjs
+  ```
+
+  Exit code is `0` only if every assertion passes; add `--report out.json` to
+  save the full result. Latest run — all 12 assertions passed; B observed A's
+  chat `<Alice-1750b080>e2e-hello-1750b080`, A's placed block `5` at
+  `(3,45,4)`, A's break back to air `0` at `(4,45,4)`, and A's avatar move to
+  `(2,45,4)` (`"ok":true`).
+
+- **Watch it live — `deploy/status/`.** A dependency-free status sidecar that
+  polls the game's public `/api/*` endpoints and shows up/down, latency, and
+  per-world player counts. Run `GAME_URL=http://localhost:3000 node
+  deploy/status/server.mjs` and open <http://localhost:8080>. See
+  `deploy/status/README.md`.
+
+- **Back up & restore worlds — `deploy/backup` + `deploy/BACKUP.md`.** Worlds are
+  one JSON file each under `saves/`; the tool tars them (hot backups are safe —
+  writes are atomic) and restores them. `deploy/backup backup`, `deploy/backup
+  list`, `deploy/backup restore <archive>`. Details in `deploy/BACKUP.md`.
+
+- **Limits & abuse runbook — `deploy/OPERATIONS.md`.** Operator reference for
+  the server-enforced limits (connection, rate, name/edit validation) and how to
+  respond to abuse.
+
+---
+
 ### Good-to-know details (honest notes)
 
 - **Port** is `3000` everywhere. You can change it by setting the `PORT`
