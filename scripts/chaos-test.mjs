@@ -6,14 +6,17 @@
  * NEVER CRASH, STALL, OR LEAK, and well-behaved clients must keep being served.
  *
  * WHY THIS EXISTS
- * The builder has not shipped a real multiplayer server yet, so by default this
- * harness spawns the bundled reference server (scripts/mock-server.mjs), which
- * implements the exact wire protocol defined in scripts/lib/protocol.mjs on top
- * of the dependency-free WebSocket transport in scripts/lib/ws-transport.mjs.
- * That lets the whole thing run FOR REAL today. When a real server lands, point
- * this at it with --url / --server-cmd; only scripts/lib/protocol.mjs would need
- * editing if the wire format differs — the transport and this harness are
- * protocol-agnostic.
+ * This harness is TARGET-AGNOSTIC and TOLERANT. By default it spawns the bundled
+ * reference server (scripts/mock-server.mjs), which faithfully speaks the real
+ * "Voxelheim" wire protocol defined in scripts/lib/protocol.mjs on top of the
+ * dependency-free WebSocket transport in scripts/lib/ws-transport.mjs, and which
+ * ALSO models good-behaviour defences (a sane message-size cap + rate-limit). Point
+ * it at the real server with --url / --server-cmd. Against an ARBITRARY server the
+ * absence of those defences is treated as a VULNERABILITY / observation (a WARNING),
+ * NOT a hard failure — the real Voxelheim server is documented to have no app-level
+ * size cap, no rate limiting, and to silently ignore bad/pre-join/unknown frames.
+ * Only scripts/lib/protocol.mjs is protocol-specific; the transport + this harness
+ * measure generically via the adapter's CAPS.
  *
  * DEPENDENCY-FREE: Node builtins only (node:net, node:crypto, node:fs, node:path,
  * node:child_process, node:url) plus the harness's own sibling modules. No npm
@@ -22,36 +25,42 @@
  *
  * ---------------------------------------------------------------------------
  * THE CANARY
- * Before any attack runs we establish a healthy CANARY client (join + ping every
- * 500 ms). It MUST stay connected and keep receiving pongs through every single
- * attack — that is the live proof that per-connection misbehaviour is sandboxed
- * and never degrades service for everyone else.
+ * Before any attack runs we establish a healthy CANARY client in its OWN world
+ * (join, then prove liveness on demand via CHAT SELF-ECHO — Voxelheim has NO app
+ * ping, but chat echoes to the whole room INCLUDING the sender, so a chat whose
+ * echoed id === the canary's own welcome id proves the server is still processing
+ * application messages). Keeping the canary in a dedicated world means only a true
+ * server-wide problem (crash / event-loop starvation) can disrupt it — never a
+ * legitimate same-room broadcast. It MUST stay responsive through every attack.
  *
  * THE 12 VECTORS (run sequentially, each on a fresh connection unless noted):
- *   1  invalid JSON text
- *   2  oversized frame > maxPayload (~5 MB)         -> expect Close 1009, not OOM
+ *   1  invalid JSON text                             (Voxelheim silently ignores)
+ *   2  oversized frame (CHAOS_OVERSIZE_BYTES, def 8 MB, never 100 MiB)
+ *                                                    -> mock closes; real server has NO cap (VULN)
  *   3  type-confusion (valid JSON, wrong field types)
- *   4  unknown message type
+ *   4  unknown message type                          (Voxelheim silently ignores)
  *   5  missing required fields
  *   6  binary frame where text is expected
  *   7  valid fragmented reassembly AND an unfinished fragment + abrupt disconnect
  *   8  raw garbage bytes with NO handshake (node:net)
  *   9  mid-handshake disconnect (partial HTTP upgrade, then destroy)
  *   10 rapid reconnect storm (open+close ~200x fast)
- *   11 SLOW READER (join then stop draining while the server broadcasts)
- *   12 message FLOOD (~thousands msgs/sec for ~3 s)  -> expect rate-limit/sandbox
+ *   11 SLOW READER (join, stop draining while a co-tenant pushes broadcasts at us)
+ *   12 message FLOOD (~thousands msgs/sec for ~3 s)  -> mock rate-limits; real server does NOT (VULN)
  *
  * AFTER EACH VECTOR we assert:
- *   (i)   server still alive           (spawned: pid alive; targeted: fresh client can connect+ping)
- *   (ii)  canary still receiving pongs (responsive)
- *   (iii) others unaffected            (a fresh healthy client can connect+join+ping)
+ *   (i)   server still alive           (spawned/--server-pid: pid alive; else: fresh client connects)
+ *   (ii)  canary still responsive      (chat self-echo comes back)
+ *   (iii) others unaffected            (a fresh healthy client can connect+join)
  * and record {id,name,serverAlive,canaryOk,othersUnaffected,observation,severity}.
  *
- * SEVERITY: "ok" (safe), "warning" (a VULNERABILITY that is unsafe-but-not-crash —
- * e.g. server accepted a 5 MB frame, no rate limit, unbounded buffer growth) or
- * "critical" (the vector crashed the server, disrupted the canary, or caused a
- * DoS). EXIT 1 if any vector is critical (crash / canary disruption / DoS);
- * otherwise EXIT 0 — warnings are reported but do not fail the run.
+ * SEVERITY: "ok" (safe / defended / documented-and-harmless), "warning" (a
+ * VULNERABILITY or observation that is unsafe-but-not-crash on THIS target — e.g.
+ * accepted an oversized frame, no rate limit, unbounded buffer growth, silent
+ * ignore of bad input) or "critical" (the vector CRASHED the server, disrupted the
+ * canary, or caused a DoS to other clients). EXIT 1 ONLY on a critical (crash /
+ * canary disruption / DoS to others); otherwise EXIT 0 — warnings are reported but
+ * NEVER fail the run against an arbitrary server.
  * ---------------------------------------------------------------------------
  */
 
@@ -63,7 +72,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { wsConnect, OPEN } from './lib/ws-transport.mjs';
-import { defaultUrl, encJoin, encPing, decode } from './lib/protocol.mjs';
+import { CAPS, defaultUrl, encJoin, encChat, encMove, decode } from './lib/protocol.mjs';
 import {
   parseArgs,
   envNum,
@@ -80,18 +89,47 @@ import {
 // WebSocket opcodes (for hand-built chaos frames via WSConn.sendRawFrame).
 const OPC = { CONT: 0x0, TEXT: 0x1, BIN: 0x2, CLOSE: 0x8, PING: 0x9, PONG: 0xa };
 
-// Generous client-side payload cap so nothing on OUR side rejects a server frame
-// (server->client frames are tiny; this only matters if a server misbehaves).
-const CLIENT_MAX_PAYLOAD = 8 << 20; // 8 MiB
+// ws@8's default inbound cap when the server sets no maxPayload (the real
+// Voxelheim server sets none). We must stay well BELOW this: at/above 100 MiB the
+// ws library itself rejects the frame, which would mask whether the *application*
+// has a size cap of its own.
+const WS_DEFAULT_INBOUND_CAP = 100 * 1024 * 1024; // ws@8 default maxPayload
 
-// The server's declared max payload (mock default 1 MiB). The oversized vector
-// must exceed it — and comfortably exceed the contract's ~5 MB suggestion.
-const SERVER_MAX_PAYLOAD = envNum('GAME_MAX_PAYLOAD', 1 << 20);
-const OVERSIZED_BYTES = Math.max(5 << 20, SERVER_MAX_PAYLOAD + (4 << 20));
+// Oversized-frame vector size. Default 8 MB (comfortably under the 100 MiB ws cap,
+// and NEVER at/above it). Override via CHAOS_OVERSIZE_BYTES. The goal is to prove
+// whether the target enforces an APP-LEVEL size cap: the mock closes; the real
+// Voxelheim server accepts it (a reported vulnerability), not a crash.
+const OVERSIZE_DEFAULT = 8 * 1024 * 1024; // 8 MB
+function resolveOversizeBytes() {
+  let n = envNum('CHAOS_OVERSIZE_BYTES', OVERSIZE_DEFAULT);
+  if (!Number.isFinite(n) || n <= 0) n = OVERSIZE_DEFAULT;
+  n = Math.floor(n);
+  const ceil = WS_DEFAULT_INBOUND_CAP - (1 << 20); // stay ~1 MiB below 100 MiB
+  if (n > ceil) n = ceil;
+  return n;
+}
+const OVERSIZE_BYTES = resolveOversizeBytes();
 
-// Slow-reader RSS growth beyond this (spawned + Linux only) is flagged as a
-// possible unbounded-buffering vulnerability.
+// Reference-server (spawned mock) message-size cap — the mock's "good behaviour"
+// defence. Only wired into the spawned mock's env; an arbitrary --url target is
+// judged by what it actually does, not by this number.
+const MOCK_MAX_PAYLOAD = envNum('GAME_MAX_PAYLOAD', 1 << 20);
+
+// Generous client-side inbound cap so nothing on OUR side rejects a server frame
+// (server->client frames are tiny; this only matters if a server misbehaves). Kept
+// comfortably above the oversized payload we send so a hypothetical echo can't trip
+// our own guard.
+const CLIENT_MAX_PAYLOAD = Math.max(8 << 20, OVERSIZE_BYTES + (1 << 20));
+
+// Slow-reader RSS growth beyond this (needs a sampleable pid: spawned server or
+// --server-pid, Linux only) is flagged as a possible unbounded-buffering vuln.
 const SLOW_READER_MAX_GROWTH_MB = 150;
+
+// Dedicated worlds keep the canary isolated from attack-room broadcast fan-out, so
+// only a true server-wide problem can disrupt it. All match ^[A-Za-z0-9_-]{1,64}$.
+const CANARY_WORLD = 'chaoscanary';
+const ATTACK_WORLD = 'chaosattack';
+const SLOW_WORLD = 'chaosslow';
 
 /* =========================================================================
  * Tiny helpers.
@@ -205,6 +243,7 @@ function parseConfig(argv) {
     url: { default: '', env: 'GAME_URL', type: 'string' },
     spawn: { default: false, type: 'boolean' },
     'server-cmd': { default: '', env: 'SERVER_CMD', type: 'string' },
+    'server-pid': { default: 0, env: 'SERVER_PID', type: 'number' },
     report: { default: '', env: 'CHAOS_REPORT', type: 'string' },
     help: { default: false, type: 'boolean' },
   });
@@ -212,24 +251,34 @@ function parseConfig(argv) {
 }
 
 function printHelp() {
-  console.log(`chaos-test.mjs — adversarial chaos harness for the multiplayer backend
+  console.log(`chaos-test.mjs — TARGET-AGNOSTIC, TOLERANT adversarial chaos harness (Voxelheim)
 
 USAGE
-  node scripts/chaos-test.mjs [--spawn | --url <ws://…> | --server-cmd "<cmd>"] [--report <path>]
+  node scripts/chaos-test.mjs [--spawn | --url <ws://…> | --server-cmd "<cmd>"]
+                              [--server-pid <pid>] [--report <path>]
 
 TARGET SELECTION (precedence: --server-cmd > --spawn > --url > default)
   --spawn                 Spawn the bundled reference mock (scripts/mock-server.mjs)
                           and attack it. This is the DEFAULT when nothing else is given.
-  --url <ws://host:port>  Attack an already-running server (env: GAME_URL). Not spawned,
-                          so "server alive" is judged by a fresh client still connecting.
+  --url <ws://host:port/ws>  Attack an already-running server (env: GAME_URL). Not spawned,
+                          so "server alive" is judged by a fresh client still connecting
+                          (or by --server-pid if given). Default: ${defaultUrl()}
   --server-cmd "<cmd>"    Spawn an arbitrary server via shell, wait for its port
                           (from GAME_URL / GAME_PORT), then attack it (env: SERVER_CMD).
+  --server-pid <pid>      PID of an externally-started server we did NOT spawn (env:
+                          SERVER_PID). Enables crash detection + slow-reader RSS
+                          sampling against a --url target.
   --report <path>         Write a JSON report (env: CHAOS_REPORT).
   --help                  Show this help.
 
 ENV
   GAME_PORT (spawned mock port; a free port is chosen when unset)
-  GAME_WS_PATH (default "/")   GAME_MAX_PAYLOAD (server max frame bytes; default 1048576)
+  GAME_WS_PATH (default "${CAPS.wsPath}")   GAME_MAX_PAYLOAD (spawned mock's size cap; default 1048576)
+  CHAOS_OVERSIZE_BYTES (oversized-frame size; default 8388608 = 8 MB, never >= 100 MiB)
+
+TOLERANCE MODEL
+  Against an arbitrary server, MISSING sandboxing is a VULNERABILITY (a WARNING),
+  not a failure. Only a crash, a disrupted canary, or a DoS to other clients fails.
 
 EXIT CODES
   0  no crash, canary stayed responsive, no DoS (vulnerability WARNINGS may still be reported)
@@ -243,6 +292,7 @@ EXIT CODES
 const server = {
   proc: null, // ChildProcess (null in --url mode)
   pid: null,
+  externalPid: null, // pid of a server we did NOT spawn (--server-pid), for sampling
   exited: false,
   exitCode: null,
   exitSignal: null,
@@ -260,7 +310,12 @@ async function startServer(opts) {
   else if (opts.url) server.mode = 'url';
   else server.mode = 'spawn-mock';
 
-  const wsPath = normalizePath(envStr('GAME_WS_PATH', '/'));
+  // A caller-supplied pid for an externally-started server (URL mode). Enables
+  // crash detection + slow-reader RSS sampling without us owning the process.
+  const extPid = Number(opts.serverPid);
+  server.externalPid = Number.isInteger(extPid) && extPid > 0 ? extPid : null;
+
+  const wsPath = normalizePath(envStr('GAME_WS_PATH', CAPS.wsPath));
 
   if (server.mode === 'url') {
     // Targeting an external server: verify reachability, own no process.
@@ -299,9 +354,12 @@ async function startServer(opts) {
       detached: true, // own process group -> group-kill on cleanup (see killServer)
       env: {
         ...process.env,
+        // Pass both PORT (real-server convention) and GAME_PORT (harness convention)
+        // so the mock binds where we expect regardless of which it reads.
+        PORT: String(port),
         GAME_PORT: String(port),
         GAME_WS_PATH: wsPath,
-        GAME_MAX_PAYLOAD: String(SERVER_MAX_PAYLOAD),
+        GAME_MAX_PAYLOAD: String(MOCK_MAX_PAYLOAD),
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -356,10 +414,23 @@ function parseHostPort(url) {
   }
 }
 
-/** True while we believe the server can still serve requests at the OS level. */
+/**
+ * OS-level liveness of the server process, when we can observe it:
+ *   - spawned:            true/false from our child's exit + pid probe
+ *   - --server-pid given: true/false from probing that external pid
+ *   - otherwise:          null (unknown -> liveness is judged by a fresh client)
+ */
 function serverProcessAlive() {
-  if (!server.spawned) return null; // "alive" is judged by a fresh client instead
-  return !server.exited && isPidAlive(server.pid);
+  if (server.spawned) return !server.exited && isPidAlive(server.pid);
+  if (server.externalPid) return isPidAlive(server.externalPid);
+  return null;
+}
+
+/** The pid we can sample /proc for (spawned child or --server-pid), else null. */
+function samplingPid() {
+  if (server.spawned) return server.pid;
+  if (server.externalPid) return server.externalPid;
+  return null;
 }
 
 /* =========================================================================
@@ -368,11 +439,13 @@ function serverProcessAlive() {
 
 const canary = {
   conn: null,
-  pongCount: 0,
+  id: null, // our welcome id ("p<N>"); a self-echoed chat carries this id back
+  echoCount: 0, // chat self-echoes received (Voxelheim's responsiveness signal)
   closed: false,
   closeCode: null,
-  interval: null,
 };
+
+let canaryChatSeq = 0;
 
 async function startCanary() {
   const conn = await wsConnect(server.url, {
@@ -385,35 +458,35 @@ async function startCanary() {
     canary.closed = true;
     canary.closeCode = code;
   });
+  // Voxelheim has NO app ping. Keepalive is the WS control-frame pong the
+  // transport auto-answers; responsiveness is proved by CHAT SELF-ECHO: a chat
+  // echoes to the whole room including the sender, tagged with the sender's id.
   conn.on('message', (data) => {
     let d;
     try { d = decode(data); } catch { return; }
-    if (d.kind === 'pong') canary.pongCount++;
+    if (d.kind === 'chat' && canary.id != null && d.id === canary.id) canary.echoCount++;
   });
 
-  conn.send(encJoin({ name: 'canary' }));
-  await waitForMessage(conn, (d) => d.kind === 'welcome', 3000);
+  // Dedicated world so attack-room broadcasts can never reach the canary.
+  conn.send(encJoin({ name: 'canary', worldId: CANARY_WORLD }));
+  const welcome = await waitForMessage(conn, (d) => d.kind === 'welcome', 3000);
+  if (!welcome) throw new Error('canary never received a welcome — cannot establish a baseline');
+  canary.id = welcome.id;
 
-  // Steady heartbeat: a ping every 500 ms for the life of the run.
-  canary.interval = setInterval(() => {
-    try {
-      if (!canary.closed && conn.readyState === OPEN) conn.send(encPing({ ts: nowMs() }));
-    } catch { /* ignore */ }
-  }, 500);
-  if (canary.interval.unref) canary.interval.unref();
-
-  // Prove the baseline: at least one pong must come back.
-  conn.send(encPing({ ts: nowMs() }));
-  const ok = await pollUntil(() => canary.pongCount > 0, 3000);
-  if (!ok) throw new Error('canary never received a pong — cannot establish a baseline');
+  // Prove the baseline: our own chat must echo back to us.
+  const ok = await canaryResponsive(3000);
+  if (!ok) throw new Error('canary never received its own chat self-echo — cannot establish a baseline');
 }
 
-/** Actively probe the canary: send a ping, confirm a NEW pong comes back. */
-async function canaryResponsive(timeoutMs = 2500) {
-  if (canary.closed || !canary.conn || canary.conn.readyState !== OPEN) return false;
-  const before = canary.pongCount;
-  try { canary.conn.send(encPing({ ts: nowMs() })); } catch { /* ignore */ }
-  return pollUntil(() => canary.pongCount > before, timeoutMs);
+/**
+ * Actively probe the canary: send a chat and confirm a NEW self-echo comes back.
+ * This is Voxelheim's stand-in for a ping/pong round trip.
+ */
+async function canaryResponsive(timeoutMs = 3000) {
+  if (canary.closed || !canary.conn || canary.conn.readyState !== OPEN || canary.id == null) return false;
+  const before = canary.echoCount;
+  try { canary.conn.send(encChat({ text: `canary-alive-${++canaryChatSeq}` })); } catch { /* ignore */ }
+  return pollUntil(() => canary.echoCount > before, timeoutMs);
 }
 
 /** Poll `cond` every 25 ms until true or timeout. */
@@ -429,8 +502,10 @@ async function pollUntil(cond, timeoutMs) {
 }
 
 /**
- * Can a brand-new healthy client connect, join, and get a pong? This doubles as
- * the "server alive" test in --url mode and the "others unaffected" test always.
+ * Can a brand-new healthy client connect and JOIN (receive a welcome)? Voxelheim
+ * has no app ping, so a welcome is the proof the server accepted and served a new
+ * client. This doubles as the "server alive" test when the pid is unknown and as
+ * the "others unaffected" test always. Probes join the isolated canary world.
  */
 async function freshClientOk(timeoutMs = 3000) {
   let c;
@@ -443,16 +518,10 @@ async function freshClientOk(timeoutMs = 3000) {
     return false;
   }
   try {
-    let gotPong = false;
     c.on('error', () => {});
-    c.on('message', (data) => {
-      let d;
-      try { d = decode(data); } catch { return; }
-      if (d.kind === 'pong') gotPong = true;
-    });
-    c.send(encJoin({ name: 'probe' }));
-    c.send(encPing({ ts: nowMs() }));
-    return await pollUntil(() => gotPong, timeoutMs);
+    c.send(encJoin({ name: 'probe', worldId: CANARY_WORLD }));
+    const welcome = await waitForMessage(c, (d) => d.kind === 'welcome', timeoutMs);
+    return !!welcome;
   } catch {
     return false;
   } finally {
@@ -465,15 +534,17 @@ async function freshClientOk(timeoutMs = 3000) {
  * ========================================================================= */
 
 /**
- * Open an attacking client. Records error/welcome/pong counts. Optionally joins
- * first (some vectors need a joined session to reach field-level validation).
+ * Open an attacking client. Records error/welcome counts (Voxelheim has no app
+ * pong). Optionally joins first (some vectors need a joined session to reach
+ * field-level validation — pre-join frames are otherwise silently ignored).
+ * Attackers live in a dedicated world, isolated from the canary.
  */
 async function openAttacker({ join = false } = {}) {
   const conn = await wsConnect(server.url, {
     maxPayload: CLIENT_MAX_PAYLOAD,
     handshakeTimeoutMs: 4000,
   });
-  const state = { errors: 0, welcomes: 0, pongs: 0, closed: false, closeCode: null };
+  const state = { errors: 0, welcomes: 0, closed: false, closeCode: null };
   conn.on('error', () => {});
   conn.on('close', (code) => {
     state.closed = true;
@@ -484,10 +555,9 @@ async function openAttacker({ join = false } = {}) {
     try { d = decode(data); } catch { return; }
     if (d.kind === 'error') state.errors++;
     else if (d.kind === 'welcome') state.welcomes++;
-    else if (d.kind === 'pong') state.pongs++;
   });
   if (join) {
-    conn.send(encJoin({ name: 'chaos' }));
+    conn.send(encJoin({ name: 'chaos', worldId: ATTACK_WORLD }));
     await waitForMessage(conn, (d) => d.kind === 'welcome', 2000);
   }
   return { conn, state };
@@ -531,12 +601,18 @@ async function vecInvalidJson() {
   for (const j of junk) { try { conn.send(j); } catch { /* ignore */ } }
   await sleep(300);
   const open = conn.readyState === OPEN;
-  v.observation = `sent ${junk.length} malformed text frames; ${state.errors} {t:"error"} replies; connection ${open ? 'stayed open' : 'was closed'}`;
+  // Voxelheim SILENTLY IGNORES invalid JSON (no error frame, no close) — crash-
+  // resistant and documented, so this is an OBSERVATION at severity ok. The mock
+  // may reply with {t:"error"}; either shape is safe.
+  v.observation = `sent ${junk.length} malformed text frames; ${state.errors} {t:"error"} replies; connection ${open ? 'stayed open (silently ignored — documented Voxelheim behaviour)' : 'was closed'}`;
   try { conn.terminate(); } catch { /* ignore */ }
   return v;
 }
 
-// 2) Oversized frame > maxPayload (~5 MB). Expect Close 1009, never OOM.
+// 2) Oversized frame (CHAOS_OVERSIZE_BYTES, default 8 MB, never 100 MiB).
+// The mock enforces an app-level cap and closes; the real Voxelheim server sets no
+// maxPayload (ws default 100 MiB) and no app cap, so it ACCEPTS the frame — that is
+// a reported VULNERABILITY, not a crash. Either way: must never OOM.
 async function vecOversized() {
   const v = { name: 'oversized-frame', observation: '', severity: 'ok' };
   let conn;
@@ -555,9 +631,9 @@ async function vecOversized() {
   conn.on('error', () => {});
   conn.on('close', (code) => { closed = true; closeCode = code; });
 
-  const mb = (OVERSIZED_BYTES / (1 << 20)).toFixed(1);
+  const mb = (OVERSIZE_BYTES / (1024 * 1024)).toFixed(1);
   // Hand-built oversized TEXT frame (bypasses our own send() maxPayload guard).
-  const big = Buffer.allocUnsafe(OVERSIZED_BYTES);
+  const big = Buffer.allocUnsafe(OVERSIZE_BYTES);
   big.fill(0x61); // 'a'
   try {
     conn.sendRawFrame({ opcode: OPC.TEXT, payload: big, masked: true });
@@ -570,10 +646,10 @@ async function vecOversized() {
 
   await pollUntil(() => closed, 4000);
   if (closed) {
-    v.observation = `server closed the connection (code ${closeCode}) on a ${mb} MB frame`;
+    v.observation = `server enforced an app-level size cap: closed the connection (code ${closeCode}) on a ${mb} MB frame`;
     if (closeCode !== 1009) v.observation += ' (expected 1009, but any close is safe)';
   } else {
-    v.observation = `server did NOT close on a ${mb} MB frame (> maxPayload ${SERVER_MAX_PAYLOAD}B) — accepted an oversized payload; possible OOM / unbounded-buffer vector`;
+    v.observation = `no app-level message-size cap (accepted ${mb} MB; ws 100MiB default) — the server took an oversized payload without closing; unbounded-buffer / OOM risk`;
     v.severity = 'warning';
   }
   try { conn.terminate(); } catch { /* ignore */ }
@@ -590,23 +666,28 @@ async function vecTypeConfusion() {
     return v;
   }
   const { conn, state } = p;
+  // Wrong TYPES for the real Voxelheim fields (move x/y/z/yaw/pitch/dim,
+  // edit x/y/z/block/dim, chat text, join worldId/name/dim).
   const frames = [
     JSON.stringify({ t: 123 }), // t as number
     JSON.stringify({ t: ['a', 'b'] }), // t as array
-    JSON.stringify({ t: 'move', seq: { nested: 1 }, pos: { x: 'a', y: 2, z: 3 }, yaw: 0 }), // seq object, pos.x string
-    JSON.stringify({ t: 'move', seq: 7, pos: 'not-a-vector' }), // pos as string
+    JSON.stringify({ t: 'move', x: 'a', y: 2, z: 3, yaw: 0, pitch: 0, dim: 'overworld' }), // x string
+    JSON.stringify({ t: 'move', x: {}, y: [1], z: 3, yaw: 'n', pitch: null, dim: 5 }), // x object, dim number
     JSON.stringify({ t: 'chat', text: 42 }), // text as number
-    JSON.stringify({ t: 'block', action: 99, pos: { x: 1, y: 1, z: 1 }, block: { evil: true } }), // action wrong type, object block
+    JSON.stringify({ t: 'edit', x: 1, y: 1, z: 1, block: { evil: true }, dim: 'overworld' }), // block object
+    JSON.stringify({ t: 'join', worldId: 999, name: [], dim: true }), // join wrong types
   ];
   for (const f of frames) { try { conn.send(f); } catch { /* ignore */ } }
   await sleep(300);
   const open = conn.readyState === OPEN;
-  v.observation = `sent ${frames.length} type-confused frames; ${state.errors} error replies; connection ${open ? 'stayed open' : 'sandbox-closed'}`;
+  // Bad values are dropped/ignored (or a {t:"error",code:"bad_edit"} for a bad
+  // edit); no crash. Silent ignore is documented Voxelheim behaviour -> severity ok.
+  v.observation = `sent ${frames.length} type-confused frames (real fields, wrong types); ${state.errors} error replies; connection ${open ? 'stayed open (bad values dropped/ignored)' : 'sandbox-closed'}`;
   try { conn.terminate(); } catch { /* ignore */ }
   return v;
 }
 
-// 4) Unknown message type.
+// 4) Unknown message type. Voxelheim silently ignores unknown `t`.
 async function vecUnknownType() {
   const v = { name: 'unknown-type', observation: '', severity: 'ok' };
   let p;
@@ -622,11 +703,12 @@ async function vecUnknownType() {
     JSON.stringify({ t: 'constructor' }),
     JSON.stringify({ t: '' }),
     JSON.stringify({ t: 'MOVE' }), // wrong case
+    JSON.stringify({ t: 'Chat', text: 'nope' }), // wrong case
   ];
   for (const f of frames) { try { conn.send(f); } catch { /* ignore */ } }
   await sleep(300);
   const open = conn.readyState === OPEN;
-  v.observation = `sent ${frames.length} unknown-type frames; ${state.errors} error replies; connection ${open ? 'stayed open' : 'closed'}`;
+  v.observation = `sent ${frames.length} unknown-type frames; ${state.errors} error replies; connection ${open ? 'stayed open (silently ignored — documented Voxelheim behaviour)' : 'closed'}`;
   try { conn.terminate(); } catch { /* ignore */ }
   return v;
 }
@@ -642,16 +724,18 @@ async function vecMissingFields() {
   }
   const { conn, state } = p;
   const frames = [
-    JSON.stringify({ t: 'move' }), // no seq / pos
-    JSON.stringify({ t: 'move', seq: 1 }), // no pos
-    JSON.stringify({ t: 'block' }), // no action / pos
+    JSON.stringify({ t: 'move' }), // no coords
+    JSON.stringify({ t: 'move', x: 1 }), // partial coords, no y/z/dim
+    JSON.stringify({ t: 'edit' }), // no coords / block
+    JSON.stringify({ t: 'edit', x: 1, y: 1, z: 1 }), // no block
     JSON.stringify({ t: 'chat' }), // no text
     JSON.stringify({}), // no t at all
+    JSON.stringify({ t: 'join' }), // no worldId / name / dim
   ];
   for (const f of frames) { try { conn.send(f); } catch { /* ignore */ } }
   await sleep(300);
   const open = conn.readyState === OPEN;
-  v.observation = `sent ${frames.length} field-starved frames; ${state.errors} error replies; connection ${open ? 'stayed open' : 'closed'}`;
+  v.observation = `sent ${frames.length} field-starved frames; ${state.errors} error replies; connection ${open ? 'stayed open (missing fields dropped/ignored)' : 'closed'}`;
   try { conn.terminate(); } catch { /* ignore */ }
   return v;
 }
@@ -668,7 +752,7 @@ async function vecBinaryFrame() {
   const { conn, state } = p;
   try {
     // A binary frame carrying an otherwise-valid join, plus a raw binary blob.
-    conn.sendRawFrame({ opcode: OPC.BIN, payload: Buffer.from(encJoin({ name: 'bin' }), 'utf8'), masked: true });
+    conn.sendRawFrame({ opcode: OPC.BIN, payload: Buffer.from(encJoin({ name: 'bin', worldId: ATTACK_WORLD }), 'utf8'), masked: true });
     conn.sendRawFrame({ opcode: OPC.BIN, payload: Buffer.from([0, 1, 2, 3, 255, 254, 253]), masked: true });
   } catch { /* ignore */ }
   await sleep(300);
@@ -688,7 +772,7 @@ async function vecFragmented() {
   try {
     a = await wsConnect(server.url, { maxPayload: CLIENT_MAX_PAYLOAD, handshakeTimeoutMs: 4000 });
     a.on('error', () => {});
-    const join = encJoin({ name: 'frag' });
+    const join = encJoin({ name: 'frag', worldId: ATTACK_WORLD });
     const mid = Math.max(1, Math.floor(join.length / 2));
     const p1 = Buffer.from(join.slice(0, mid), 'utf8');
     const p2 = Buffer.from(join.slice(mid), 'utf8');
@@ -763,11 +847,13 @@ async function vecMidHandshake() {
       done();
       return;
     }
+    let rawPath = '/';
+    try { rawPath = new URL(server.url).pathname || '/'; } catch { /* keep '/' */ }
     sock.on('connect', () => {
       try {
         // A partial WebSocket upgrade: no Sec-WebSocket-Key, no terminating blank line.
         sock.write(
-          'GET / HTTP/1.1\r\n' +
+          `GET ${rawPath} HTTP/1.1\r\n` +
           `Host: ${server.host}:${server.port}\r\n` +
           'Upgrade: websocket\r\n' +
           'Connection: Upgrade\r\n' +
@@ -808,9 +894,16 @@ async function vecReconnectStorm() {
   return v;
 }
 
-// 11) Slow reader: join, then stop draining while the server broadcasts.
+// 11) Slow reader: join, then stop draining while a co-tenant PUSHES broadcasts at
+// us. A bounded server must not queue those bytes to the stalled socket without
+// limit. RSS is sampled via samplingPid() (spawned child or --server-pid); with no
+// sampleable pid we can only note best-effort and rely on the canary/fresh probes.
 async function vecSlowReader() {
   const v = { name: 'slow-reader', observation: '', severity: 'ok' };
+  const windowMs = 3000;
+  const pid = samplingPid();
+
+  // The slow reader itself.
   let conn;
   try {
     conn = await wsConnect(server.url, { maxPayload: CLIENT_MAX_PAYLOAD, handshakeTimeoutMs: 4000 });
@@ -820,41 +913,73 @@ async function vecSlowReader() {
     return v;
   }
   conn.on('error', () => {});
-  conn.send(encJoin({ name: 'slow' }));
-  await sleep(250); // let the server register the join and start broadcasting to us
+  conn.send(encJoin({ name: 'slow', worldId: SLOW_WORLD }));
+  await waitForMessage(conn, (d) => d.kind === 'welcome', 2000);
 
-  const pid = server.spawned ? server.pid : null;
+  // A co-tenant PUSHER in the same room+dim. Its chats echo to the whole room, so
+  // the server must deliver them to the paused slow reader — creating the
+  // server->client backlog this vector probes. If the server rate-limits/closes the
+  // pusher, that is itself good behaviour; we simply generate less backlog.
+  let pusher = null;
+  let pusherClosed = false;
+  try {
+    pusher = await wsConnect(server.url, { maxPayload: CLIENT_MAX_PAYLOAD, handshakeTimeoutMs: 4000 });
+    pusher.on('error', () => {});
+    pusher.on('close', () => { pusherClosed = true; });
+    pusher.send(encJoin({ name: 'pusher', worldId: SLOW_WORLD }));
+    await waitForMessage(pusher, (d) => d.kind === 'welcome', 2000);
+  } catch { pusher = null; }
+
+  await sleep(150); // let both joins register
+
   const rssBefore = readRssMB(pid);
 
   // Stop consuming: pause the underlying socket so server->client bytes back up.
   try { conn.raw.pause(); } catch { /* ignore */ }
 
+  const bigText = 'x'.repeat(240); // near the 256-char chat cap to maximise bytes/frame
+  let pushed = 0;
   let rssPeak = rssBefore;
-  const windowMs = 3000;
   const start = nowMs();
   while (nowMs() - start < windowMs) {
+    if (pusher && !pusherClosed && pusher.readyState === OPEN) {
+      for (let k = 0; k < 40 && !pusherClosed; k++) {
+        let ok;
+        try { ok = pusher.send(encChat({ text: `${bigText}-${pushed}` })); } catch { ok = false; }
+        pushed++;
+        if (ok === false) break; // backpressured/closing — yield below
+      }
+    }
     const r = readRssMB(pid);
     if (r != null && (rssPeak == null || r > rssPeak)) rssPeak = r;
-    await sleep(200);
+    await sleep(50);
   }
 
   try { conn.raw.resume(); } catch { /* ignore */ }
   try { conn.terminate(); } catch { /* ignore */ }
+  try { if (pusher) pusher.terminate(); } catch { /* ignore */ }
+
+  const pushNote = pusher
+    ? `${pushed} broadcast chats pushed at the paused reader${pusherClosed ? ' (pusher closed early — a rate-limit/sandbox defence)' : ''}`
+    : 'no co-tenant pusher (could not open a second connection)';
 
   if (rssBefore != null && rssPeak != null) {
     const growth = rssPeak - rssBefore;
-    v.observation = `held a joined connection without reading for ${windowMs}ms; server RSS ${rssBefore.toFixed(1)}→${rssPeak.toFixed(1)} MB (Δ${growth.toFixed(1)} MB)`;
+    v.observation = `held a joined connection without reading for ${windowMs}ms while ${pushNote}; server RSS ${rssBefore.toFixed(1)}→${rssPeak.toFixed(1)} MB (Δ${growth.toFixed(1)} MB)`;
     if (growth > SLOW_READER_MAX_GROWTH_MB) {
       v.severity = 'warning';
       v.observation += ` — exceeds ${SLOW_READER_MAX_GROWTH_MB} MB; possible unbounded buffering to a slow reader`;
     }
   } else {
-    v.observation = `held a joined connection without reading for ${windowMs}ms; server RSS unavailable (targeted/non-Linux) — liveness asserted via canary + fresh client`;
+    const why = pid ? 'server RSS unreadable (non-Linux /proc?)' : 'no --server-pid and not spawned, so server RSS is n/a';
+    v.observation = `held a joined connection without reading for ${windowMs}ms while ${pushNote}; best-effort only: ${why} — liveness still asserted via canary + fresh client`;
   }
   return v;
 }
 
-// 12) Message flood: one client blasts thousands of msgs/sec for ~3 s.
+// 12) Message flood: one client blasts thousands of msgs/sec for ~3 s. The mock
+// rate-limits/sandbox-closes the flooder; the real Voxelheim server has NO rate
+// limiting anywhere, so it keeps accepting — a reported VULNERABILITY, not a crash.
 async function vecFlood() {
   const v = { name: 'message-flood', observation: '', severity: 'ok' };
   let conn;
@@ -869,7 +994,11 @@ async function vecFlood() {
   let closeCode = null;
   conn.on('error', () => {});
   conn.on('close', (code) => { closed = true; closeCode = code; });
-  conn.send(encJoin({ name: 'flooder' }));
+  // Join (Voxelheim ignores pre-join frames), alone in the attack world so the
+  // flood's fan-out never reaches the canary — only genuine server-wide starvation
+  // could. Flood with valid `move` frames (there is no app ping in this protocol).
+  conn.send(encJoin({ name: 'flooder', worldId: ATTACK_WORLD }));
+  await waitForMessage(conn, (d) => d.kind === 'welcome', 2000);
 
   let sent = 0;
   const durationMs = 3000;
@@ -878,7 +1007,9 @@ async function vecFlood() {
   while (nowMs() - start < durationMs && !closed) {
     for (let k = 0; k < 200 && !closed; k++) {
       let ok;
-      try { ok = conn.send(encPing({ ts: nowMs() })); } catch { ok = false; }
+      try {
+        ok = conn.send(encMove({ seq: sent, pos: { x: 0, y: 40, z: 0 }, yaw: 0, dim: 'overworld' }));
+      } catch { ok = false; }
       sent++;
       if (ok === false) break; // backpressured or already closing — yield below
     }
@@ -888,10 +1019,10 @@ async function vecFlood() {
   await pollUntil(() => closed, 1500);
 
   if (closed) {
-    v.observation = `server sandbox-closed the flooder after ~${sent} messages (close code ${closeCode})`;
+    v.observation = `server rate-limited/sandbox-closed the flooder after ~${sent} messages (close code ${closeCode})`;
     if (closeCode !== 1008) v.observation += ' (expected 1008 policy/sandbox, but any close is safe)';
   } else {
-    v.observation = `server accepted ~${sent} messages in ${durationMs}ms with NO rate-limit or close — flood/DoS vector`;
+    v.observation = `no server-side rate limiting (accepted ~${sent} messages in ${durationMs}ms with no close) — flood/DoS vector`;
     v.severity = 'warning';
   }
   try { conn.terminate(); } catch { /* ignore */ }
@@ -918,24 +1049,26 @@ const VECTORS = [
  * ========================================================================= */
 
 async function assertHealthy(rec) {
-  const pidAlive = serverProcessAlive(); // null in --url mode
-  const canaryOk = await canaryResponsive(2500);
+  const pidAlive = serverProcessAlive(); // true | false | null (unknown)
+  const canaryOk = await canaryResponsive(3000);
   const freshOk = await freshClientOk(3000);
 
-  rec.serverAlive = server.spawned ? !!pidAlive : freshOk;
+  // A definitive crash requires an observable pid (spawned or --server-pid). With
+  // no pid, a dead server surfaces as "fresh client can't connect" -> DoS below.
+  const crashed = pidAlive === false;
+  const dos = !freshOk; // server not serving new clients => denial of service
+  const canaryDisrupted = !canaryOk; // per-connection abuse leaked into the canary
+
+  rec.serverAlive = pidAlive === null ? freshOk : !!pidAlive;
   rec.canaryOk = canaryOk;
   rec.othersUnaffected = freshOk && canaryOk;
-
-  const crashed = server.spawned && !pidAlive;
-  const dos = !freshOk; // server not serving new clients => denial of service
-  const canaryDisrupted = !canaryOk;
   rec.failed = !!(crashed || dos || canaryDisrupted);
 
   if (rec.failed) {
     const reasons = [];
     if (crashed) reasons.push('server process died');
-    if (dos) reasons.push('a fresh client could not connect/ping (DoS)');
-    if (canaryDisrupted) reasons.push('canary went unresponsive');
+    if (dos) reasons.push('a fresh client could not connect/join (DoS to others)');
+    if (canaryDisrupted) reasons.push('canary self-echo stopped (unresponsive)');
     rec.severity = 'critical';
     rec.observation = `${rec.observation} | FAILURE: ${reasons.join('; ')}`;
   }
@@ -963,7 +1096,6 @@ let cleanedUp = false;
 function cleanup() {
   if (cleanedUp) return;
   cleanedUp = true;
-  try { if (canary.interval) clearInterval(canary.interval); } catch { /* ignore */ }
   try { if (canary.conn) canary.conn.terminate(); } catch { /* ignore */ }
   for (const s of rawSockets) { try { s.destroy(); } catch { /* ignore */ } }
   if (server.proc && !server.exited) {
@@ -1000,11 +1132,12 @@ async function main() {
 
   console.log('[chaos] starting server / target …');
   await startServer(opts);
-  console.log(`[chaos] target: ${server.url}  (mode=${server.mode}, spawned=${server.spawned}${server.spawned ? `, pid=${server.pid}` : ''})`);
+  const pidNote = server.spawned ? `, pid=${server.pid}` : server.externalPid ? `, server-pid=${server.externalPid}` : '';
+  console.log(`[chaos] target: ${server.url}  (mode=${server.mode}, spawned=${server.spawned}${pidNote})`);
 
   console.log('[chaos] establishing canary …');
   await startCanary();
-  console.log(`[chaos] canary connected and responsive (pongs=${canary.pongCount})`);
+  console.log(`[chaos] canary connected and responsive via chat self-echo (id=${canary.id}, echoes=${canary.echoCount})`);
 
   const results = [];
   let idx = 0;
@@ -1028,8 +1161,9 @@ async function main() {
   }
 
   // Final liveness: canary responsive + server still up.
-  const canaryFinalOk = await canaryResponsive(2500);
-  const serverFinalAlive = server.spawned ? !!serverProcessAlive() : await freshClientOk(3000);
+  const canaryFinalOk = await canaryResponsive(3000);
+  const finalPid = serverProcessAlive(); // true | false | null
+  const serverFinalAlive = finalPid === null ? await freshClientOk(3000) : !!finalPid;
 
   // ---- report ------------------------------------------------------------
   const failures = results.filter((r) => r.failed);
@@ -1045,13 +1179,14 @@ async function main() {
       url: server.url,
       mode: server.mode,
       spawned: server.spawned,
-      pid: server.spawned ? server.pid : null,
-      serverMaxPayload: SERVER_MAX_PAYLOAD,
-      oversizedFrameBytes: OVERSIZED_BYTES,
+      pid: server.spawned ? server.pid : server.externalPid || null,
+      pidSource: server.spawned ? 'spawned' : server.externalPid ? 'server-pid' : 'none',
+      mockMaxPayload: server.spawned ? MOCK_MAX_PAYLOAD : null,
+      oversizeFrameBytes: OVERSIZE_BYTES,
     },
     canary: {
       finalResponsive: canaryFinalOk,
-      pongsReceived: canary.pongCount,
+      selfEchoesReceived: canary.echoCount,
       everClosed: canary.closed,
       closeCode: canary.closeCode,
     },

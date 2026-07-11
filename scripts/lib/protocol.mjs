@@ -1,23 +1,41 @@
 /**
- * protocol.mjs — the ASSUMED multiplayer wire protocol, isolated as an adapter.
- *
- * ADAPTER — when the real server protocol is known, edit ONLY this file to match
- * it; the transport and harnesses are protocol-agnostic.
+ * ADAPTER — matches Voxelheim docs/PROTOCOL.md v1. This + mock-server.mjs are the
+ * only protocol-specific files; transport + harness measurement are generic via CAPS.
  *
  * ---------------------------------------------------------------------------
- * WHY THIS FILE EXISTS
- * The builder has not shipped a multiplayer server yet, so there is no real
- * protocol document to code against. We therefore DEFINE a plausible protocol
- * here and back it with a bundled reference mock server that speaks exactly this
- * wire format. Every other module in the harness (ws-transport, mock-server,
- * load-test, chaos-test, util) is protocol-agnostic: it only ever calls the
- * encoders / decode / helpers exported below. When the real server lands, the
- * ONLY code that must change to retarget the harness is this single module.
+ * REAL PROTOCOL — "Voxelheim"
  *
- * WIRE FORMAT: UTF-8 JSON text frames. Every message carries a short string tag
- * under the key "t". Client→server encoders return a JSON *string* ready to hand
- * to WSConn.send(). Server→client frames are turned by decode() into a normalized
- * object of shape {kind, ...} where `kind` is the friendly name of `t`.
+ * WIRE: UTF-8 JSON text frames. Every message carries a short string tag under
+ * key "t". Client->server encoders return a JSON *string* ready for WSConn.send().
+ * Server->client frames are turned by decode() into a normalized {kind, ...}
+ * object where `kind` is the friendly name of `t`.
+ *
+ * HANDSHAKE: open socket -> send {t:"join", worldId, name, dim}
+ *            -> receive {t:"welcome", id:"p<N>", world:{...}, peers:[...]}.
+ *   worldId must match ^[A-Za-z0-9_-]{1,64}$ (unknown id auto-created).
+ *   dim in {"overworld","nether","end"}. Until a valid join, all other frames
+ *   are silently ignored by the server.
+ *
+ * CLIENT->SERVER:
+ *   move  {t:"move", x,y,z, yaw, pitch, dim}   floats; NO seq/tick/timestamp field.
+ *   edit  {t:"edit", x,y,z, block, dim}        ints; 0<=y<128, 0<=block<=40;
+ *                                              block===0 => BREAK, 1..40 => place.
+ *   chat  {t:"chat", text}                     trimmed, <=256 chars, empty dropped;
+ *                                              echoes to WHOLE room INCLUDING sender.
+ *   NO client-side ping. Keepalive is a WS control-frame pong (ws auto-answers a
+ *   server ping every 30s); encPing() therefore returns null so callers skip it.
+ *
+ * SERVER->CLIENT (decode() kinds): welcome | peer-join | peer-leave | move | edit
+ *   | chat | error | unknown. error codes: bad_join|already_joined|bad_edit|bad_world.
+ *
+ * CORRELATION (protocol has NO seq field and NO app ping — smuggle into forwarded
+ * fields; see CAPS):
+ *   - RTT: chat self-echo. A bot sends chat text "rtt:<botIdx>:<seq>:<sendMs>"; on
+ *     receiving a chat whose id === my welcome id AND text decodes to my botIdx,
+ *     RTT = now - sendMs. (encRttChat / matchRttEcho)
+ *   - PROPAGATION / DROP / OUT-OF-ORDER: a monotonic per-bot moveSeq is smuggled
+ *     into the forwarded `pitch` field (finite float, forwarded verbatim, NOT
+ *     range-validated). readMoveSeq(move) recovers it as Math.round(pitch).
  *
  * DEFENSIVE CONTRACT: decode() MUST NEVER throw. Anything unparseable, non-object,
  * or of an unrecognized type normalizes to {kind:"unknown", raw}. Encoders coerce
@@ -30,17 +48,27 @@
 export const PROTOCOL_VERSION = 1;
 
 /**
- * Default server URL, derived from env with sane fallbacks.
- * ws://127.0.0.1:(GAME_PORT||8080)(GAME_WS_PATH||"/")
- * Path is normalized to always begin with "/" so a bare "game" still yields a
- * valid ws:// URL (the mock server derives its path from the same env var).
+ * Capability descriptor. The generic transport + measurement layers read these
+ * flags so the ONLY protocol-specific code lives here and in the mock server.
+ */
+export const CAPS = {
+  appPing: false, // no client-side ping message; keepalive is WS pong
+  selfEchoChat: true, // chat echoes to the whole room INCLUDING the sender
+  moveSeqCarrier: 'pitch', // per-bot moveSeq is smuggled into the forwarded pitch
+  sameDimBroadcast: true, // move/edit broadcast to same-dim recipients only
+  dim: 'overworld', // dimension every load-test bot shares so all moves broadcast
+  wsPath: '/ws', // literal WS path
+  defaultPort: 3000, // default server port (env PORT on the server side)
+  worldIdPattern: '^[A-Za-z0-9_-]{1,64}$', // valid worldId regex (unknown -> created)
+};
+
+/**
+ * Default server URL. ws://127.0.0.1:(GAME_PORT||3000)/ws
+ * Path is the literal "/ws" the real server listens on.
  */
 export function defaultUrl() {
-  const port = process.env.GAME_PORT || 8080;
-  let path = process.env.GAME_WS_PATH || '/';
-  if (typeof path !== 'string' || path.length === 0) path = '/';
-  if (path[0] !== '/') path = '/' + path;
-  return `ws://127.0.0.1:${port}${path}`;
+  const port = process.env.GAME_PORT || CAPS.defaultPort;
+  return `ws://127.0.0.1:${port}${CAPS.wsPath}`;
 }
 
 /* =========================================================================
@@ -53,6 +81,11 @@ export function defaultUrl() {
 function num(v, fallback = 0) {
   const n = typeof v === 'number' ? v : Number(v);
   return Number.isFinite(n) ? n : fallback;
+}
+
+/** Coerce to a finite integer, else fall back (default 0). */
+function int(v, fallback = 0) {
+  return Math.round(num(v, fallback));
 }
 
 /** Coerce to a string, else fall back (default ""). Never returns non-string. */
@@ -72,78 +105,131 @@ function isObj(v) {
 }
 
 /**
- * Normalize a position to {x,y,z} finite numbers. Accepts an object with
- * x/y/z, tolerating missing components (default 0). Non-objects → {0,0,0}.
+ * Normalize a position input to finite {x,y,z}. Accepts either a flat object
+ * carrying x/y/z, or a nested {pos:{x,y,z}}. Missing components default to 0.
  */
 function normPos(p) {
   if (!isObj(p)) return { x: 0, y: 0, z: 0 };
-  return { x: num(p.x), y: num(p.y), z: num(p.z) };
-}
-
-/**
- * On DECODE we want to faithfully surface whatever the server sent (it may be
- * malformed — chaos tests rely on that). This is a *pass-through* position
- * reader: return an {x,y,z} view when it looks like a vector, otherwise return
- * the raw value untouched so callers can inspect/flag it.
- */
-function readPos(p) {
-  if (isObj(p) && ('x' in p || 'y' in p || 'z' in p)) {
-    return { x: num(p.x), y: num(p.y), z: num(p.z) };
-  }
-  return p; // leave odd shapes (string, array, null) as-is for inspection
+  const src = isObj(p.pos) ? p.pos : p;
+  return { x: num(src.x), y: num(src.y), z: num(src.z) };
 }
 
 /* =========================================================================
- * CLIENT → SERVER encoders. Each returns a JSON string.
+ * CLIENT -> SERVER encoders. Each returns a JSON string (encPing returns null).
  * ========================================================================= */
 
-/** Join request. -> {"t":"join","name":<string>,"v":1} */
-export function encJoin({ name } = {}) {
-  return JSON.stringify({ t: 'join', name: str(name, 'bot'), v: PROTOCOL_VERSION });
+/**
+ * Join request. -> {"t":"join","worldId":..,"name":..,"dim":..}
+ * worldId defaults to "loadtest" (matches ^[A-Za-z0-9_-]{1,64}$); dim defaults
+ * to "overworld". The server auto-creates an unknown worldId.
+ */
+export function encJoin({ name, worldId = 'loadtest', dim = 'overworld' } = {}) {
+  return JSON.stringify({
+    t: 'join',
+    worldId: str(worldId, 'loadtest'),
+    name: str(name, 'bot'),
+    dim: str(dim, 'overworld'),
+  });
 }
 
 /**
- * Movement update. -> {"t":"move","seq":n,"pos":{x,y,z},"yaw":..,"pitch":..[,"vel":..]}
- * `seq` is a monotonic per-bot counter (used by the server + harness for drop /
- * out-of-order / propagation tracking). `vel` is optional and only included when
- * the caller supplies a value, so the wire stays minimal for servers that ignore it.
+ * Movement update. -> {"t":"move","x":..,"y":..,"z":..,"yaw":..,"pitch":seq,"dim":..}
+ * There is NO seq field on the wire: the monotonic per-bot `seq` is smuggled into
+ * `pitch` (a finite float the server forwards verbatim without range-validating).
+ * The real x,y,z random-walk position and a real yaw heading are preserved.
  */
-export function encMove({ seq, pos, yaw, pitch, vel } = {}) {
-  const msg = {
+export function encMove({ seq, pos, yaw = 0, dim = 'overworld' } = {}) {
+  const p = normPos(pos);
+  return JSON.stringify({
     t: 'move',
-    seq: num(seq),
-    pos: normPos(pos),
+    x: p.x,
+    y: p.y,
+    z: p.z,
     yaw: num(yaw),
-    pitch: num(pitch),
-  };
-  if (vel !== undefined) msg.vel = vel; // pass through velocity when provided
-  return JSON.stringify(msg);
+    pitch: num(seq), // <- moveSeq carrier
+    dim: str(dim, 'overworld'),
+  });
 }
 
 /**
- * Block place/break. -> {"t":"block","action":"place"|"break","pos":{x,y,z},"block":<any>}
- * `action` is coerced to one of the two known verbs (defaults to "place").
+ * Block place/break. -> {"t":"edit","x":..,"y":..,"z":..,"block":..,"dim":..}
+ * Coords are ints; block===0 means BREAK, 1..40 means place. The `action` verb
+ * ("break"|"place") maps onto that block id: break -> 0, else the supplied block.
  */
-export function encBlock({ action, pos, block } = {}) {
-  const a = action === 'break' ? 'break' : 'place';
-  return JSON.stringify({ t: 'block', action: a, pos: normPos(pos), block: block ?? null });
+export function encEdit({ action, pos, block = 1, dim = 'overworld' } = {}) {
+  const p = normPos(pos);
+  const b = action === 'break' ? 0 : int(block, 1);
+  return JSON.stringify({
+    t: 'edit',
+    x: int(p.x),
+    y: int(p.y),
+    z: int(p.z),
+    block: b,
+    dim: str(dim, 'overworld'),
+  });
 }
 
-/** Chat message. -> {"t":"chat","text":<string>} */
+/** Back-compat alias: existing callers import `encBlock`. */
+export const encBlock = encEdit;
+
+/** Chat message. -> {"t":"chat","text":<string>} (server trims + caps at 256). */
 export function encChat({ text } = {}) {
   return JSON.stringify({ t: 'chat', text: str(text) });
 }
 
-/** Latency probe. -> {"t":"ping","ts":<number>}  (ts is the client clock for RTT) */
-export function encPing({ ts } = {}) {
-  return JSON.stringify({ t: 'ping', ts: num(ts) });
+/**
+ * Correlation chat for RTT: a chat frame whose text encodes {botIdx, seq, ts}.
+ * -> {"t":"chat","text":"rtt:<botIdx>:<seq>:<ts>"}. Because chat self-echoes,
+ * the sender receives it back and computes RTT = now - ts. See matchRttEcho().
+ */
+export function encRttChat({ botIdx, seq, ts } = {}) {
+  const text = `rtt:${int(botIdx)}:${int(seq)}:${num(ts)}`;
+  return encChat({ text });
+}
+
+/**
+ * No application-level ping exists in this protocol; keepalive is the WS pong.
+ * Returns null so generic callers can detect "no app ping" and skip sending.
+ */
+export function encPing(_) {
+  return null;
 }
 
 /* =========================================================================
- * SERVER → CLIENT decode. Never throws.
+ * SERVER -> CLIENT decode. Never throws.
  * Returns a normalized {kind, ...} object. Recognized kinds:
- *   welcome | state | block | chat | pong | error | unknown
+ *   welcome | peer-join | peer-leave | move | edit | chat | error | unknown
  * ========================================================================= */
+
+/**
+ * Normalize one entity/peer frame's spatial fields onto a flat record plus a
+ * convenience `pos`. Surfaces id, name, x,y,z, yaw, pitch, dim when present.
+ */
+function entity(msg) {
+  const p = normPos(msg);
+  return {
+    id: msg.id,
+    name: msg.name === undefined || msg.name === null ? undefined : str(msg.name),
+    x: p.x,
+    y: p.y,
+    z: p.z,
+    yaw: num(msg.yaw),
+    pitch: num(msg.pitch),
+    dim: msg.dim === undefined ? undefined : str(msg.dim),
+    pos: p,
+  };
+}
+
+/** Normalize a welcome.peers array into flat entity records (skips non-objects). */
+function normPeers(peers) {
+  if (!Array.isArray(peers)) return [];
+  const out = [];
+  for (const p of peers) {
+    if (!isObj(p)) continue;
+    out.push(entity(p));
+  }
+  return out;
+}
 
 /**
  * Decode one server frame into a normalized object.
@@ -156,7 +242,7 @@ export function decode(raw) {
   if (typeof raw === 'string') {
     text = raw;
   } else if (raw && typeof raw === 'object' && typeof raw.toString === 'function') {
-    // Buffer / Uint8Array / other → best-effort UTF-8 string.
+    // Buffer / Uint8Array / other -> best-effort UTF-8 string.
     try {
       text = Buffer.isBuffer(raw) ? raw.toString('utf8') : String(raw);
     } catch {
@@ -174,7 +260,7 @@ export function decode(raw) {
   }
 
   if (!isObj(msg)) {
-    // Valid JSON but not an object (number, string, array, null) → unknown.
+    // Valid JSON but not an object (number, string, array, null) -> unknown.
     return { kind: 'unknown', raw: text };
   }
 
@@ -183,46 +269,47 @@ export function decode(raw) {
       return {
         kind: 'welcome',
         id: msg.id,
-        tick: num(msg.tick),
-        spawn: normPos(msg.spawn),
-        players: normPlayers(msg.players),
+        world: msg.world,
+        peers: normPeers(msg.peers),
       };
 
-    case 'state':
-      return {
-        kind: 'state',
-        tick: num(msg.tick),
-        players: normPlayers(msg.players),
-      };
+    case 'peer-join':
+      // Upsert; also emitted on a peer's dim-change.
+      return { kind: 'peer-join', ...entity(msg) };
 
-    case 'block':
+    case 'peer-leave':
+      return { kind: 'peer-leave', id: msg.id };
+
+    case 'move':
+      return { kind: 'move', ...entity(msg) };
+
+    case 'edit': {
+      const p = normPos(msg);
       return {
-        kind: 'block',
-        by: msg.by,
-        action: str(msg.action),
-        pos: readPos(msg.pos),
-        block: msg.block ?? null,
-        seq: msg.seq === undefined ? undefined : num(msg.seq),
+        kind: 'edit',
+        id: msg.id,
+        x: int(p.x),
+        y: int(p.y),
+        z: int(p.z),
+        block: int(msg.block),
+        dim: msg.dim === undefined ? undefined : str(msg.dim),
+        pos: p,
       };
+    }
 
     case 'chat':
       return {
         kind: 'chat',
-        from: msg.from,
+        id: msg.id,
+        name: msg.name === undefined ? undefined : str(msg.name),
         text: str(msg.text),
-      };
-
-    case 'pong':
-      return {
-        kind: 'pong',
-        ts: num(msg.ts),
       };
 
     case 'error':
       return {
         kind: 'error',
         code: msg.code,
-        msg: str(msg.msg),
+        message: str(msg.message),
       };
 
     default:
@@ -231,73 +318,92 @@ export function decode(raw) {
   }
 }
 
-/**
- * Normalize a players array from a welcome/state frame into a stable shape:
- *   [{id, pos, yaw, seq}]
- * Tolerates a missing / non-array `players` (→ []) and skips non-object entries.
- * `pos` uses the pass-through reader so odd server data stays inspectable.
- */
-function normPlayers(players) {
-  if (!Array.isArray(players)) return [];
-  const out = [];
-  for (const p of players) {
-    if (!isObj(p)) continue;
-    out.push({
-      id: p.id,
-      pos: readPos(p.pos),
-      yaw: num(p.yaw),
-      seq: p.seq === undefined ? undefined : num(p.seq),
-    });
-  }
-  return out;
-}
-
 /* =========================================================================
- * Harness helper: extract per-player latest sequence numbers for drop /
- * out-of-order / propagation tracking.
+ * Harness correlation helpers.
  * ========================================================================= */
 
 /**
- * Given a decoded (or raw) welcome/state object, return [{id, seq, pos}] for
- * every player it carries. Defensive: accepts a normalized object, a raw parsed
- * object, or even a JSON string; anything without a usable players list → [].
- *
- * @param {object|string} stateOrWelcome
- * @returns {Array<{id:any, seq:number|undefined, pos:any}>}
+ * Recover the smuggled monotonic moveSeq from a decoded move frame. The seq was
+ * placed in `pitch` on send; read it back as a rounded integer. Non-finite -> 0.
+ * @param {object} decodedMove
+ * @returns {number} integer sequence
  */
-export function extractPlayerSeqs(stateOrWelcome) {
-  let obj = stateOrWelcome;
+export function readMoveSeq(decodedMove) {
+  if (!isObj(decodedMove)) return 0;
+  return int(decodedMove.pitch, 0);
+}
 
-  // Accept a JSON string or a raw server frame by running it through decode.
+/**
+ * If a decoded chat frame is this bot's own RTT self-echo, return its payload.
+ * Only matches when decodedChat.id === myId AND text is "rtt:<botIdx>:<seq>:<ts>".
+ * @param {object} decodedChat  a decode()'d chat frame
+ * @param {*} myId              this bot's welcome id (e.g. "p7")
+ * @returns {{botIdx:number, seq:number, ts:number}|null}
+ */
+export function matchRttEcho(decodedChat, myId) {
+  if (!isObj(decodedChat)) return null;
+  if (decodedChat.kind !== undefined && decodedChat.kind !== 'chat') return null;
+  if (decodedChat.id !== myId) return null;
+  const text = str(decodedChat.text);
+  const m = /^rtt:(-?\d+):(-?\d+):(-?\d+(?:\.\d+)?)$/.exec(text);
+  if (!m) return null;
+  return { botIdx: Number(m[1]), seq: Number(m[2]), ts: Number(m[3]) };
+}
+
+/**
+ * Extract per-player {id, seq, pos} for drop / out-of-order / propagation
+ * tracking. Accepts either a decoded welcome (uses welcome.peers; seq unknown so
+ * 0) or a decoded move (single entry, seq = readMoveSeq). Also tolerates a raw
+ * JSON string or raw parsed frame by running it through decode(). Anything
+ * without usable player data -> [].
+ *
+ * @param {object|string} welcomeOrMove
+ * @returns {Array<{id:any, seq:number, pos:{x:number,y:number,z:number}}>}
+ */
+export function extractPlayerSeqs(welcomeOrMove) {
+  let obj = welcomeOrMove;
+
+  // Accept a JSON string or a raw (undecoded) server frame.
   if (typeof obj === 'string') {
     obj = decode(obj);
+  } else if (isObj(obj) && obj.kind === undefined && 't' in obj) {
+    obj = decode(JSON.stringify(obj));
   }
   if (!isObj(obj)) return [];
 
-  const players = Array.isArray(obj.players) ? obj.players : null;
-  if (!players) return [];
-
-  const out = [];
-  for (const p of players) {
-    if (!isObj(p)) continue;
-    out.push({
-      id: p.id,
-      seq: p.seq === undefined ? undefined : num(p.seq),
-      pos: readPos(p.pos),
-    });
+  // A single move frame -> one player entry with the smuggled seq.
+  if (obj.kind === 'move') {
+    return [{ id: obj.id, seq: readMoveSeq(obj), pos: normPos(obj) }];
   }
-  return out;
+
+  // A welcome (or anything carrying a peers array) -> one entry per peer.
+  if (Array.isArray(obj.peers)) {
+    const out = [];
+    for (const p of obj.peers) {
+      if (!isObj(p)) continue;
+      out.push({ id: p.id, seq: 0, pos: normPos(p) }); // welcome carries no seq
+    }
+    return out;
+  }
+
+  return [];
 }
 
 /* ---------------------------------------------------------------------------
  * SELF-CHECK (informal — no test framework, dependency-free):
- *   decode('nonsense')                       -> {kind:"unknown", raw:"nonsense"}
- *   decode('123')                            -> {kind:"unknown", ...} (not an object)
- *   decode('{"t":"pong","ts":42}')           -> {kind:"pong", ts:42}
- *   decode(Buffer.from('{"t":"chat","from":1,"text":"hi"}'))
- *                                            -> {kind:"chat", from:1, text:"hi"}
- *   encMove({seq:5,pos:{x:1,y:2,z:3},yaw:90}) -> '{"t":"move","seq":5,"pos":{"x":1,"y":2,"z":3},"yaw":90,"pitch":0}'
- *   extractPlayerSeqs(decode('{"t":"state","players":[{"id":1,"seq":7}]}'))
- *                                            -> [{id:1, seq:7, pos:{x:0,y:0,z:0}}]
+ *   decode('nonsense')                  -> {kind:"unknown", raw:"nonsense"}
+ *   decode('123')                       -> {kind:"unknown", ...} (not an object)
+ *   decode('{"t":"welcome","id":"p1","peers":[{"id":"p2","x":1,"y":2,"z":3}]}')
+ *                                       -> {kind:"welcome", id:"p1", peers:[...]}
+ *   decode('{"t":"move","id":"p2","x":1,"y":2,"z":3,"yaw":90,"pitch":7,"dim":"overworld"}')
+ *                                       -> {kind:"move", id:"p2", pitch:7, ...}
+ *   readMoveSeq(decode('{"t":"move","pitch":7.4}'))                 -> 7
+ *   matchRttEcho(decode('{"t":"chat","id":"p1","text":"rtt:3:9:1000"}'), "p1")
+ *                                       -> {botIdx:3, seq:9, ts:1000}
+ *   encMove({seq:5,pos:{x:1,y:2,z:3},yaw:90}) ->
+ *     '{"t":"move","x":1,"y":2,"z":3,"yaw":90,"pitch":5,"dim":"overworld"}'
+ *   encEdit({action:"break",pos:{x:1,y:2,z:3}}) ->
+ *     '{"t":"edit","x":1,"y":2,"z":3,"block":0,"dim":"overworld"}'
+ *   encPing()                           -> null
  * All encoders round-trip through JSON.stringify without throwing on junk input.
  * ------------------------------------------------------------------------- */

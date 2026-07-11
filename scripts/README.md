@@ -45,58 +45,78 @@ Chromium — into `$RUNNER_TEMP`, never into the repo checkout.
 
 ## Backend load & robustness harness
 
-A dependency-free harness that drives concurrent bot clients at a multiplayer
-server and gates CI on latency, correctness, and crash-resistance. It exists to
-stress the game backend **before that backend has been pushed**:
+A dependency-free harness that drives concurrent bot clients at the **Voxelheim**
+multiplayer server and gates CI on latency, correctness, and crash-resistance. It
+targets the **real** wire protocol — `ws://host:3000/ws`, speaking `join` /
+`move` / `edit` / `chat` — and still runs for real today against a bundled
+reference mock:
 
 - **Bot clients over a hand-rolled RFC6455 transport.** No `ws` package, no
   global `WebSocket` — `lib/ws-transport.mjs` implements the WebSocket client
   *and* server (opening handshake, framing, masking, fragmentation, control
   frames, oversized-frame rejection) on Node builtins alone.
-- **An isolated protocol adapter.** `lib/protocol.mjs` is the *single* place the
-  assumed wire format lives. Every other module is protocol-agnostic and only
-  calls its encoders / `decode` / `extractPlayerSeqs`.
-- **A bundled reference mock server.** `mock-server.mjs` is an authoritative,
-  hardened server that speaks exactly the adapter's protocol, so the whole thing
-  **runs for real today** with zero external setup. When the real server lands,
-  point the harness at it (`--url` / `--server-cmd`).
+- **An isolated protocol adapter.** `lib/protocol.mjs` matches the real Voxelheim
+  wire format (`docs/PROTOCOL.md` v1). Every other module is protocol-agnostic
+  and only calls its encoders / `decode()` / correlation helpers / `CAPS`.
+- **Correlation with no `seq` field and no app ping.** The protocol carries
+  neither, so the harness smuggles both signals into forwarded fields:
+  - **RTT** off the **chat self-echo** — chat is broadcast to the whole room
+    *including* the sender, so a bot times its own echo (`matchRttEcho`).
+  - **Propagation / drops / out-of-order** off a monotonic per-bot `seq`
+    **smuggled into the forwarded `pitch` field** (a finite float the server
+    forwards verbatim, without range-validating), recovered via `readMoveSeq`.
+- **A bundled reference mock server.** `mock-server.mjs` speaks exactly that wire
+  protocol *and* models good-behaviour defences the real server lacks, so the
+  whole thing **runs with zero external setup**. Point it at the real server with
+  `--url`, `--server-cmd` (+ `--server-cwd`), or `--server-pid`.
+
+**`lib/protocol.mjs` and `mock-server.mjs` are the only two protocol-specific
+files.** The transport and both harnesses stay generic and measure via the
+adapter's `CAPS`, so retargeting is a change to those two files alone.
 
 Module layout (all under `scripts/`, Node 20 CI / Node 22 local, builtins only):
 
 | File | Role |
 |---|---|
 | `lib/ws-transport.mjs` | RFC6455 WebSocket client + server. Protocol-agnostic; exposes the raw socket and chaos hooks (`sendRawFrame`, `sendRawBytes`); never lets one bad connection throw out of the server. Self-test: `node scripts/lib/ws-transport.mjs --selftest` |
-| `lib/protocol.mjs` | **THE adapter.** Client→server encoders, server→client `decode()` (never throws), and `extractPlayerSeqs()`. See [THE PROTOCOL](#the-protocol) |
+| `lib/protocol.mjs` | **THE adapter (Voxelheim).** `join`/`move`/`edit`/`chat` encoders, server→client `decode()` (never throws), correlation helpers (`readMoveSeq`, `matchRttEcho`, `extractPlayerSeqs`), and the `CAPS` descriptor the generic layers read. See [THE PROTOCOL](#the-protocol) |
 | `lib/util.mjs` | `parseArgs` (CLI + env + default precedence), typed env readers, `Stats` (percentiles), `startProcSampler` (Linux `/proc` CPU%/RSS), `printReport`, `writeJsonReport` |
-| `mock-server.mjs` | Reference authoritative server + robustness spec. See [the reference server](#scriptsmock-servermjs--the-reference-server) |
+| `mock-server.mjs` | Reference authoritative Voxelheim server + robustness spec. See [the reference server](#scriptsmock-servermjs--the-reference-server) |
 | `load-test.mjs` | Load harness. See [below](#scriptsload-testmjs) |
 | `chaos-test.mjs` | Adversarial-input chaos harness. See [below](#scriptschaos-testmjs) |
 
 **Target selection** is shared by both harnesses, in precedence order (highest
 first):
 
-1. `--server-cmd "<cmd>"` — spawn an arbitrary server through a shell, poll its
-   port, then target it.
+1. `--server-cmd "<cmd>"` — spawn an arbitrary server through a shell (in
+   `--server-cwd <dir>` if given, load-test only), poll its port, then target it.
 2. `--spawn` — spawn the bundled reference mock (`mock-server.mjs`).
-3. `--url ws://host:port` — target an already-running external server.
+3. `--url ws://host:port/ws` — target an already-running external server. Add
+   `--server-pid <pid>` (env `SERVER_PID`) to sample CPU/RSS and detect crashes
+   of a server the harness did **not** spawn.
 4. *(nothing)* — **defaults to the mock**, same as `--spawn`.
+
+The default target URL is `ws://127.0.0.1:${GAME_PORT||3000}/ws` (from the
+adapter's `CAPS`).
 
 ### scripts/load-test.mjs
 
 Spins up N headless bot clients that connect, `join`, then generate realistic
-traffic (a ~15 Hz random walk of `move`s, a `block` edit every ~2 s, a `chat`
-every ~10 s, a `ping` every ~1 s), staggered over a ~2 s ramp to avoid a
-thundering herd. It measures how the server holds up under concurrent load.
+traffic (a ~15 Hz random walk of `move`s with the per-bot `seq` in `pitch`, an
+`edit` every ~2 s, an RTT self-echo `chat` every ~1 s), staggered over a ~2 s
+ramp to avoid a thundering herd. All bots share one world + `overworld` dim so
+every move/edit fans out. There is **no client ping** — keepalive is the WS
+control-frame pong. It measures how the server holds up under concurrent load.
 
 **What it measures** (all latencies as p50 / p95 / p99 / max):
 
 | Metric | Definition |
 |---|---|
-| **RTT** | `ping`→`pong` round-trip, matched on the echoed `ts` |
-| **Propagation** | time from a bot sending `move#seq` until that `seq` first appears in a broadcast `state` frame (recorded once per `(id, seq)`) |
-| **Drops** | per `(receiver, source)`, skipped `seq` ranges, as a % of expected updates |
+| **RTT** | **chat self-echo**: a bot sends `chat` carrying `rtt:<botIdx>:<seq>:<sendMs>`; the server echoes chat to the whole room *including* the sender, so RTT = recv − sendMs (matched only against the bot's own echo) |
+| **Propagation** | time from a bot sending `move#seq` (seq smuggled in `pitch`) until that move is first re-broadcast to **another** same-dim bot |
+| **Drops** | per `(receiver, source)`, skipped `seq` ranges (via `readMoveSeq` on forwarded moves), as a % of expected updates |
 | **Out-of-order** | per `(receiver, source)`, `seq` that went backwards, as a % of expected updates |
-| **Server CPU / mem** | `/proc`-sampled CPU% and RSS for a server the harness spawned (**n/a** for a bare `--url` it did not launch) |
+| **Server CPU / mem** | `/proc`-sampled CPU% and RSS for a server the harness spawned **or** a `--server-pid` it was told to watch (**n/a** for a bare `--url` with no pid) |
 | **Connection errors** | failed connects, unexpected mid-test closes, socket errors |
 
 **Flags / env** (precedence: CLI flag > env > default):
@@ -105,9 +125,11 @@ thundering herd. It measures how the server holds up under concurrent load.
 |---|---|---|---|
 | `--players <n>` | `GAME_BOTS` | `50` | concurrent bot clients |
 | `--duration-sec <s>` | `GAME_DURATION` | `30` | active-load window (after the ~2 s ramp) |
-| `--url <ws-url>` | `GAME_URL` | `""` | target an external server |
+| `--url <ws-url>` | `GAME_URL` | `""` | target an external server (e.g. `ws://host:3000/ws`) |
 | `--spawn` | — | off | spawn + target the bundled mock |
 | `--server-cmd "<cmd>"` | `GAME_SERVER_CMD` | `""` | spawn an arbitrary server via shell |
+| `--server-cwd <dir>` | `GAME_SERVER_CWD` | `""` | working directory for the spawned `--server-cmd` |
+| `--server-pid <pid>` | `SERVER_PID` | `0` | sample CPU/mem (and detect a crash) of a server started outside the harness — use with `--url` |
 | `--report <path>` | `GAME_REPORT` | `""` | also write the JSON report here |
 | *(client frame cap)* | `GAME_MAX_PAYLOAD` | `1 MiB` | `wsConnect` `maxPayload` |
 
@@ -124,14 +146,16 @@ this doubles as a CI check. `P95_MS` / `P99_MS` gate the RTT histogram
 | `MAX_CONN_ERRORS` | `0` | tolerated socket errors + unexpected closes |
 
 **Exit codes.** `0` = all thresholds met. `1` = any threshold breach, **or** a
-spawned server died mid-test, **or** any bot failed to connect, **or** no pongs
-came back at all (server unresponsive), **or** the run was interrupted by a
-signal, **or** the target server failed to start.
+spawned server died mid-test, **or** any bot failed to connect, **or** no RTT
+self-echoes came back at all (server unresponsive), **or** the run was
+interrupted by a signal, **or** the target server failed to start.
 
 ```bash
 node scripts/load-test.mjs --spawn --players 20 --duration-sec 6 --report /tmp/load.json
-node scripts/load-test.mjs --url ws://127.0.0.1:8080/        # target external server
-P95_MS=1 node scripts/load-test.mjs --spawn --players 5 --duration-sec 3   # forces a breach -> exit 1
+node scripts/load-test.mjs --url ws://127.0.0.1:3000/ws                       # external server
+node scripts/load-test.mjs --url ws://127.0.0.1:3000/ws --server-pid 12345    # + sample its CPU/RSS
+node scripts/load-test.mjs --server-cmd "node server/index.js" --server-cwd /path/to/voxelheim
+P95_MS=1 node scripts/load-test.mjs --spawn --players 5 --duration-sec 3      # forces a breach -> exit 1
 ```
 
 ### scripts/chaos-test.mjs
@@ -140,33 +164,36 @@ Hurls a battery of hostile packets and connection behaviours at the server and
 asserts one thing above all: **the server must never crash, stall, or leak, and
 well-behaved clients must keep being served.**
 
-**The canary.** Before any attack runs, a healthy CANARY client is established
-(`join` + `ping` every 500 ms). It must stay connected and keep receiving pongs
-through *every* attack — the live proof that per-connection misbehaviour is
-sandboxed.
+**The canary.** Before any attack runs, a healthy CANARY client is established in
+its own dedicated world (`join`, then liveness on demand via **chat self-echo** —
+Voxelheim has no app ping, so the canary proves the server is still processing
+application messages by receiving back a chat whose echoed `id` equals its own
+welcome id). It must stay responsive through *every* attack — the live proof that
+per-connection misbehaviour is sandboxed.
 
 **The 12 attack vectors** (run sequentially, each on a fresh connection unless
-noted):
+noted). The mock *defends*; the real Voxelheim server's *absence* of a defence is
+recorded as a WARNING, not a failure:
 
-| # | Vector | Expectation |
+| # | Vector | Expected outcome |
 |---|---|---|
-| 1 | invalid JSON text | `{t:"error"}` replies; not a crash |
-| 2 | oversized frame > `maxPayload` (~5 MB) | Close **1009**, not OOM |
-| 3 | type-confusion (valid JSON, wrong field types) | error replies / sandbox, not a crash |
-| 4 | unknown message type (incl. `__proto__`, `constructor`) | error replies; no prototype pollution |
-| 5 | missing required fields | error replies |
-| 6 | binary frame where text is expected | rejected; must **not** join |
+| 1 | invalid JSON text | **silently ignored** (Voxelheim `JSON.parse` in try/catch); no crash |
+| 2 | oversized frame (`CHAOS_OVERSIZE_BYTES`, default 8 MB, never ≥ 100 MiB) | mock closes **1009**; real server has **no app size cap** → accepts it (WARNING), not OOM |
+| 3 | type-confusion (valid JSON, wrong field types) | `bad_edit` where the edit handler validates, else ignored; no crash |
+| 4 | unknown message type (incl. `__proto__`, `constructor`) | **silently ignored**; no prototype pollution |
+| 5 | missing required fields | `bad_edit` / ignored per handler; no crash |
+| 6 | binary frame where text is expected | ignored; must **not** join |
 | 7 | valid fragmented reassembly **and** an unfinished fragment + abrupt disconnect | reassembly works; partial handled cleanly |
 | 8 | raw garbage bytes with **no** handshake (`node:net`) | 400 / reset, no throw |
 | 9 | mid-handshake disconnect (partial HTTP upgrade, then destroy) | no throw / leak |
 | 10 | rapid reconnect storm (open+close ~200×) | survives churn without leaking |
-| 11 | slow reader (join, then stop draining while the server broadcasts) | bounded server RSS growth (drops to backpressured sockets) |
-| 12 | message flood (~thousands msgs/sec for ~3 s) | rate-limit / sandbox close **1008** |
+| 11 | slow reader (join, then stop draining while a co-tenant broadcasts at us) | bounded server RSS growth (WS backpressure; broadcasts dropped) |
+| 12 | message flood (~thousands msgs/sec for ~3 s) | mock sandbox-closes **1008**; real server has **no rate limit** → accepts flood (WARNING) |
 
 **After each vector** it asserts, and records per vector: (i) the server is still
-alive — a spawned server's pid is alive, or (targeted) a fresh client can still
-connect+ping; (ii) the canary still receives pongs; (iii) a fresh healthy client
-can still connect+join+ping.
+alive — a spawned server's (or `--server-pid`'s) pid is alive, else a fresh client
+can still connect; (ii) the canary still self-echoes; (iii) a fresh healthy client
+can still connect + join.
 
 **Severity & exit codes.** Each vector is scored `ok` (safe), `warning` (a
 *vulnerability* that is unsafe-but-not-a-crash — e.g. an accepted oversized
@@ -182,94 +209,119 @@ was down.
 | Flag | Env | Meaning |
 |---|---|---|
 | `--spawn` | — | spawn + attack the bundled mock (**default**) |
-| `--url <ws://…>` | `GAME_URL` | attack an already-running server; "alive" judged by a fresh client still connecting |
+| `--url <ws://…/ws>` | `GAME_URL` | attack an already-running server; "alive" judged by a fresh client still connecting (or by `--server-pid`) |
 | `--server-cmd "<cmd>"` | `SERVER_CMD` | spawn an arbitrary server via shell, wait for its port, then attack |
+| `--server-pid <pid>` | `SERVER_PID` | pid of a server started outside the harness — enables crash detection + slow-reader RSS sampling against a `--url` target |
 | `--report <path>` | `CHAOS_REPORT` | write a JSON report |
 | `--help` | — | usage |
 
 Additional env: `GAME_PORT` (spawned mock port; a free port is chosen when
-unset), `GAME_WS_PATH` (default `/`), `GAME_MAX_PAYLOAD` (server max frame bytes;
-default `1048576`).
+unset), `GAME_WS_PATH` (default `/ws`), `GAME_MAX_PAYLOAD` (the spawned mock's max
+frame bytes; default `1048576`), and **`CHAOS_OVERSIZE_BYTES`** (vector 2 frame
+size; default `8388608` = 8 MB, clamped to stay just below the 100 MiB `ws`
+inbound cap so it probes the *application's* size cap, not the transport's).
 
 ```bash
 node scripts/chaos-test.mjs --spawn --report /tmp/chaos.json
-node scripts/chaos-test.mjs --url ws://127.0.0.1:8080/
+node scripts/chaos-test.mjs --url ws://127.0.0.1:3000/ws --server-pid 12345
 ```
 
 ### scripts/mock-server.mjs + the reference server
 
-`mock-server.mjs` is the bundled reference server the harness runs against today.
-It is authoritative (assigns ids, tracks player state, broadcasts world `state`
-at ~20 Hz) and — critically — **hardened**, so no malformed / oversized /
-type-confused / flooding client can crash it or degrade service for well-behaved
-clients. **It is also the spec the builder's real server must satisfy.**
+`mock-server.mjs` is the bundled reference server the harness runs against today —
+a **faithful stand-in** for the real Voxelheim server (matches `docs/PROTOCOL.md`
+v1). It is authoritative (assigns `p<N>` ids, tracks player state, forwards
+`move`/`edit` to same-`(worldId, dim)` recipients and `chat` / `peer-join` /
+`peer-leave` room-wide) and speaks the **exact** wire protocol, so the adapter and
+both harnesses stay valid without the real game checked out. Keepalive is a
+server-initiated WS ping (~2 s here); a missed pong is the only disconnect path.
 
 On listen it prints exactly one line the harnesses key on (they otherwise poll
 the port):
 
 ```
-MOCK-SERVER READY port=<port> path=<path>
+MOCK-SERVER READY port=<port> path=/ws
 ```
 
-Config via env: `GAME_PORT` (default `8080`), `GAME_WS_PATH` (default `/`),
-`GAME_MAX_PAYLOAD` (default 1 MiB). Run it standalone with
+Config via env: `GAME_PORT` / `PORT` (default `3000`; `GAME_PORT` wins so the
+harness can pin `GAME_PORT=0` for an ephemeral port), `GAME_WS_PATH` (default
+`/ws`), `MOCK_MAX_PAYLOAD` (default 1 MiB). Run it standalone with
 `node scripts/mock-server.mjs`; `node scripts/mock-server.mjs --selftest` asserts
-that every server→client frame it builds round-trips through `protocol.decode()`.
+every server→client frame it builds has the exact real-protocol shape.
 
-**Robustness model (the contract the real server must meet):**
+**Robustness model — two layers:**
+
+*Faithful (mirrors the real server's observed behaviour):*
 
 - Every inbound message is validated field-by-field inside `try/catch`; a handler
   bug can never throw out of the server.
-- Bad input → a small `{t:"error"}` reply **plus a per-connection strike**; after
-  `MAX_STRIKES` (10) the offending connection is sandbox-closed (code **1008**).
-- A per-connection flood (> `FLOOD_MSGS_PER_SEC`, 200 msgs/sec) is
-  sandbox-closed too.
-- Sandboxing is strictly **per-connection**: other clients are never affected.
-- Sends are bounded: `state` / broadcasts are **dropped** to a backpressured
-  (slow / non-reading) socket rather than buffered unbounded, so a slow reader
-  cannot grow server memory without limit.
+- Invalid JSON / non-object / missing `t` / **pre-join** / unknown `t` are
+  **silently ignored** — no error frame, no close. Only `bad_join` /
+  `already_joined` / `bad_edit` / `bad_world` produce a `{t:"error"}` reply, and
+  the socket always stays open.
+- `move` forwards the client `pitch` **verbatim** (not range-validated) — exactly
+  what lets the harness smuggle a per-bot `seq` into it.
+
+*Reference-of-good-behaviour extras (the real server LACKS these; the chaos test
+records their absence against the real server as a WARNING, not a failure):*
+
+- A per-message size cap (oversized frames closed **1009** instead of buffered) —
+  the real server has the 100 MiB `ws` default and **no app cap**.
+- A per-connection flood ceiling (> `FLOOD_MSGS_PER_SEC`, 200 msgs/s → sandbox
+  close **1008**) — the real server has **no rate limit**. Sandboxing is strictly
+  **per-connection**: other clients are never affected.
+- Bounded sends: broadcasts are **dropped** to a backpressured (slow / non-reading)
+  socket rather than buffered unbounded, so a slow reader can't grow memory.
 
 ### THE PROTOCOL
 
-`scripts/lib/protocol.mjs` defines the **assumed** wire format. The wire is
-UTF-8 JSON text frames; every message carries a short string tag under `"t"`.
-This is the **single adapter to edit when the builder finalizes the real
-protocol** — the transport, both harnesses, and the mock only ever call this
-module's encoders / `decode` / `extractPlayerSeqs`, so retargeting the harness to
-the real server is a one-file change here. `PROTOCOL_VERSION` is `1`;
-`decode()` never throws (anything unparseable, non-object, or unrecognized →
-`{kind:"unknown", raw}`).
+`scripts/lib/protocol.mjs` is the adapter for the **real Voxelheim wire format**
+(`docs/PROTOCOL.md` v1). The wire is UTF-8 JSON text frames; every message carries
+a short string tag under `"t"`. With `mock-server.mjs` it is one of the **only two
+protocol-specific files** — the transport and both harnesses call only its
+encoders / `decode()` / correlation helpers / `CAPS`, so retargeting is a
+one-file change here. `PROTOCOL_VERSION` is `1`; `decode()` never throws (anything
+unparseable, non-object, or unrecognized → `{kind:"unknown", raw}`).
 
-Client → server (encoders → JSON string ready for `WSConn.send`):
+**Handshake.** Open the socket, send `join`, receive `welcome`. Until a valid
+`join`, the server silently ignores every other frame. `worldId` must match
+`^[A-Za-z0-9_-]{1,64}$` (unknown → auto-created); `dim ∈ {overworld, nether, end}`.
+
+**No `seq` field, no app ping.** The protocol has neither, so the adapter smuggles
+correlation into forwarded fields — captured in `CAPS` (`appPing:false`,
+`selfEchoChat:true`, `moveSeqCarrier:'pitch'`, `wsPath:'/ws'`, `defaultPort:3000`).
+
+Client → server (encoders → JSON string ready for `WSConn.send`; `encPing()`
+returns `null` — there is no app ping, keepalive is the WS pong):
 
 | Kind | Wire shape |
 |---|---|
-| `join` | `{"t":"join","name":<string>,"v":1}` |
-| `move` | `{"t":"move","seq":<n>,"pos":{x,y,z},"yaw":<n>,"pitch":<n>[,"vel":…]}` — `seq` is a monotonic per-bot counter used for drop / out-of-order / propagation tracking; `vel` included only when supplied |
-| `block` | `{"t":"block","action":"place"\|"break","pos":{x,y,z},"block":<any>}` |
-| `chat` | `{"t":"chat","text":<string>}` |
-| `ping` | `{"t":"ping","ts":<number>}` — `ts` is the client clock, echoed back for RTT |
+| `join` | `{"t":"join","worldId":<string>,"name":<string>,"dim":<string>}` |
+| `move` | `{"t":"move","x","y","z","yaw","pitch":<seq>,"dim"}` — floats; **no `seq` field** on the wire: the monotonic per-bot `seq` rides in `pitch` (forwarded verbatim, not range-validated) |
+| `edit` | `{"t":"edit","x","y","z","block","dim"}` — ints; `0≤y<128`, `0≤block≤40`; `block===0` ⇒ **break**, `1..40` ⇒ place (`encBlock` is a back-compat alias of `encEdit`) |
+| `chat` | `{"t":"chat","text":<string>}` — trimmed, ≤256 chars; echoes to the whole room **including the sender**. `encRttChat` packs `rtt:<botIdx>:<seq>:<ts>` for the RTT self-echo |
 
 Server → client (`decode()` normalizes each to `{kind, …}`):
 
-| Kind | Wire shape (as the mock emits it) → decoded fields |
+| Kind | Wire shape → decoded fields |
 |---|---|
-| `welcome` | `{"t":"welcome","v":1,"id":<n>,"tick":<n>,"spawn":{x,y,z},"players":[{id,pos,yaw,seq}]}` → `{id, tick, spawn, players}` |
-| `state` | `{"t":"state","tick":<n>,"players":[{id,pos,yaw,seq}]}` → `{tick, players}` (broadcast ~20 Hz) |
-| `block` | `{"t":"block","by":<id>,"action":…,"pos":{x,y,z},"block":…,"seq":<n>}` → `{by, action, pos, block, seq}` |
-| `chat` | `{"t":"chat","from":<id>,"text":<string>}` → `{from, text}` |
-| `pong` | `{"t":"pong","ts":<number>}` → `{ts}` (echoes the client `ts`) |
-| `error` | `{"t":"error","code":…,"msg":…}` → `{code, msg}` |
+| `welcome` | `{"t":"welcome","id":"p<N>","world":{…},"peers":[…]}` → `{id, world, peers}` |
+| `peer-join` | `{"t":"peer-join","id","name","x","y","z","yaw","dim"}` → entity fields (upsert; also on a peer's dim-change) |
+| `peer-leave` | `{"t":"peer-leave","id"}` → `{id}` |
+| `move` | `{"t":"move","id","x","y","z","yaw","pitch","dim"}` → entity fields (same-dim recipients only) |
+| `edit` | `{"t":"edit","id","x","y","z","block","dim"}` → `{id, x, y, z, block, dim}` (same-dim only) |
+| `chat` | `{"t":"chat","id","name","text"}` → `{id, name, text}` (whole room incl. sender) |
+| `error` | `{"t":"error","code","message"}` → `{code, message}`; `code ∈ bad_join｜already_joined｜bad_edit｜bad_world` |
 | *(anything else)* | → `{kind:"unknown", raw}` |
 
-`extractPlayerSeqs(welcomeOrState)` returns `[{id, seq, pos}]` for every player a
-`welcome` / `state` carries — the hook the load harness uses for drop /
-out-of-order / propagation tracking.
+**Correlation helpers:**
 
-**Builder handoff:** when the real protocol is known, edit `protocol.mjs` to
-match it, and use `mock-server.mjs` as the reference for the server behaviour
-(id assignment, state broadcast cadence, and the robustness/sandboxing model
-above) the real server should reproduce.
+- `readMoveSeq(decodedMove)` recovers the smuggled seq as `Math.round(pitch)`.
+- `matchRttEcho(decodedChat, myId)` returns `{botIdx, seq, ts}` when a chat is
+  this bot's own RTT self-echo (`id === myId` and text is `rtt:…`), else `null`.
+- `extractPlayerSeqs(welcomeOrMove)` returns `[{id, seq, pos}]` — one entry per
+  `welcome.peers` (seq unknown → 0) or a single entry for a `move` (seq =
+  `readMoveSeq`) — the hook the load harness uses for drop / OOO / propagation.
 
 ### How CI runs the harness
 
@@ -292,21 +344,39 @@ Playwright, never creates a root `package.json`) has two phases:
    real server, waits for its port, and targets it. This lights up automatically
    once the server branch lands — no workflow edit needed.
 
-### Latest local results
+### Latest measured results (real server)
 
-From a local run against the bundled reference mock on this machine (mock target,
-Linux; your numbers will vary by hardware and load):
+From a **40-bot, 20 s** run against the **real Voxelheim server**
+(`ws://127.0.0.1:3210/ws`, sampled via `--server-pid 672`; your numbers vary by
+hardware and load):
 
-- **Load** (`--spawn --players 40 --duration-sec 15`): **PASS** — 40/40 bots
-  connected, 0 connection errors. RTT p50/p95/p99 = **0.62 / 21.18 / 31.29 ms**;
-  propagation p50/p95/p99 = **25.54 / 47.83 / 50.34 ms**; drops **0.23 %**,
-  out-of-order **0 %**. Mock server CPU avg/peak **6.3 % / 12 %**, RSS avg/peak
-  **75 / 83 MB**. (Well inside the default 150/300 ms thresholds.)
-- **Chaos** (`--spawn`): **PASS** — 12/12 vectors `ok`, **0 warnings, 0
-  failures**; canary stayed responsive throughout and the server stayed alive.
-  Vector 2 closed a 5 MB frame with **1009**, vector 12 sandbox-closed the
-  flooder with **1008** after ~400 messages, and the slow-reader vector grew
-  server RSS by **~0 MB** (broadcasts dropped to the backpressured socket).
+**Load — PASS** (0 breaches, exit 0):
+
+- **Connections:** 40/40 connected; **0** connect failures / socket errors /
+  unexpected closes.
+- **RTT** (chat self-echo, 860 samples): p50 **0.66** / p95 **3.33** / p99
+  **6.47** / max **11.93** ms (mean 1.07).
+- **Propagation** (move pitch-seq, 12,507 samples): p50 **0.46** / p95 **1.62** /
+  p99 **2.16** / max **4.83** ms (mean 0.61).
+- **Drops 0 %** (0 of 478,707 expected updates); **out-of-order 0 %** (0 events).
+- **Server** (43 samples via `SERVER_PID 672`): CPU avg **~21 %** / peak
+  **~28 %**; RSS avg **~81 MB** / peak **~84 MB**; no growth trend, never died.
+- **Traffic:** ~480 k moves + ~15.6 k edits + ~33 k chats received; all 860 RTT
+  chats matched their self-echo; **0** error / unknown frames. Non-zero
+  matched-echo and pitch-seq counts confirm the adapter is on-protocol.
+
+**Chaos — no crash; 2 vulnerabilities recorded** (survived all 12 vectors + a
+200/200 reconnect storm; canary stayed responsive; clean SIGTERM shutdown):
+
+- **No app-level message-size cap** — accepted an **8.0 MB** frame
+  (`CHAOS_OVERSIZE_BYTES`) without closing; `ws` defaults to a 100 MiB inbound
+  cap → single-frame OOM risk. *(WARNING)*
+- **No server-side rate limiting** — accepted **~260,400** msgs in 3 s from one
+  socket with no throttle/close → flood/DoS vector. *(WARNING)*
+- Everything else safe: malformed / pre-join / unknown frames drew **0** errors
+  and stayed open (documented Voxelheim behaviour; the `edit` handler returns
+  `bad_edit` where it validates); a slow reader grew RSS by only **~0.1 MB** over
+  3 s (WS backpressure); the server log shows no exceptions.
 
 ## scripts/verify-audio.mjs
 

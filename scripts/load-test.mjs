@@ -11,20 +11,27 @@
  * (scripts/lib/ws-transport.mjs), drives realistic traffic against a server,
  * and measures how the server holds up under concurrent load:
  *
- *   (a) RTT              ping->pong round-trip latency (ts echo)  -> p50/p95/p99/max
- *   (b) PROPAGATION      time from a bot sending move#seq until that seq first
- *                        appears in a broadcast "state" frame     -> p50/p95/p99/max
- *   (c) DROPS / OOO      per receiver, per source: skipped seq ranges = drops,
- *                        decreasing seq = out-of-order             -> %of expected updates
- *   (d) SERVER CPU/MEM   sampled from /proc for a server WE spawned (n/a for a
- *                        bare --url we did not launch)
+ *   (a) RTT              chat self-echo round-trip: a bot sends chat carrying its
+ *                        own {botIdx,seq,sendMs}; the server echoes chat to the
+ *                        WHOLE room incl. the sender, so RTT = recv - sendMs
+ *                        (matchRttEcho, its OWN echo only)         -> p50/p95/p99/max
+ *   (b) PROPAGATION      time from a bot sending move#seq (seq smuggled in the
+ *                        forwarded `pitch` field) until that move is first
+ *                        re-broadcast to ANOTHER same-dim bot      -> p50/p95/p99/max
+ *   (c) DROPS / OOO      per receiver, per source (readMoveSeq on forwarded moves):
+ *                        skipped seq ranges = drops, decreasing seq =
+ *                        out-of-order                              -> %of expected updates
+ *   (d) SERVER CPU/MEM   sampled from /proc for a server WE spawned OR an
+ *                        externally-started --server-pid; n/a for a bare --url
+ *                        with no pid to sample
  *   (e) CONN ERRORS      failed connects, unexpected mid-test closes, socket errors
  *
  * Thresholds gate the process exit code so this doubles as a CI check.
  *
  * TARGET SELECTION (precedence, highest first):
- *   1. --server-cmd "<cmd>"  spawn an arbitrary server via shell, poll its port,
- *                            sample its pid, then target --url|GAME_URL|defaultUrl().
+ *   1. --server-cmd "<cmd>"  spawn an arbitrary server via shell (in --server-cwd
+ *                            if given), poll its port, sample its pid, then target
+ *                            --url|GAME_URL|defaultUrl().
  *   2. --spawn               spawn the bundled reference mock (scripts/mock-server.mjs),
  *                            parse its READY line for the real port, sample its pid.
  *   3. --url ws://host:port  target an already-running external server (no sampling).
@@ -37,6 +44,9 @@
  *   --url <ws-url>       GAME_URL         ""    target an external server
  *   --spawn                               off   spawn+target the bundled mock
  *   --server-cmd "<cmd>" GAME_SERVER_CMD  ""    spawn an arbitrary server
+ *   --server-cwd <dir>   GAME_SERVER_CWD  ""    cwd for the spawned --server-cmd
+ *   --server-pid <pid>   SERVER_PID       0     sample CPU/mem of an external server
+ *                                               (use with --url; we did not spawn it)
  *   --report <path>      GAME_REPORT      ""    also write the JSON report here
  *   (client frame cap)   GAME_MAX_PAYLOAD 1MiB  wsConnect maxPayload
  *
@@ -50,8 +60,8 @@
  *   MAX_CONN_ERRORS 0     n    tolerated socket errors + unexpected closes
  *
  * The harness is protocol-agnostic: it only ever calls the encoders / decode /
- * extractPlayerSeqs exported by protocol.mjs, so retargeting the real server is a
- * one-file edit there.
+ * correlation helpers (readMoveSeq, matchRttEcho) and CAPS exported by
+ * protocol.mjs, so retargeting the real server is a one-file edit there.
  * ---------------------------------------------------------------------------
  */
 
@@ -62,13 +72,14 @@ import { fileURLToPath } from 'node:url';
 
 import { wsConnect, OPEN } from './lib/ws-transport.mjs';
 import {
+  CAPS,
   encJoin,
   encMove,
   encBlock,
-  encChat,
-  encPing,
+  encRttChat,
   decode,
-  extractPlayerSeqs,
+  readMoveSeq,
+  matchRttEcho,
   defaultUrl,
 } from './lib/protocol.mjs';
 import {
@@ -89,16 +100,20 @@ const MOCK_PATH = path.join(__dirname, 'mock-server.mjs');
  * Tunable constants (behaviour, not policy — policy lives in the thresholds).
  * ========================================================================= */
 const RAMP_MS = 2000; // stagger connects across ~2s to avoid a thundering herd
-const MOVE_INTERVAL_MS = Math.round(1000 / 15); // ~15 Hz movement
+const MOVE_INTERVAL_MS = Math.round(1000 / 15); // ~15 Hz movement (pitch carries seq)
 const BLOCK_INTERVAL_MS = 2000; // a block edit every ~2s
-const CHAT_INTERVAL_MS = 10000; // a chat every ~10s
-const PING_INTERVAL_MS = 1000; // an RTT probe every ~1s
+const RTT_CHAT_INTERVAL_MS = 1000; // one RTT self-echo chat every ~1s
 const HANDSHAKE_TIMEOUT_MS = 5000; // ws opening-handshake budget
 const WELCOME_TIMEOUT_MS = 5000; // join -> welcome budget
 const SERVER_START_TIMEOUT_MS = 15000; // spawn -> READY / port-open budget
 const CLOSE_GRACE_MS = 400; // let close frames flush before we compute the report
 const BACKPRESSURE_LIMIT = 256 * 1024; // skip a move if the socket is this backed up
-const WORLD_HALF = 128; // random walk stays within [-128,128] on each axis
+const WORLD_HALF = 128; // x,z random walk stays within [-128,128] (well inside [-256,256])
+const SEA_LEVEL = 40; // Voxelheim SEA_LEVEL (public/src/constants.js)
+const Y_MIN = SEA_LEVEL - 5; // keep the vertical walk in a sane band ...
+const Y_MAX = SEA_LEVEL + 30; // ... [35, 70], comfortably within 0 <= y < 128
+const WORLD_HEIGHT = 128; // Voxelheim WORLD_HEIGHT; edits require 0 <= y < 128
+const MAX_BLOCK_ID = 40; // Voxelheim MAX_BLOCK_ID; a place uses block in 1..40
 const V_MAX = 1.5; // per-axis velocity clamp for a smooth walk
 
 /* =========================================================================
@@ -252,11 +267,15 @@ function spawnMock() {
 /**
  * Spawn an arbitrary server command through a shell and wait for its port to open.
  * We cannot know its ready-line format, so we poll the target port instead.
+ * @param {string} cmd  shell command line to run
+ * @param {string} url  ws url whose port we poll for readiness
+ * @param {string} [cwd] working directory to launch the command in (--server-cwd)
  * @returns {Promise<{child:import('node:child_process').ChildProcess, url:string}>}
  */
-async function spawnServerCmd(cmd, url) {
+async function spawnServerCmd(cmd, url, cwd = '') {
   const child = spawn(cmd, {
     shell: true,
+    cwd: cwd || undefined,
     env: { ...process.env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -292,6 +311,8 @@ export async function main(argv = process.argv.slice(2)) {
     url: { default: '', env: 'GAME_URL', type: 'string' },
     spawn: { default: false, type: 'boolean' },
     'server-cmd': { default: '', env: 'GAME_SERVER_CMD', type: 'string' },
+    'server-cwd': { default: '', env: 'GAME_SERVER_CWD', type: 'string' },
+    'server-pid': { default: 0, env: 'SERVER_PID', type: 'number' },
     report: { default: '', env: 'GAME_REPORT', type: 'string' },
   });
 
@@ -299,6 +320,8 @@ export async function main(argv = process.argv.slice(2)) {
   const durationMs = Math.max(1, Math.floor(opts.durationSec) || 1) * 1000;
   const urlOpt = String(opts.url || '').trim();
   const serverCmd = String(opts.serverCmd || '').trim();
+  const serverCwd = String(opts.serverCwd || '').trim();
+  const serverPid = Math.max(0, Math.floor(Number(opts.serverPid) || 0));
   const spawnFlag = !!opts.spawn;
   const reportPath = String(opts.report || '').trim();
   const clientMaxPayload = envNum('GAME_MAX_PAYLOAD', 1 << 20);
@@ -321,20 +344,27 @@ export async function main(argv = process.argv.slice(2)) {
   /* ---- shared metric state ---------------------------------------------- */
   const rttStats = new Stats();
   const propStats = new Stats();
-  const bots = []; // {i, conn, serverId, key, seq, pos, vel, yaw, pitch, seen, timers, welcomed, hadError, active}
-  const pingSent = new Set(); // outstanding ping ts values (reject spurious pongs)
-  // sendTimes: serverIdKey -> Map<seq, sendMs>. Pruned on propagation match.
+  const bots = []; // {i, conn, serverId, key, seq, pos, vel, yaw, seen, rttSeq, rttOutstanding, timers, welcomed, hadError, active}
+  // Server-assigned id ("p<N>") -> the botIdx that owns it. Each bot registers its
+  // OWN welcome id; since every move source is a bot in this process, self-
+  // registration alone yields a complete id->botIdx map for propagation lookups.
+  const idToBotIdx = new Map();
+  // sendTimes: botIdx -> Map<moveSeq, sendMs>. A move's seq is smuggled into the
+  // forwarded `pitch`; the first same-dim receiver to observe (source, seq) records
+  // propagation, then prunes the entry so it is counted exactly once.
   const sendTimes = new Map();
 
   const counters = {
     movesSent: 0,
-    blocksSent: 0,
-    chatsSent: 0,
-    pingsSent: 0,
-    statesReceived: 0,
-    pongsReceived: 0,
-    blocksReceived: 0,
+    editsSent: 0,
+    rttChatsSent: 0,
+    welcomesReceived: 0,
+    peerJoinsReceived: 0,
+    peerLeavesReceived: 0,
+    movesReceived: 0,
+    editsReceived: 0,
     chatsReceived: 0,
+    rttEchoesMatched: 0,
     errorsReceived: 0,
     unknownReceived: 0,
   };
@@ -353,6 +383,8 @@ export async function main(argv = process.argv.slice(2)) {
   let child = null; // spawned server process (null in 'url' mode)
   let targetUrl = urlOpt || defaultUrl();
   let sampler = null;
+  let samplePid = null; // pid we sample CPU/mem for (a spawned child OR --server-pid)
+  let sampledExternal = false; // true when sampling a pid we did NOT spawn
 
   try {
     if (mode === 'spawn-mock') {
@@ -360,7 +392,7 @@ export async function main(argv = process.argv.slice(2)) {
       child = r.child;
       targetUrl = r.url;
     } else if (mode === 'server-cmd') {
-      const r = await spawnServerCmd(serverCmd, urlOpt || defaultUrl());
+      const r = await spawnServerCmd(serverCmd, urlOpt || defaultUrl(), serverCwd);
       child = r.child;
       targetUrl = r.url;
     } else {
@@ -397,8 +429,19 @@ export async function main(argv = process.argv.slice(2)) {
       process.stderr.write(`[load] server process died mid-test (code=${code} sig=${sig})\n`);
       finish('server-died');
     });
-    // CPU/mem sampling of the process we launched.
-    sampler = startProcSampler(child.pid, 500);
+  }
+
+  // CPU/mem sampling target: a process we spawned, else an externally-started
+  // --server-pid (SERVER_PID). A bare --url with no pid samples nothing (n/a).
+  if (child) {
+    samplePid = child.pid;
+  } else if (serverPid > 0) {
+    samplePid = serverPid;
+    sampledExternal = true;
+  }
+  if (samplePid && samplePid > 0) {
+    // On non-Linux / a bad pid this samples nothing and stop() returns nulls (never throws).
+    sampler = startProcSampler(samplePid, 500);
   }
 
   process.stderr.write(
@@ -418,17 +461,20 @@ export async function main(argv = process.argv.slice(2)) {
       case 'welcome':
         onWelcome(bot, msg);
         break;
-      case 'state':
-        onState(bot, msg);
+      case 'peer-join':
+        onPeerJoin(bot, msg);
         break;
-      case 'pong':
-        onPong(msg.ts);
+      case 'peer-leave':
+        counters.peerLeavesReceived++;
         break;
-      case 'block':
-        counters.blocksReceived++;
+      case 'move':
+        onMove(bot, msg);
+        break;
+      case 'edit':
+        counters.editsReceived++;
         break;
       case 'chat':
-        counters.chatsReceived++;
+        onChat(bot, msg);
         break;
       case 'error':
         counters.errorsReceived++;
@@ -442,14 +488,15 @@ export async function main(argv = process.argv.slice(2)) {
     if (bot.welcomed) return; // ignore duplicate welcomes
     bot.welcomed = true;
     bot.serverId = msg.id;
-    bot.key = String(msg.id);
-    // Seed the drop/order tracker with everyone already present so their existing
-    // seq counters don't register as an initial burst of "drops".
-    for (const p of extractPlayerSeqs(msg)) {
-      if (p.seq === undefined || p.id === undefined) continue;
-      const sid = String(p.id);
-      if (!bot.seen.has(sid)) bot.seen.set(sid, { first: p.seq, high: p.seq });
-    }
+    bot.key = msg.id === undefined || msg.id === null ? null : String(msg.id);
+    counters.welcomesReceived++;
+    // Register this bot's server id -> its index. Every move source is a bot in
+    // this process, so self-registration builds a complete id->botIdx map.
+    if (bot.key !== null) idToBotIdx.set(bot.key, bot.i);
+    // NOTE: we deliberately do NOT seed drop/ooo tracking from welcome.peers — a
+    // welcome carries no move seq, so seeding would either be a no-op or (for a
+    // peer already mid-stream) fabricate a spurious initial drop burst. Each
+    // (receiver, source) span initializes lazily on the first move observed.
     if (typeof bot._welcomeResolve === 'function') {
       const r = bot._welcomeResolve;
       bot._welcomeResolve = null;
@@ -457,46 +504,62 @@ export async function main(argv = process.argv.slice(2)) {
     }
   }
 
-  function onState(bot, msg) {
-    counters.statesReceived++;
-    const rows = extractPlayerSeqs(msg);
-    for (const p of rows) {
-      if (p.seq === undefined || p.id === undefined) continue;
-      const sid = String(p.id);
-
-      // --- propagation: first time ANY bot observes (sid, seq) in a broadcast ---
-      const inner = sendTimes.get(sid);
-      if (inner && inner.has(p.seq)) {
-        const sentAt = inner.get(p.seq);
-        const dt = nowMs() - sentAt;
-        if (dt >= 0 && dt < 120000) propStats.add(dt);
-        // Prune this and every earlier seq for that source: they are superseded,
-        // and deleting the matched entry guarantees we record propagation ONCE.
-        pruneUpTo(inner, p.seq);
-      }
-
-      // --- drops / out-of-order, tracked per (receiver bot, source id) ---------
-      const e = bot.seen.get(sid);
-      if (!e) {
-        bot.seen.set(sid, { first: p.seq, high: p.seq });
-      } else if (p.seq > e.high) {
-        const gap = p.seq - e.high - 1;
-        if (gap > 0) drops += gap; // skipped updates never seen by this receiver
-        e.high = p.seq;
-      } else if (p.seq < e.high) {
-        ooo += 1; // a seq that went backwards
-      }
-      // p.seq === e.high => duplicate rebroadcast of the latest seq; expected, ignore.
-    }
+  function onPeerJoin(bot, msg) {
+    counters.peerJoinsReceived++;
+    // A peer-join (also emitted on a peer's dim-change) confirms a peer id but
+    // carries no move seq: id->botIdx is built from each bot's own welcome, and
+    // drop/ooo spans initialize on the first forwarded move. Nothing to seed.
+    void bot;
+    void msg;
   }
 
-  function onPong(ts) {
-    // Only honour a pong whose ts matches a ping we actually sent.
-    if (!pingSent.has(ts)) return;
-    pingSent.delete(ts);
-    const rtt = nowMs() - ts;
+  function onMove(bot, msg) {
+    counters.movesReceived++;
+    if (msg.id === undefined || msg.id === null) return;
+    const sid = String(msg.id);
+    if (sid === bot.key) return; // ignore our own move if the server ever reflects it
+    const seq = readMoveSeq(msg); // moveSeq was smuggled into `pitch`
+
+    // --- propagation: first same-dim receiver to observe (source, seq) ---------
+    const srcIdx = idToBotIdx.get(sid);
+    if (srcIdx !== undefined) {
+      const inner = sendTimes.get(srcIdx);
+      if (inner && inner.has(seq)) {
+        const sentAt = inner.get(seq);
+        const dt = nowMs() - sentAt;
+        if (dt >= 0 && dt < 120000) propStats.add(dt);
+        // Prune this and every earlier seq for that source so propagation for a
+        // given (source, seq) is recorded exactly ONCE across all receivers.
+        pruneUpTo(inner, seq);
+      }
+    }
+
+    // --- drops / out-of-order, tracked per (receiver bot, source id) -----------
+    const e = bot.seen.get(sid);
+    if (!e) {
+      bot.seen.set(sid, { first: seq, high: seq });
+    } else if (seq > e.high) {
+      const gap = seq - e.high - 1;
+      if (gap > 0) drops += gap; // skipped updates never seen by this receiver
+      e.high = seq;
+    } else if (seq < e.high) {
+      ooo += 1; // a seq that went backwards
+    }
+    // seq === e.high => duplicate rebroadcast of the latest seq; expected, ignore.
+  }
+
+  function onChat(bot, msg) {
+    counters.chatsReceived++;
+    // RTT via chat self-echo: only OUR OWN echo (id === our welcome id) whose text
+    // decodes to our botIdx counts. matchRttEcho enforces id===myId + text format.
+    const echo = matchRttEcho(msg, bot.serverId);
+    if (!echo) return;
+    if (echo.botIdx !== bot.i) return; // defensive: the payload must be ours
+    if (!bot.rttOutstanding.has(echo.seq)) return; // ignore duplicate/unknown echoes
+    bot.rttOutstanding.delete(echo.seq);
+    const rtt = nowMs() - echo.ts;
     if (rtt >= 0 && rtt < 120000) rttStats.add(rtt);
-    counters.pongsReceived++;
+    counters.rttEchoesMatched++;
   }
 
   /** Delete every entry with key <= seq from an in-flight sendTimes map. */
@@ -518,10 +581,12 @@ export async function main(argv = process.argv.slice(2)) {
 
   function stepWalk(bot) {
     // Smooth bounded random walk: jitter velocity, integrate, bounce at walls.
+    // x,z stay within [-WORLD_HALF, WORLD_HALF]; y stays in a sane vertical band
+    // around sea level. `pitch` is NOT a heading here — it carries the moveSeq.
     bot.vel.x = clamp(bot.vel.x + (Math.random() - 0.5) * 0.6, -V_MAX, V_MAX);
     bot.vel.y = clamp(bot.vel.y + (Math.random() - 0.5) * 0.3, -V_MAX, V_MAX);
     bot.vel.z = clamp(bot.vel.z + (Math.random() - 0.5) * 0.6, -V_MAX, V_MAX);
-    for (const axis of ['x', 'y', 'z']) {
+    for (const axis of ['x', 'z']) {
       let np = bot.pos[axis] + bot.vel[axis];
       if (np > WORLD_HALF) {
         np = WORLD_HALF;
@@ -532,8 +597,16 @@ export async function main(argv = process.argv.slice(2)) {
       }
       bot.pos[axis] = np;
     }
+    let ny = bot.pos.y + bot.vel.y;
+    if (ny > Y_MAX) {
+      ny = Y_MAX;
+      bot.vel.y = -bot.vel.y;
+    } else if (ny < Y_MIN) {
+      ny = Y_MIN;
+      bot.vel.y = -bot.vel.y;
+    }
+    bot.pos.y = ny;
     bot.yaw = (bot.yaw + (Math.random() - 0.5) * 10 + 360) % 360;
-    bot.pitch = clamp(bot.pitch + (Math.random() - 0.5) * 6, -90, 90);
   }
 
   function sendMove(bot) {
@@ -546,56 +619,59 @@ export async function main(argv = process.argv.slice(2)) {
     bot.seq += 1;
     stepWalk(bot);
 
-    let inner = sendTimes.get(bot.key);
+    // Record the send time under this bot's index (the moveSeq carrier). Any
+    // same-dim receiver resolves the source id back to this index to time it.
+    let inner = sendTimes.get(bot.i);
     if (!inner) {
       inner = new Map();
-      sendTimes.set(bot.key, inner);
+      sendTimes.set(bot.i, inner);
     }
     inner.set(bot.seq, nowMs());
 
-    const ok = conn.send(
-      encMove({ seq: bot.seq, pos: bot.pos, yaw: bot.yaw, pitch: bot.pitch, vel: bot.vel })
-    );
+    // The adapter smuggles seq into `pitch`; x,y,z + yaw stay the real walk.
+    const ok = conn.send(encMove({ seq: bot.seq, pos: bot.pos, yaw: bot.yaw, dim: CAPS.dim }));
     if (ok !== false) counters.movesSent++;
   }
 
-  function sendBlock(bot) {
+  function sendEdit(bot) {
     const conn = bot.conn;
     if (!conn || conn.readyState !== OPEN) return;
     const action = Math.random() < 0.5 ? 'place' : 'break';
     const pos = {
       x: Math.round(bot.pos.x),
-      y: Math.round(bot.pos.y),
+      y: clamp(Math.round(bot.pos.y), 0, WORLD_HEIGHT - 1), // require 0 <= y < 128
       z: Math.round(bot.pos.z),
     };
-    conn.send(encBlock({ action, pos, block: 'stone' }));
-    counters.blocksSent++;
+    // place uses a valid block id in 1..MAX_BLOCK_ID; break maps to 0 in the adapter.
+    const block = 1 + Math.floor(Math.random() * MAX_BLOCK_ID);
+    const ok = conn.send(encBlock({ action, pos, block, dim: CAPS.dim }));
+    if (ok !== false) counters.editsSent++;
   }
 
-  function sendChat(bot) {
+  function sendRttChat(bot) {
     const conn = bot.conn;
     if (!conn || conn.readyState !== OPEN) return;
-    conn.send(encChat({ text: `hello from bot${bot.i} @${bot.seq}` }));
-    counters.chatsSent++;
-  }
-
-  function sendPing(bot) {
-    const conn = bot.conn;
-    if (!conn || conn.readyState !== OPEN) return;
-    const ts = nowMs();
-    pingSent.add(ts);
-    conn.send(encPing({ ts }));
-    counters.pingsSent++;
+    bot.rttSeq += 1;
+    bot.rttOutstanding.add(bot.rttSeq);
+    // Bound the outstanding set if a server never echoes (drop the oldest half).
+    if (bot.rttOutstanding.size > 1000) {
+      let toDrop = bot.rttOutstanding.size - 500;
+      for (const s of bot.rttOutstanding) {
+        if (toDrop-- <= 0) break;
+        bot.rttOutstanding.delete(s);
+      }
+    }
+    const ok = conn.send(encRttChat({ botIdx: bot.i, seq: bot.rttSeq, ts: nowMs() }));
+    if (ok !== false) counters.rttChatsSent++;
   }
 
   function startBotLoops(bot) {
     bot.active = true;
     bot.timers.push(setInterval(() => sendMove(bot), MOVE_INTERVAL_MS));
-    bot.timers.push(setInterval(() => sendBlock(bot), BLOCK_INTERVAL_MS));
-    bot.timers.push(setInterval(() => sendChat(bot), CHAT_INTERVAL_MS));
-    bot.timers.push(setInterval(() => sendPing(bot), PING_INTERVAL_MS));
-    // Fire one ping immediately so short runs still capture RTT samples.
-    sendPing(bot);
+    bot.timers.push(setInterval(() => sendEdit(bot), BLOCK_INTERVAL_MS));
+    bot.timers.push(setInterval(() => sendRttChat(bot), RTT_CHAT_INTERVAL_MS));
+    // Fire one RTT chat immediately so short runs still capture RTT samples.
+    sendRttChat(bot);
   }
 
   /* ---- bot lifecycle ----------------------------------------------------- */
@@ -606,16 +682,17 @@ export async function main(argv = process.argv.slice(2)) {
       conn: null,
       serverId: undefined,
       key: null,
-      seq: 0,
+      seq: 0, // monotonic moveSeq (smuggled into `pitch`)
       pos: {
         x: (Math.random() - 0.5) * 32,
-        y: 64,
+        y: SEA_LEVEL, // start at sea level; the walk keeps y in [Y_MIN, Y_MAX]
         z: (Math.random() - 0.5) * 32,
       },
       vel: { x: 0, y: 0, z: 0 },
       yaw: Math.random() * 360,
-      pitch: 0,
       seen: new Map(), // sourceId -> {first, high}
+      rttSeq: 0, // monotonic RTT-chat sequence
+      rttOutstanding: new Set(), // rttSeqs awaiting their self-echo
       timers: [],
       welcomed: false,
       hadError: false,
@@ -681,7 +758,9 @@ export async function main(argv = process.argv.slice(2)) {
       if (to.unref) to.unref();
     });
     try {
-      conn.send(encJoin({ name: `bot${i}` }));
+      // All bots share the default worldId ("loadtest") in the same dim so every
+      // move broadcasts to all other bots (required for propagation/drop/ooo).
+      conn.send(encJoin({ name: `bot${i}`, dim: CAPS.dim }));
     } catch {
       connectFailures++;
       try {
@@ -769,7 +848,7 @@ export async function main(argv = process.argv.slice(2)) {
       );
     }
     if (connected > 0 && rttStats.count === 0) {
-      breaches.push('no pong responses received (server unresponsive to pings)');
+      breaches.push('no RTT chat self-echoes received (server not echoing chat / unresponsive)');
     }
     if (rttStats.count > 0) {
       if (rttStats.p95 > thresholds.P95_MS) {
@@ -799,23 +878,27 @@ export async function main(argv = process.argv.slice(2)) {
     });
 
     const serverSection =
-      mode === 'url'
+      sampler && samplePid
         ? {
             mode,
-            spawned: false,
-            sampling: 'n/a — external server not spawned by harness; CPU/mem not sampled',
-            died: false,
-          }
-        : {
-            mode,
-            spawned: true,
-            pid: child ? child.pid : null,
+            spawned: !!child,
+            external: sampledExternal, // true => sampling a --server-pid we did not spawn
+            pid: samplePid,
             cpuAvgPct: round2(serverMetrics ? serverMetrics.cpuAvgPct : null),
             cpuPeakPct: round2(serverMetrics ? serverMetrics.cpuPeakPct : null),
             rssAvgMB: round2(serverMetrics ? serverMetrics.rssAvgMB : null),
             rssPeakMB: round2(serverMetrics ? serverMetrics.rssPeakMB : null),
             samples: serverMetrics ? serverMetrics.samples : 0,
             died: serverDied,
+          }
+        : {
+            mode,
+            spawned: false,
+            external: false,
+            pid: null,
+            sampling:
+              'n/a — no server pid sampled (external --url without --server-pid); CPU/mem not sampled',
+            died: false,
           };
 
     const report = {
@@ -825,6 +908,8 @@ export async function main(argv = process.argv.slice(2)) {
         players,
         durationSec: durationMs / 1000,
         clientMaxPayload,
+        serverCwd: serverCwd || null,
+        serverPid: samplePid || null,
       },
       thresholds,
       connections: {
@@ -959,10 +1044,16 @@ if (isMain) {
  * SELF-CHECK (informal — no test framework, dependency-free):
  *   node scripts/load-test.mjs --spawn --players 20 --duration-sec 6 \
  *        --report /tmp/load.json                # spawns the mock, runs, exits 0
- *   node scripts/load-test.mjs --url ws://127.0.0.1:8080/   # target external server
+ *   node scripts/load-test.mjs --url ws://127.0.0.1:3000/ws --server-pid 12345
+ *                                              # target an external server + sample its pid
+ *   node scripts/load-test.mjs --server-cmd "node server/index.js" \
+ *        --server-cwd /path/to/voxelheim --url ws://127.0.0.1:3000/ws
  *   P95_MS=1 node scripts/load-test.mjs --spawn --players 5 --duration-sec 3
  *                                              # forces an RTT breach -> exit 1
+ * Correlation (CAPS-based): RTT from chat self-echo (matchRttEcho on our own id);
+ * propagation + drop + out-of-order from the moveSeq smuggled in `pitch`
+ * (readMoveSeq), with server id -> botIdx resolved from each bot's welcome.
  * Invariants: always kills a spawned server (SIGTERM + SIGKILL guarantees on
- * exit); records propagation ONCE per (id,seq) via prune-on-match; drop/ooo are
- * measured per (receiver, source); a dead server or any failed connect -> exit 1.
+ * exit); records propagation ONCE per (source,seq) via prune-on-match; drop/ooo
+ * are measured per (receiver, source); a dead server or any failed connect -> exit 1.
  * ------------------------------------------------------------------------- */

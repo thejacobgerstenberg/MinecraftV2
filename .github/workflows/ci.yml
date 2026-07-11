@@ -109,11 +109,14 @@ jobs:
   # this job ALWAYS runs a fast SELF-TEST of the harness against the bundled,
   # dependency-free reference mock (scripts/mock-server.mjs, spawned via
   # --spawn) — proving the harness works today and keeping the job green with no
-  # real server. When a real server entrypoint lands (root package.json `start`
-  # script, a $SERVER_CMD, or a top-level `server` file/dir a.k.a. scripts/../
-  # server), it ADDITIONALLY runs the full suite against that real server.
-  # Pure Node builtins only — no browser, no Playwright — and this job never
-  # creates a root package.json (that file is owned by another branch).
+  # real server. When the real Voxelheim entrypoint lands (a root package.json
+  # with a `start` script — npm start == `node server/index.js`), it
+  # ADDITIONALLY installs the server's deps, launches it in the background on an
+  # explicit port (PORT=8123, WS path /ws), waits for that endpoint to accept a
+  # WebSocket connection, runs the full load + chaos suite against it, and always
+  # kills the server. Pure Node builtins only — no browser, no Playwright — and
+  # this job never creates a root package.json (that file is owned by another
+  # branch).
   # ---------------------------------------------------------------------------
   backend-load:
     runs-on: ubuntu-latest
@@ -133,46 +136,54 @@ jobs:
           P95_MS=400 P99_MS=800 node scripts/load-test.mjs --spawn --players 20 --duration-sec 6
           node scripts/chaos-test.mjs --spawn
 
-      # Feature-detect a real server entrypoint and synthesise the command used
-      # to launch it. Detected when EITHER $SERVER_CMD is set, OR a root
-      # package.json exposes a `start` script, OR a top-level `server` file/dir
-      # (scripts/../server) is present. Emits real=<bool> and cmd=<launch cmd>.
+      # Feature-detect the real Voxelheim entrypoint: a root package.json exposing
+      # a `start` script (npm start == `node server/index.js`). Emits real=<bool>;
+      # anything else leaves the reference-mock self-test as the only coverage.
       - name: Detect real server entrypoint
         id: server
         run: |
-          real=false
-          cmd=""
-          if [ -n "${SERVER_CMD:-}" ]; then
-            echo "detected \$SERVER_CMD"
-            cmd="$SERVER_CMD"
-            real=true
-          elif [ -f package.json ] && node -e "const s=require('./package.json').scripts||{}; process.exit(s.start?0:1)"; then
-            echo "detected root package.json start script"
-            cmd="npm start"
-            real=true
-          elif [ -e server ]; then
-            echo "detected top-level server entrypoint (scripts/../server)"
-            cmd="node server"
-            real=true
+          if [ -f package.json ] && node -e "const s=require('./package.json').scripts||{}; process.exit(s.start?0:1)"; then
+            echo "detected root package.json start script (Voxelheim entrypoint)"
+            echo "real=true" >> "$GITHUB_OUTPUT"
           else
-            echo "no real server entrypoint — reference mock self-test only"
+            echo "no root package.json start script — reference mock self-test only"
+            echo "real=false" >> "$GITHUB_OUTPUT"
           fi
-          echo "real=$real" >> "$GITHUB_OUTPUT"
-          echo "cmd=$cmd" >> "$GITHUB_OUTPUT"
 
-      # Only when a real server exists: install its deps (never creating a root
-      # package.json), then run the full load + chaos suite against it. The
-      # harness's --server-cmd spawns the server, waits for its port, and points
-      # GAME_URL at it, so this lights up automatically once the server lands.
+      # Only when the real server exists: install its deps (never creating a root
+      # package.json), launch Voxelheim in the background on an explicit port, wait
+      # for its WS endpoint at /ws to accept a connection, run the full load + chaos
+      # suite against it, and ALWAYS kill the server on the way out.
       - name: Full load + chaos suite (real server)
         if: steps.server.outputs.real == 'true'
         run: |
-          if [ -f package.json ]; then
-            if [ -f package-lock.json ]; then
-              npm ci
-            else
-              npm install
-            fi
+          npm ci || npm install
+
+          # Launch Voxelheim in the background on an explicit port. Prefer the
+          # documented single-process entrypoint (directly killable); fall back to
+          # `npm start` otherwise.
+          if [ -f server/index.js ]; then
+            PORT=8123 node server/index.js >"$RUNNER_TEMP/voxelheim.log" 2>&1 &
+          else
+            PORT=8123 npm start >"$RUNNER_TEMP/voxelheim.log" 2>&1 &
           fi
-          node scripts/load-test.mjs --server-cmd "${{ steps.server.outputs.cmd }}"
-          node scripts/chaos-test.mjs --server-cmd "${{ steps.server.outputs.cmd }}"
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+
+          # Wait until ws://127.0.0.1:8123/ws completes a WebSocket handshake, using
+          # the harness's own dependency-free client (the same one the bots use).
+          up=false
+          for i in $(seq 1 60); do
+            if node -e "const t=setTimeout(()=>process.exit(1),2000);import('./scripts/lib/ws-transport.mjs').then(async m=>{const c=await m.wsConnect('ws://127.0.0.1:8123/ws',{handshakeTimeoutMs:1500});clearTimeout(t);try{c.close();}catch{}process.exit(0);}).catch(()=>{clearTimeout(t);process.exit(1);});" 2>/dev/null; then
+              up=true; break
+            fi
+            sleep 1
+          done
+          if [ "$up" != true ]; then
+            echo "server did not accept a WS connection on ws://127.0.0.1:8123/ws"
+            cat "$RUNNER_TEMP/voxelheim.log" 2>/dev/null || true
+            exit 1
+          fi
+
+          GAME_PORT=8123 node scripts/load-test.mjs --players 30 --duration-sec 12
+          GAME_PORT=8123 node scripts/chaos-test.mjs --url ws://127.0.0.1:8123/ws
