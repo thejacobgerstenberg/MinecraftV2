@@ -3,6 +3,16 @@
 
 import registry from "./sfx/index.js";
 import { startCalm, startNether } from "./music.js";
+import { startUpbeat, startMelancholy, startMysterious } from "./discs.js";
+
+/** mode -> music starter map for startMusic(). */
+const MUSIC_STARTERS = {
+  calm: startCalm,
+  nether: startNether,
+  upbeat: startUpbeat,
+  melancholy: startMelancholy,
+  mysterious: startMysterious,
+};
 
 /**
  * AudioEngine manages the master/sfx/music bus graph, a positional listener,
@@ -133,8 +143,8 @@ export default class AudioEngine {
   /**
    * Play a one-shot (or looping) SFX voice by registry key.
    * @param {string} name registry key
-   * @param {{pos?:{x:number,y:number,z:number}, volume?:number, velocity?:number, rng?:()=>number}} [opts]
-   * @returns {{stop:(at?:number)=>void}} handle
+   * @param {{pos?:{x:number,y:number,z:number}, volume?:number, velocity?:number, intensity?:number, rng?:()=>number}} [opts]
+   * @returns {{stop:(at?:number)=>void, setIntensity?:(v:number, ramp?:number)=>void}} handle
    */
   play(name, opts = {}) {
     this.ensure();
@@ -178,6 +188,7 @@ export default class AudioEngine {
     const handle = synth(ctx, inputNode, ctx.currentTime, {
       rng: opts.rng,
       velocity,
+      intensity: opts.intensity,
     }) || {};
 
     const voice = {
@@ -187,6 +198,15 @@ export default class AudioEngine {
         } catch (_e) { /* ignore */ }
       },
     };
+    // Pass through live-control extras a synth exposes (e.g. rain's
+    // setIntensity) so callers can drive them from the play() handle.
+    if (typeof handle.setIntensity === "function") {
+      voice.setIntensity = (v, ramp) => {
+        try {
+          handle.setIntensity(v, ramp);
+        } catch (_e) { /* ignore */ }
+      };
+    }
     this._voices.add(voice);
 
     // Auto-remove finished one-shots after their reported duration + tail.
@@ -200,14 +220,14 @@ export default class AudioEngine {
 
   /**
    * Start a generative music track, stopping any current one first.
-   * @param {'calm'|'nether'} [mode]
+   * @param {'calm'|'nether'|'upbeat'|'melancholy'|'mysterious'} [mode]
    * @param {object} [opts]
    * @returns {{stop:(fade?:number)=>void}} controller
    */
   startMusic(mode = "calm", opts = {}) {
     this.ensure();
     this.stopMusic({ fade: opts.fade != null ? opts.fade : 0.5 });
-    const starter = mode === "nether" ? startNether : startCalm;
+    const starter = MUSIC_STARTERS[mode] || startCalm;
     this._music = starter(this, opts) || { stop() {} };
     return this._music;
   }
