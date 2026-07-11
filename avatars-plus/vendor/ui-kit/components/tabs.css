@@ -1,0 +1,71 @@
+/* =========================================================================
+   Loomfall UI Kit — lf-tabs
+   Tablist + tabpanels. Colors from tokens only.
+   Selected tab = 2px Everthread-gold edge marker (shape/position cue,
+   never hue-only) + heading color shift.
+   Every :hover rule is doubled with [data-demo-hover] (gallery convention);
+   :active with [data-demo-active].
+   ========================================================================= */
+
+lf-tabs {
+  display: block;
+}
+
+lf-tabs .lf-tabs__list {
+  display: flex;
+  align-items: stretch;
+  gap: var(--lf-space-1);
+  border-bottom: var(--lf-border-hem);
+  padding: 0 var(--lf-space-2);
+}
+
+lf-tabs .lf-tabs__tab {
+  appearance: none;
+  font-family: var(--lf-font-ui);
+  font-size: var(--lf-text-md);
+  line-height: var(--lf-leading-tight);
+  color: var(--lf-color-text-dim);
+  background: none;
+  border: 0;
+  padding: var(--lf-space-2) var(--lf-space-3);
+  min-height: var(--lf-hit-min, 34px); /* stretches to 44px on coarse pointers */
+  cursor: pointer;
+  transition: color var(--lf-dur-fast) var(--lf-ease),
+    background-color var(--lf-dur-fast) var(--lf-ease);
+}
+
+lf-tabs .lf-tabs__tab:hover,
+lf-tabs .lf-tabs__tab[data-demo-hover] {
+  color: var(--lf-color-text-heading);
+  background: var(--lf-color-bg-raised);
+}
+
+lf-tabs .lf-tabs__tab:active,
+lf-tabs .lf-tabs__tab[data-demo-active] {
+  color: var(--lf-color-text-heading);
+  background: var(--lf-color-bg-raised);
+  transform: translateY(1px);
+}
+
+/* Selected: 2px gold edge marker drawn as an inset shadow (no layout
+   shift; position/shape cue, never hue-only) + heading color. */
+lf-tabs .lf-tabs__tab[aria-selected="true"] {
+  color: var(--lf-color-text-heading);
+  box-shadow: inset 0 -2px 0 0 var(--lf-brand-primary);
+  font-weight: 600;
+}
+
+lf-tabs .lf-tabs__tab[disabled] {
+  color: var(--lf-color-text-disabled);
+  background: none;
+  cursor: not-allowed;
+  transform: none;
+}
+
+lf-tabs .lf-tabs__panels {
+  padding: var(--lf-space-4) var(--lf-space-2);
+}
+
+lf-tabs .lf-tabs__panel[hidden] {
+  display: none;
+}

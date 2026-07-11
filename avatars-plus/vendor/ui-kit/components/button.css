@@ -1,0 +1,144 @@
+/* =========================================================================
+   Loomfall UI Kit — lf-button
+   Requires tokens.css + base.css. Colors via var(--lf-*) tokens ONLY.
+   States: default / :hover / :focus-visible / :active / [disabled] / [loading]
+   Gallery demo attributes: [data-demo-hover], [data-demo-active].
+   ========================================================================= */
+
+lf-button {
+  display: inline-block;
+}
+
+lf-button .lf-button__face {
+  /* Face/ink custom props let variants swap colors while the bevel
+     (inset 1px hem highlights, woven-button look) derives automatically. */
+  --lf-btn-face: var(--lf-color-button-secondary-bg);
+  --lf-btn-ink: var(--lf-color-button-secondary-fg);
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--lf-space-2);
+  min-height: var(--lf-hit-min, 32px);
+  min-width: 64px;
+  padding: var(--lf-space-1) var(--lf-space-4);
+  font-family: var(--lf-font-ui);
+  font-size: var(--lf-text-md);
+  font-weight: 600;
+  line-height: var(--lf-leading-tight);
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-sm);
+  background: var(--lf-btn-face);
+  color: var(--lf-btn-ink);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--lf-btn-face), var(--lf-brand-muslin) 30%),
+    inset 0 -1px 0 color-mix(in oklab, var(--lf-btn-face), var(--lf-brand-void) 40%);
+  transition:
+    background-color var(--lf-dur-fast) var(--lf-ease),
+    color var(--lf-dur-fast) var(--lf-ease);
+}
+
+/* ---- Variants ----------------------------------------------------------- */
+/* Primary CTA: Everthread gold fill + void-ink label in BOTH themes. */
+lf-button[variant="primary"] .lf-button__face {
+  --lf-btn-face: var(--lf-color-button-primary-bg);
+  --lf-btn-ink: var(--lf-color-button-primary-fg);
+}
+
+/* Danger: secondary face, error-colored label PAIRED with frayed-X glyph
+   (rendered by JS — color is never the only cue). The secondary face stays
+   a dark violet in BOTH themes, so the ink uses the theme-independent
+   dark-error WCAG pair (the themed --lf-color-error flips to a dark red in
+   light theme and would vanish on this dark face). */
+lf-button[variant="danger"] .lf-button__face {
+  /* Pin the dark secondary face in BOTH themes so the dark-error ink keeps
+     >= 4.5:1 (light theme's --lf-color-button-secondary-bg is lighter). */
+  --lf-btn-face: var(--lf-pair-dark-button-secondary-bg);
+  --lf-btn-ink: var(--lf-pair-dark-error-fg);
+}
+
+/* ---- Hover (real + demo). Disabled/loading never respond. --------------- */
+lf-button:not([disabled]):not([loading]):hover .lf-button__face,
+lf-button[data-demo-hover]:not([disabled]):not([loading]) .lf-button__face {
+  --lf-btn-face: var(--lf-color-button-secondary-hover-bg);
+}
+
+lf-button[variant="primary"]:not([disabled]):not([loading]):hover .lf-button__face,
+lf-button[variant="primary"][data-demo-hover]:not([disabled]):not([loading]) .lf-button__face {
+  --lf-btn-face: var(--lf-color-button-primary-hover-bg);
+  --lf-btn-ink: var(--lf-color-button-primary-hover-fg);
+}
+
+/* Danger hover: darken (never lighten) so the dark-error ink stays >= 4.5:1
+   in both themes; the whole face changes, so the >=5% hover diff holds. */
+lf-button[variant="danger"]:not([disabled]):not([loading]):hover .lf-button__face,
+lf-button[variant="danger"][data-demo-hover]:not([disabled]):not([loading]) .lf-button__face {
+  --lf-btn-face: var(--lf-brand-secondary-deep);
+}
+
+/* ---- Active / pressed ---------------------------------------------------- */
+lf-button:not([disabled]):not([loading]) .lf-button__face:active,
+lf-button[data-demo-active]:not([disabled]):not([loading]) .lf-button__face {
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--lf-btn-face), var(--lf-brand-void) 40%),
+    inset 0 -1px 0 color-mix(in oklab, var(--lf-btn-face), var(--lf-brand-muslin) 20%);
+}
+
+/* ---- Disabled (after variants so it wins at equal specificity) ---------- */
+lf-button[disabled] .lf-button__face {
+  --lf-btn-face: var(--lf-color-button-disabled-bg);
+  --lf-btn-ink: var(--lf-color-text-disabled);
+  box-shadow: none;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ---- Loading -------------------------------------------------------------- */
+lf-button .lf-button__spinner {
+  display: none;
+}
+
+lf-button[loading] {
+  pointer-events: none;
+}
+
+lf-button[loading] .lf-button__spinner {
+  display: inline-flex;
+  animation: lf-button-spin 900ms linear infinite;
+}
+
+lf-button[loading] .lf-button__label {
+  opacity: 0.75;
+}
+
+@keyframes lf-button-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- Glyph (danger frayed-X) --------------------------------------------- */
+lf-button .lf-button__glyph {
+  display: inline-flex;
+}
+
+lf-button .lf-button__glyph[hidden] {
+  display: none;
+}
+
+/* ---- Sizes ---------------------------------------------------------------- */
+lf-button[size="sm"] .lf-button__face {
+  min-height: var(--lf-hit-min, 24px);
+  min-width: 48px;
+  padding: 0 var(--lf-space-2);
+  font-size: var(--lf-text-sm);
+}
+
+lf-button[size="icon"] .lf-button__face {
+  min-width: var(--lf-hit-min, 32px);
+  width: 32px;
+  height: 32px;
+  min-height: var(--lf-hit-min, 32px);
+  padding: 0;
+}
