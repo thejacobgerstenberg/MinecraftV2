@@ -47,6 +47,40 @@
 //                                scaled-down baby at the midpoint (or `pos`)
 //                                if both mobs share a breedable archetype.
 //
+// Animation/VFX integration (this pass): every spawned creature's
+// root.userData.animate(t, state) is called each (LOD-eligible) frame with
+// an EXTENDED state object:
+//   { moving, grounded, dimension, speed01, fuse, hurt, attack, telegraph,
+//     phase, dying, turn }
+// -- see the per-field breakdown above _animateMob() below. All fields are
+// always present (defensively defaulted to 0/false) so a creature module
+// can treat any of them as optional. `dying` ramps 0->1 over ~0.8s (bosses
+// ~1.4s, both overridable via opts.deathDuration) AFTER death: MobManager
+// keeps a dead mob's group in the scene, AI/physics frozen, animating that
+// ramp, and only removes it once the ramp completes -- see _beginDeathRamp/
+// _updateDeathRamp. 'mobDeath'/'bossDefeated' + loot fire exactly once, at
+// the moment hp hits 0 (unchanged timing), not at removal.
+//
+// New opts (all optional, all additive):
+//   getCamera?:()=>THREE.Camera  -- used as a distance-origin fallback for
+//                                   LOD/billboard-visibility when
+//                                   getPlayerPos is missing/throws; sprites
+//                                   billboard themselves so this is NOT
+//                                   required for the health-bar to face the
+//                                   camera, only for the *distance* used by
+//                                   LOD when there's no player position.
+//   lodDistance?:number           -- default 40. Beyond this (horizontal
+//                                   distance to the player/camera), mobs
+//                                   animate every 3rd frame and hide their
+//                                   billboard; beyond 2x this, animate() is
+//                                   skipped entirely that frame. Cheap
+//                                   distance-only LOD -- mesh LOD/instancing
+//                                   is the graphics team's domain, not
+//                                   handled here.
+//   deathDuration?:number         -- default 0.8s (non-boss); bosses scale
+//                                   proportionally from this (default 1.4s
+//                                   at the 0.8s baseline).
+//
 // Events (CustomEvent via EventTarget, AND opts.onEvent(name, detail)). Every
 // event detail below includes both `archetype` (spawn-table slot key) AND
 // `canonicalId` (spawnRules.canonicalIdFor(archetype) / mob.canonicalId --
@@ -87,6 +121,17 @@ import { getBlockDef as fallbackGetBlockDef } from './blocksAdapter.js';
 import * as AI from './ai.js';
 import { pickSpawn, maxAliveFor, normalizeDimension, DESPAWN_CONFIG, shouldDespawn, canonicalIdFor } from './spawnRules.js';
 import { rollLoot } from './lootTables.js';
+
+// ----------------------------------------------------------------------
+// Animation/VFX system integration (additive). rig.js is THREE-free pure
+// math (see its own header); Particles/Billboard both degrade gracefully
+// with a null scene (Particles) or no-DOM environment (Billboard), so
+// importing/using them unconditionally here is safe even in headless/test
+// contexts that pass scene:null.
+// ----------------------------------------------------------------------
+import * as rig from './anim/rig.js';
+import { Particles } from './vfx/Particles.js';
+import { Billboard } from './ui/Billboard.js';
 
 import { build as buildGrazer, meta as metaGrazer } from './creatures/grazer.js';
 import { build as buildGroaner, meta as metaGroaner } from './creatures/groaner.js';
@@ -482,6 +527,19 @@ const GROUND_SCAN_MAX = 48;
 const DESPAWN_CHECK_MIN = 3;     // low-rate despawn sweep cadence (seconds)
 const DESPAWN_CHECK_JITTER = 2;
 
+// ---- Animation/VFX system integration constants (this pass) -------------
+const TELEGRAPH_DURATION = 0.35;   // seconds an attack winds up before it fires
+const DEATH_DURATION = 0.8;        // seconds a non-boss death-ramp plays before removal
+const BOSS_DEATH_DURATION = 1.4;   // seconds a boss death-ramp plays before removal
+const DEFAULT_LOD_DISTANCE = 40;   // beyond this: animate every 3rd frame + hide billboard
+const LOD_FAR_MULTIPLIER = 2;      // beyond lodDistance * this: animate may be skipped
+const TURN_LAMBDA = 8;             // rig.damp-style rate (1/s) for yaw catch-up
+const BANK_LAMBDA = 10;            // rig.damp-style rate (1/s) for bank-lean catch-up
+const BANK_FACTOR = 0.12;          // turn-rate -> bank-angle multiplier
+const MAX_BANK = 0.3;              // radians, clamp on lean bank
+const TURN_HEADING_MIN_SPEED = 0.08; // below this horizontal speed, keep last heading
+const SPARK_INTERVAL = 0.08;       // seconds between exploder fuse spark emits
+
 function safeCall(fn, fallback) {
   if (typeof fn !== 'function') return fallback;
   try {
@@ -498,6 +556,17 @@ function safeCall1(fn, arg, fallback) {
   } catch (e) {
     return fallback;
   }
+}
+
+/** First value in a creature's meta.palette (its "primary" thread color),
+ * used to tint VFX (unravel/shimmer/burst/sparks) and the health-bar name
+ * text so each species' particles/UI read as its own color. Defensive
+ * against a missing/empty palette. */
+function primaryPaletteColor(meta) {
+  const palette = meta && meta.palette;
+  if (!palette || typeof palette !== 'object') return '#e0e0e0';
+  const keys = Object.keys(palette);
+  return keys.length ? palette[keys[0]] : '#e0e0e0';
 }
 
 export class MobManager extends EventTarget {
@@ -523,6 +592,12 @@ export class MobManager extends EventTarget {
    *                                     normalized via spawnRules.normalizeDimension.
    *   maxMobs?:number                -- overrides spawnRules' per-dimension cap.
    *   onEvent?:(name,detail)=>void
+   *   getCamera?:()=>THREE.Camera    -- optional. Distance-origin fallback
+   *                                     for LOD when getPlayerPos is
+   *                                     missing/throws; see class header.
+   *   lodDistance?:number            -- optional, default 40. See class header.
+   *   deathDuration?:number          -- optional, default 0.8 (seconds).
+   *                                     See class header.
    */
   constructor(scene, world, opts = {}) {
     super();
@@ -572,6 +647,26 @@ export class MobManager extends EventTarget {
     this._elapsed = 0;
     this._spawnTimer = 1 + this._rng() * 2; // brief initial delay before first spawn
     this._despawnTimer = DESPAWN_CHECK_MIN + this._rng() * DESPAWN_CHECK_JITTER;
+
+    // ---- Animation/VFX system integration (this pass) -------------------
+    // getCamera: optional distance-origin fallback for LOD when
+    // getPlayerPos is missing/throws (see _resolveObserverPos).
+    this._getCamera = typeof this._opts.getCamera === 'function' ? this._opts.getCamera : null;
+    this._lodDistance = Number.isFinite(this._opts.lodDistance)
+      ? this._opts.lodDistance
+      : DEFAULT_LOD_DISTANCE;
+    // deathDuration override scales the boss death-ramp proportionally so
+    // the two stay in the same ~1:1.75 ratio as the defaults (0.8s/1.4s).
+    this._deathDuration = Number.isFinite(this._opts.deathDuration)
+      ? this._opts.deathDuration
+      : DEATH_DURATION;
+    this._bossDeathDuration = Number.isFinite(this._opts.deathDuration)
+      ? this._opts.deathDuration * (BOSS_DEATH_DURATION / DEATH_DURATION)
+      : BOSS_DEATH_DURATION;
+    this._frameCounter = 0;
+    // Particles handles a null scene gracefully (every emit*/update is a
+    // no-op without one), so constructing it unconditionally is safe.
+    this._particles = new Particles(this._scene);
   }
 
   // ----------------------------------------------------------------
@@ -670,9 +765,51 @@ export class MobManager extends EventTarget {
       _navVy: 0,             // scratch: flyerAvoid's suggested vy for this tick
       hurt: null, // assigned below
       setRideInput: null, // assigned below
+
+      // ---- Animation/VFX system integration (this pass) -----------------
+      _color: primaryPaletteColor(entry.meta), // cached primary palette color, for VFX/billboard
+      telegraphTimer: 0,      // 0..1 attack wind-up progress; exposed via animate() state.telegraph
+      _telegraphing: false,   // true while a wind-up is in progress (see _beginTelegraph/_updateTelegraph)
+      _pendingAttackDamage: 0, // damage stashed at wind-up start, applied when it completes
+      dying: 0,                // 0..1 death-ramp progress; exposed via animate() state.dying
+      _dying: false,           // true while the post-death ramp is playing (see _beginDeathRamp)
+      _deathTimer: 0,          // seconds remaining in the death ramp
+      _deathDuration: 0,       // total death-ramp duration for this mob (set at death)
+      turn: 0,                 // signed yaw angular velocity (rad/s); exposed via animate() state.turn
+      _targetHeading: null,    // last-known movement heading (radians), for smooth turn damping
+      _lastBossPhase: 0,       // last bossPhase seen, for phase-transition VFX burst detection
+      _sparkTimer: 0,          // scratch: exploder fuse spark emit cadence
+      _lod: 0,                 // 0 near / 1 mid / 2 far; see _updateMobVisuals
+      billboard: null,         // Billboard instance for hostiles/bosses only; see below
     };
     mob.hurt = (dmg) => this._hurtMob(mob, dmg);
     mob.setRideInput = (input) => this.setRideInput(mob, input);
+
+    // Health-bar billboard (item 5): hostiles + bosses only, never passives.
+    // Added as a child of the mob's own group so it rides along for free;
+    // THREE.Sprite always faces the camera regardless of parent rotation.
+    if ((config.hostile || config.isBoss) && group && typeof group.add === 'function') {
+      try {
+        const billboard = new Billboard({
+          name: mob.species,
+          color: mob._color,
+          boss: !!config.isBoss,
+        });
+        if (billboard.sprite) {
+          const height = config.height ?? 0.8;
+          const anchorY = (mob.headAnchor && mob.headAnchor.position
+            && Number.isFinite(mob.headAnchor.position.y))
+            ? mob.headAnchor.position.y
+            : height;
+          const margin = config.isBoss ? 0.9 : 0.45;
+          billboard.sprite.position.set(0, anchorY + margin, 0);
+          group.add(billboard.sprite);
+        }
+        mob.billboard = billboard;
+      } catch (e) {
+        mob.billboard = null;
+      }
+    }
 
     this._mobs.push(mob);
     this._emit('mobSpawn', {
@@ -682,6 +819,10 @@ export class MobManager extends EventTarget {
       mob,
       position: { ...mob.position },
     });
+
+    if (this._particles) {
+      try { this._particles.emitShimmer(mob.position, mob._color); } catch (e) { /* ignore */ }
+    }
 
     return mob;
   }
@@ -902,13 +1043,27 @@ export class MobManager extends EventTarget {
     if (typeof dt !== 'number' || !Number.isFinite(dt) || dt <= 0) return;
     const clampedDt = Math.min(dt, MAX_DT);
     this._elapsed += clampedDt;
+    this._frameCounter = (this._frameCounter || 0) + 1;
 
     this._trySpawn(clampedDt);
 
     const playerPos = safeCall(this._opts.getPlayerPos, null);
+    // observerPos: distance-origin used for LOD only. Prefers the real
+    // player position; falls back to opts.getCamera()'s position so LOD
+    // still works if a caller only wires a camera. Never used for
+    // AI/aggro (that stays strictly playerPos, unchanged).
+    const observerPos = playerPos || this._resolveCameraPos();
 
     for (const mob of this._mobs) {
-      if (mob.dead) continue;
+      if (mob.dead) {
+        // Death-ramp mobs (item 2) stay in `this._mobs` -- AI/physics are
+        // frozen but they keep animating (state.dying ramps 0->1) until
+        // _updateDeathRamp finishes and queues them for removal. Ambient
+        // despawns (_despawnMob) set dead:true WITHOUT _dying, so those
+        // just fall through here and get flushed below, unchanged.
+        if (mob._dying) this._updateDeathRamp(mob, clampedDt, observerPos);
+        continue;
+      }
       mob.ageSeconds = (mob.ageSeconds || 0) + clampedDt;
       if (mob.rider) {
         // Mounted (item 7): AI is fully skipped -- velocity is driven from
@@ -918,9 +1073,20 @@ export class MobManager extends EventTarget {
       } else {
         this._updateMobAI(mob, clampedDt, playerPos);
       }
-      if (mob.dead) continue; // e.g. exploder detonated mid-AI-step
+      this._checkBossPhaseTransition(mob);
+      if (mob.dead) {
+        // e.g. exploder detonated mid-AI-step, or a lethal hit landed this
+        // tick -- the death ramp was just started (_beginDeathRamp); give
+        // it its first animate() tick now instead of waiting a frame.
+        if (mob._dying) this._updateDeathRamp(mob, clampedDt, observerPos);
+        continue;
+      }
       this._updateMobPhysics(mob, clampedDt);
-      this._animateMob(mob, clampedDt);
+      this._updateMobVisuals(mob, clampedDt, observerPos);
+    }
+
+    if (this._particles && typeof this._particles.update === 'function') {
+      try { this._particles.update(clampedDt); } catch (e) { /* ignore */ }
     }
 
     this._updateDespawn(clampedDt, playerPos);
@@ -945,6 +1111,10 @@ export class MobManager extends EventTarget {
     this._despawnAll();
     this._mobs = [];
     this._pendingRemoval = [];
+    if (this._particles && typeof this._particles.dispose === 'function') {
+      try { this._particles.dispose(); } catch (e) { /* ignore */ }
+    }
+    this._particles = null;
     this._scene = null;
     this._world = null;
     // No real timers (setInterval/setTimeout) are used anywhere in this
@@ -1063,6 +1233,11 @@ export class MobManager extends EventTarget {
       mob.provokeTimer = Math.max(0, mob.provokeTimer - dt);
       if (mob.provokeTimer <= 0) mob.provoked = false;
     }
+    // Attack wind-up (item 1): advances mob.telegraphTimer 0->1 over
+    // TELEGRAPH_DURATION and fires the actual _doAttack() once it
+    // completes -- see _beginTelegraph (called from each aiBase's own
+    // attack-cooldown branch below) / _updateTelegraph.
+    this._updateTelegraph(mob, dt);
 
     const aiBase = config.aiBase || mob.archetype;
     switch (aiBase) {
@@ -1236,9 +1411,9 @@ export class MobManager extends EventTarget {
           mob.velocity.x = 0;
           mob.velocity.z = 0;
           mob._moving = false;
-          if (mob.attackCooldownTimer <= 0) {
+          if (mob.attackCooldownTimer <= 0 && !mob._telegraphing) {
             mob.attackCooldownTimer = config.attackCooldown ?? 1.2;
-            this._doAttack(mob, config.contactDamage ?? 6);
+            this._beginTelegraph(mob, config.contactDamage ?? 6);
           }
         } else {
           const steer = AI.seekSteer(mob.position, playerPos, config.seekSpeed ?? config.speed);
@@ -1278,9 +1453,9 @@ export class MobManager extends EventTarget {
           mob.velocity.z = 0;
           mob._moving = false;
         }
-        if (mob.attackCooldownTimer <= 0) {
+        if (mob.attackCooldownTimer <= 0 && !mob._telegraphing) {
           mob.attackCooldownTimer = config.attackCooldown ?? 1.0;
-          this._doAttack(mob, config.contactDamage ?? 1);
+          this._beginTelegraph(mob, config.contactDamage ?? 1);
         }
       } else {
         const steer = AI.seekSteer(mob.position, playerPos, config.seekSpeed ?? config.speed);
@@ -1310,10 +1485,20 @@ export class MobManager extends EventTarget {
           this._explode(mob, playerPos);
           return;
         }
+        // VFX (item 3): hot sparks while actively fusing, throttled so this
+        // stays cheap even close to the pool's emit rate limit.
+        if (this._particles) {
+          mob._sparkTimer = (mob._sparkTimer || 0) + dt;
+          if (mob._sparkTimer >= SPARK_INTERVAL) {
+            mob._sparkTimer = 0;
+            try { this._particles.emitSparks(mob.position, mob._color, 3); } catch (e) { /* ignore */ }
+          }
+        }
       } else {
         const steer = AI.seekSteer(mob.position, playerPos, config.speed);
         this._steerGroundedHostile(mob, config, steer);
         mob.fuse = Math.max(0, mob.fuse - dt * 0.5); // cools while out of fuse range
+        mob._sparkTimer = 0;
       }
     } else {
       this._aiWanderOnly(mob, dt);
@@ -1337,9 +1522,9 @@ export class MobManager extends EventTarget {
     if (dist <= (config.aggroRange ?? 10)) {
       if (dist <= (config.attackRange ?? 1.2)) {
         this._steerFlyer(mob, { vx: 0, vz: 0, moving: true }); // still hovers/flaps in place
-        if (mob.attackCooldownTimer <= 0) {
+        if (mob.attackCooldownTimer <= 0 && !mob._telegraphing) {
           mob.attackCooldownTimer = config.attackCooldown ?? 1.2;
-          this._doAttack(mob, config.contactDamage ?? 2);
+          this._beginTelegraph(mob, config.contactDamage ?? 2);
         }
       } else {
         // Slow drift toward the player -- deliberately gentler than a
@@ -1405,11 +1590,11 @@ export class MobManager extends EventTarget {
     if (Number.isFinite(dist) && dist <= attackRange) {
       const cooldown = (config.phaseAttackCooldowns && config.phaseAttackCooldowns[phase])
         ?? config.attackCooldown ?? 2.0;
-      if (mob.attackCooldownTimer <= 0) {
+      if (mob.attackCooldownTimer <= 0 && !mob._telegraphing) {
         mob.attackCooldownTimer = cooldown;
         const dmg = (config.phaseAttackDamage && config.phaseAttackDamage[phase])
           ?? config.contactDamage ?? 6;
-        this._doAttack(mob, dmg);
+        this._beginTelegraph(mob, dmg);
       }
     }
 
@@ -1499,11 +1684,11 @@ export class MobManager extends EventTarget {
     if (Number.isFinite(dist) && dist <= attackRange) {
       const cooldown = (config.phaseAttackCooldowns && config.phaseAttackCooldowns[phase])
         ?? config.attackCooldown ?? 2.0;
-      if (mob.attackCooldownTimer <= 0) {
+      if (mob.attackCooldownTimer <= 0 && !mob._telegraphing) {
         mob.attackCooldownTimer = cooldown;
         const dmg = (config.phaseAttackDamage && config.phaseAttackDamage[phase])
           ?? config.contactDamage ?? 11;
-        this._doAttack(mob, dmg);
+        this._beginTelegraph(mob, dmg);
       }
     }
 
@@ -1562,6 +1747,26 @@ export class MobManager extends EventTarget {
     mob.group.position.set(mob.position.x, mob.position.y, mob.position.z);
   }
 
+  /**
+   * _animateMob(mob, dt): builds the EXTENDED animate() state (see the
+   * file-header note above) and calls the creature's own
+   * root.userData.animate(t, state). Also owns the two purely-visual,
+   * root-level effects that live outside any single creature's own
+   * animate() implementation:
+   *   - speed01: normalized ground speed (horizontalSpeed/config.speed,
+   *     clamped 0..1) for gait blending.
+   *   - smooth turn + lean (item 4): damps mob.group.rotation.y toward the
+   *     heading implied by horizontal velocity (rig.lerpAngle, frame-rate
+   *     independent via an exponential damping factor -- same shape as
+   *     rig.damp), exposes the signed yaw rate as state.turn, and applies a
+   *     subtle proportional bank on mob.group.rotation.z. Skipped while
+   *     mounted or mid-death-ramp. NOTE: raveler's own animate() sets
+   *     root.rotation.y/z unconditionally every frame (its idle yaw-drift +
+   *     hurt-jolt) -- since that runs AFTER this method's assignment below,
+   *     it intentionally wins for raveler specifically (preserves that
+   *     creature's existing behavior); every other creature module only
+   *     touches sub-part rotations, so turn+lean is visible on them.
+   */
   _animateMob(mob, dt) {
     if (mob.hurtTimer > 0) {
       mob.hurtTimer = Math.max(0, mob.hurtTimer - dt / HURT_FLASH_DURATION);
@@ -1569,14 +1774,43 @@ export class MobManager extends EventTarget {
     if (mob.attackFlash > 0) {
       mob.attackFlash = Math.max(0, mob.attackFlash - dt / ATTACK_FLASH_DURATION);
     }
+
+    const config = ARCHETYPE_CONFIG[mob.archetype] || {};
+    const vx = mob.velocity.x || 0;
+    const vz = mob.velocity.z || 0;
+    const speedH = Math.hypot(vx, vz);
+    const maxSpeed = config.speed || config.seekSpeed || 1;
+    const speed01 = maxSpeed > 0 ? Math.min(1, Math.max(0, speedH / maxSpeed)) : 0;
+
+    if (!mob.rider && !(mob.dying > 0) && mob.group) {
+      if (speedH > TURN_HEADING_MIN_SPEED) {
+        mob._targetHeading = Math.atan2(vx, vz);
+      }
+      if (typeof mob._targetHeading === 'number' && dt > 0) {
+        const prevYaw = mob.group.rotation.y;
+        const factor = 1 - Math.exp(-TURN_LAMBDA * dt);
+        const newYaw = rig.lerpAngle(prevYaw, mob._targetHeading, factor);
+        mob.turn = (newYaw - prevYaw) / dt;
+        mob.group.rotation.y = newYaw;
+        const targetBank = Math.max(-MAX_BANK, Math.min(MAX_BANK, -mob.turn * BANK_FACTOR));
+        mob.group.rotation.z = rig.damp(mob.group.rotation.z, targetBank, BANK_LAMBDA, dt);
+      }
+    } else {
+      mob.turn = 0;
+    }
+
     const state = {
       moving: !!mob._moving,
       grounded: !!mob.grounded,
+      dimension: this.dimension,
+      speed01,
       fuse: mob.fuse || 0,
       hurt: mob.hurtTimer || 0,
       attack: mob.attackFlash || 0,
+      telegraph: mob.telegraphTimer || 0,
       phase: mob.bossPhase || 0,
-      dimension: this.dimension,
+      dying: mob.dying || 0,
+      turn: mob.turn || 0,
     };
     const animate = mob.group && mob.group.userData && mob.group.userData.animate;
     if (typeof animate === 'function') {
@@ -1585,6 +1819,149 @@ export class MobManager extends EventTarget {
       } catch (e) {
         // A broken creature animate() should never take down the manager.
       }
+    }
+  }
+
+  /**
+   * _updateMobVisuals(mob, dt, observerPos): the per-frame visual pass for
+   * a live (non-dying) mob -- cheap distance-only LOD (item 6) gating
+   * animate() cadence, plus the health-bar billboard (item 5). Also reused
+   * by _updateDeathRamp for the death-ramp's own per-frame visuals.
+   *
+   * LOD is DELIBERATELY cheap (a single horizontal-distance check) and only
+   * throttles/skips animate()+billboard-visibility -- it never touches
+   * spawn/despawn eligibility or mesh detail/instancing, which stay the
+   * graphics team's domain.
+   */
+  _updateMobVisuals(mob, dt, observerPos) {
+    let lod = 0;
+    if (observerPos && mob.position) {
+      let dist;
+      try {
+        dist = AI.horizontalDistance(mob.position, observerPos);
+      } catch (e) {
+        dist = null;
+      }
+      if (Number.isFinite(dist)) {
+        const near = this._lodDistance;
+        const far = near * LOD_FAR_MULTIPLIER;
+        if (dist > far) lod = 2;
+        else if (dist > near) lod = 1;
+      }
+    }
+    mob._lod = lod;
+
+    let shouldAnimate = true;
+    if (lod === 1) {
+      shouldAnimate = ((this._frameCounter + mob.id) % 3) === 0;
+    } else if (lod === 2) {
+      shouldAnimate = false; // far enough that a skipped animate frame is imperceptible
+    }
+    if (shouldAnimate) this._animateMob(mob, dt);
+
+    if (mob.billboard) {
+      const hpFrac = mob.maxHp > 0 ? Math.max(0, mob.hp) / mob.maxHp : 0;
+      try { mob.billboard.setHp(hpFrac); } catch (e) { /* ignore */ }
+      try { mob.billboard.setVisible(lod === 0); } catch (e) { /* ignore */ }
+    }
+  }
+
+  /** _resolveCameraPos() -> {x,y,z}|null. LOD-only fallback observer
+   * position when opts.getPlayerPos is missing/throws; see opts.getCamera. */
+  _resolveCameraPos() {
+    const cam = safeCall(this._getCamera, null);
+    if (cam && cam.position && Number.isFinite(cam.position.x)) {
+      return { x: cam.position.x, y: cam.position.y, z: cam.position.z };
+    }
+    return null;
+  }
+
+  /** _checkBossPhaseTransition(mob): fires a VFX burst (item 3) the tick
+   * mob.bossPhase actually changes (set by _aiLastNeedle/_aiMolthkin
+   * earlier this same tick). No-op for non-bosses. */
+  _checkBossPhaseTransition(mob) {
+    if (!mob.isBoss) return;
+    const prev = Number.isFinite(mob._lastBossPhase) ? mob._lastBossPhase : 0;
+    const cur = mob.bossPhase || 0;
+    if (cur === prev) return;
+    mob._lastBossPhase = cur;
+    if (this._particles) {
+      try { this._particles.emitBurst(mob.position, mob._color, 40); } catch (e) { /* ignore */ }
+    }
+  }
+
+  // ----------------------------------------------------------------
+  // Internal: attack telegraph (item 1)
+  // ----------------------------------------------------------------
+
+  /** _beginTelegraph(mob, dmg): starts a TELEGRAPH_DURATION wind-up instead
+   * of applying damage immediately. Called from each aiBase's own
+   * attack-cooldown branch (cooldown reset semantics UNCHANGED -- it's
+   * still set the instant the wind-up starts, exactly as before this pass
+   * called _doAttack directly at that point); _updateTelegraph fires the
+   * actual _doAttack() once telegraphTimer reaches 1. */
+  _beginTelegraph(mob, dmg) {
+    mob._telegraphing = true;
+    mob.telegraphTimer = 0;
+    mob._pendingAttackDamage = Number.isFinite(dmg) ? dmg : 0;
+  }
+
+  /** _updateTelegraph(mob, dt): advances an in-progress wind-up; no-op if
+   * none is active. Called every AI tick (see _updateMobAI) -- frozen for
+   * free once a mob stops receiving AI ticks (mounted/dying/dead). */
+  _updateTelegraph(mob, dt) {
+    if (!mob._telegraphing) return;
+    mob.telegraphTimer = Math.min(1, (mob.telegraphTimer || 0) + dt / TELEGRAPH_DURATION);
+    if (mob.telegraphTimer >= 1) {
+      mob._telegraphing = false;
+      const dmg = mob._pendingAttackDamage || 0;
+      mob._pendingAttackDamage = 0;
+      mob.telegraphTimer = 0;
+      if (!mob.dead) this._doAttack(mob, dmg);
+    }
+  }
+
+  // ----------------------------------------------------------------
+  // Internal: death animation + deferred removal (item 2)
+  // ----------------------------------------------------------------
+
+  /** _beginDeathRamp(mob): called once from _killMob/_killBoss/_explode's
+   * kill path, right after mob.dead is set + 'mobDeath'/'bossDefeated' +
+   * loot have already fired (exactly once, unchanged timing). Does NOT
+   * queue the mob for removal -- that happens once _updateDeathRamp's
+   * timer expires, in the main update() loop -- so the creature's own
+   * animate() gets to play a death pose against state.dying ramping 0->1
+   * first. Also fires the UNRAVEL particle poof, colored from the
+   * species' primary palette color. */
+  _beginDeathRamp(mob) {
+    mob.dying = 0;
+    mob._dying = true;
+    mob._deathDuration = mob.isBoss ? this._bossDeathDuration : this._deathDuration;
+    mob._deathTimer = mob._deathDuration;
+    mob.velocity.x = 0;
+    mob.velocity.y = 0;
+    mob.velocity.z = 0;
+    mob._moving = false;
+    if (this._particles) {
+      try { this._particles.emitUnravel(mob.position, mob._color, mob.isBoss ? 48 : 24); } catch (e) { /* ignore */ }
+    }
+  }
+
+  /** _updateDeathRamp(mob, dt, observerPos): advances mob.dying 0->1 over
+   * mob._deathDuration while AI/physics stay frozen (mob.group.position is
+   * simply left wherever the last live physics tick put it), still driving
+   * per-frame visuals (LOD-aware animate() + billboard) via
+   * _updateMobVisuals. Queues the mob for removal once the timer expires --
+   * _flushRemovals (called at the end of every update()) does the actual
+   * scene.remove()/billboard.dispose()/array splice. */
+  _updateDeathRamp(mob, dt, observerPos) {
+    const duration = mob._deathDuration || this._deathDuration;
+    mob._deathTimer = Math.max(0, (mob._deathTimer || 0) - dt);
+    mob.dying = duration > 0 ? Math.min(1, Math.max(0, 1 - mob._deathTimer / duration)) : 1;
+    this._updateMobVisuals(mob, dt, observerPos);
+    if (mob._deathTimer <= 0) {
+      mob._dying = false;
+      this._pendingRemoval.push(mob);
     }
   }
 
@@ -1682,7 +2059,8 @@ export class MobManager extends EventTarget {
       position: { ...mob.position },
     });
     this._dropLoot(mob);
-    this._pendingRemoval.push(mob);
+    // Death animation (item 2): defer actual removal -- see _beginDeathRamp.
+    this._beginDeathRamp(mob);
   }
 
   /** Boss defeat: 'bossDefeated' instead of 'mobDeath'. `bound` comes from
@@ -1714,7 +2092,8 @@ export class MobManager extends EventTarget {
     if (config.achievement) detail.achievement = config.achievement;
     this._emit('bossDefeated', detail);
     this._dropLoot(mob);
-    this._pendingRemoval.push(mob);
+    // Death animation (item 2): defer actual removal -- see _beginDeathRamp.
+    this._beginDeathRamp(mob);
   }
 
   /** Rolls lootTables.rollLoot(mob.archetype, rng) and emits one 'mobDrop'
@@ -1770,6 +2149,9 @@ export class MobManager extends EventTarget {
       if (this._scene && mob.group && typeof this._scene.remove === 'function') {
         try { this._scene.remove(mob.group); } catch (e) { /* ignore */ }
       }
+      if (mob.billboard && typeof mob.billboard.dispose === 'function') {
+        try { mob.billboard.dispose(); } catch (e) { /* ignore */ }
+      }
       const idx = this._mobs.indexOf(mob);
       if (idx !== -1) this._mobs.splice(idx, 1);
     }
@@ -1780,6 +2162,9 @@ export class MobManager extends EventTarget {
     for (const mob of this._mobs) {
       if (this._scene && mob.group && typeof this._scene.remove === 'function') {
         try { this._scene.remove(mob.group); } catch (e) { /* ignore */ }
+      }
+      if (mob.billboard && typeof mob.billboard.dispose === 'function') {
+        try { mob.billboard.dispose(); } catch (e) { /* ignore */ }
       }
     }
     this._mobs = [];

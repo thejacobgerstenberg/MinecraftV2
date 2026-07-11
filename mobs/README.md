@@ -39,9 +39,25 @@ stub-simple breeding/spawn-egg hooks (`spawnEgg`/`breed`, backed by
 `mobs/breeding.js`). See "Mounts", "Breeding & spawn eggs", and "Fixed
 deviations" below.
 
+**Phase 4a** ("animation/VFX system") is a `MobManager.js`-only pass (no
+creature-file or roster changes) that extends the `animate(t, state)`
+contract every creature module already implemented with five new state
+fields (`speed01`, `telegraph`, `phase`, `dying`, `turn` — `fuse`/`hurt`/
+`attack`/`moving`/`grounded`/`dimension` are unchanged), adds a real
+attack wind-up (telegraph) before damage lands, a death-dissolve animation
+with deferred removal (a dead mob keeps animating for ~0.8s/1.4s before
+actually leaving the scene), a small pooled particle system
+(`mobs/vfx/Particles.js`) for spawn shimmers / death unravels / boss-phase
+bursts / exploder sparks, camera-facing health-bar billboards
+(`mobs/ui/Billboard.js`) for every hostile/boss, smooth turn+lean banking,
+and cheap distance-only LOD — plus a new pure-math procedural-animation
+helper library (`mobs/anim/rig.js`) creature modules can lean on. See
+"Animation & VFX" below for the full contract and every new `opts` field.
+
 All of this work lives in `mobs/MobManager.js`, `mobs/lootTables.js`,
 `mobs/spawnRules.js`, `mobs/ai.js`, `mobs/blocksAdapter.js`,
-`mobs/breeding.js`, `mobs/world/StubWorld.js`, `mobs/demo.html`, and the
+`mobs/breeding.js`, `mobs/world/StubWorld.js`, `mobs/anim/rig.js`,
+`mobs/vfx/Particles.js`, `mobs/ui/Billboard.js`, `mobs/demo.html`, and the
 seventeen creature files under `mobs/creatures/`.
 
 ## What's in here
@@ -49,8 +65,11 @@ seventeen creature files under `mobs/creatures/`.
 | File | Purpose |
 |---|---|
 | `mobs/creatures/*.js` | One file per archetype. Each exports `build()` (returns a `THREE.Group`) and `meta` (species/lore/palette/`canonicalId`). Seventeen files: `grazer`, `trader`, `groaner`, `exploder`, `screecher`, `bobbindeer`, `frayedhound`, `emberspinner`, `unpicked`, `needlejack`, `scaldwarden`, `raveler`, `spoolmare`, `silencemoth`, `selvagewarden`, `molthkin`, `lastneedle`. |
-| `mobs/MobManager.js` | `export class MobManager extends EventTarget` (also the default export). Owns spawning, AI, physics stepping, and animation-driving for all live mob instances, including mounts and both bosses. |
+| `mobs/MobManager.js` | `export class MobManager extends EventTarget` (also the default export). Owns spawning, AI, physics stepping, and animation/VFX-driving for all live mob instances, including mounts and both bosses. |
 | `mobs/ai.js` | Pure helper functions (gravity, collision resolution, wander/seek/flee steering, grounded step-up/cliff-avoid navigation, flyer terrain-avoidance). Takes an `isSolid(x,y,z)` predicate as a parameter — no direct world/block imports. |
+| `mobs/anim/rig.js` | **Phase 4a.** THREE-free, dependency-free procedural-animation math library (easing curves, idle breathe/sway, a diagonal-pair quadruped `walkPhase`, wing `flap`, angle/damping interpolation, attack `windUp`/`strike`, death `dissolve`). Creature modules import the pieces they need; `MobManager.js` itself uses `lerpAngle`/`damp` for turn+lean. See "Animation & VFX" below. |
+| `mobs/vfx/Particles.js` | **Phase 4a.** Small pooled `THREE.Mesh`-based particle system (`emitUnravel`/`emitShimmer`/`emitBurst`/`emitSparks`, `update(dt)`, `dispose()`) for death/spawn/boss-phase/fuse VFX. One instance is owned per `MobManager` (`this._particles`); intentionally swappable for the graphics team's own system later — see "Animation & VFX" below. |
+| `mobs/ui/Billboard.js` | **Phase 4a.** Camera-facing `THREE.Sprite` name + HP-bar plate (`setHp`/`setVisible`/`setScale`/`dispose`), drawn via `CanvasTexture` with mesh/no-DOM fallbacks. `MobManager.spawn()` attaches one per hostile/boss mob (never to passives) — see "Animation & VFX" below. |
 | `mobs/spawnRules.js` | Per-dimension, day/night-aware weighted spawn tables (`SPAWN_TABLES`, `pickSpawn`, `maxAliveFor`), the archetype → canonical entity id map (`CANONICAL_ID`, `canonicalIdFor`), dimension-id reconciliation (`normalizeDimension`, `DIMENSION_ALIASES`), and despawn rules (`DESPAWN_CONFIG`, `shouldDespawn`). |
 | `mobs/lootTables.js` | Per-archetype loot tables (`LOOT_TABLES`) and `rollLoot(archetype, rng)`. Item ids are the REAL canonical ids from `content/items.json`/`content/naming.json` — see "Loot" below. |
 | `mobs/breeding.js` | Stub breeding/spawn-egg data (`canBreed`, `describeBaby`, `spawnEggId`) consumed by `MobManager.spawnEgg()`/`.breed()` via a guarded dynamic import — see "Breeding & spawn eggs" below. |
@@ -181,6 +200,13 @@ const manager = new MobManager(scene, world, {
                       //  contract" below.
   maxMobs,           // optional number — overrides spawnRules' per-dimension cap.
   onEvent,           // optional (name:string, detail:object) => void — see Events below.
+  getCamera,         // optional () => THREE.Camera — Phase 4a. Distance-origin fallback for
+                      //  LOD/billboard-visibility when getPlayerPos is missing/throws; NOT
+                      //  required for billboards to face the camera (THREE.Sprite always does
+                      //  that on its own) -- see "Animation & VFX" below.
+  lodDistance,       // optional number, default 40 — Phase 4a. See "Animation & VFX" below.
+  deathDuration,     // optional number, default 0.8 (seconds) — Phase 4a. Non-boss death-ramp
+                      //  duration; bosses scale proportionally (default 1.4s). See below.
 });
 ```
 
@@ -235,8 +261,8 @@ manager.breed(mobA, mobB, pos?); // -> Promise<mob | null>. See "Breeding & spaw
   ageSeconds,                       // accumulator since spawn; feeds the despawn sweep (mounted
                                      //   mobs are exempt from the despawn sweep entirely)
   attackFlash,                      // 0..1, generic to ALL mobs (not just the bosses); spikes to
-                                     //   1.0 on attack, decays over ATTACK_FLASH_DURATION=0.35s;
-                                     //   fed into animate() as state.attack
+                                     //   1.0 once a telegraphed wind-up completes, decays over
+                                     //   ATTACK_FLASH_DURATION=0.35s; fed into animate() as state.attack
   isBoss,                           // boolean; true only for lastneedle/molthkin (NOT selvagewarden)
   bossPhase,                        // 0/1/2 for lastneedle, 0/1 for molthkin, boss-only (always 0
                                      //   for non-boss mobs); fed into animate() as state.phase
@@ -248,12 +274,284 @@ manager.breed(mobA, mobB, pos?); // -> Promise<mob | null>. See "Breeding & spaw
   provoked, provokeTimer,           // 'guardian' aiBase only (scaldwarden) — see "Fixed deviations"
   isBaby,                           // set true by breed() on a bred baby (see "Breeding" below)
   dead,                             // boolean
+  // ---- Phase 4a animation/VFX system additions ------------------------
+  telegraphTimer,                   // 0..1, attack wind-up progress; fed into animate() as
+                                     //   state.telegraph -- see "Animation & VFX" below.
+  dying,                            // 0..1, death-ramp progress (0 while alive); fed into
+                                     //   animate() as state.dying -- see "Animation & VFX" below.
+  turn,                             // signed yaw angular velocity (rad/s) from the smooth
+                                     //   turn+lean damping; fed into animate() as state.turn.
+  billboard,                        // Billboard instance (mobs/ui/Billboard.js) | null -- only
+                                     //   set for hostile/boss mobs, never passives. Disposed
+                                     //   automatically when the mob is removed.
   hurt(dmg),                        // call to damage this mob; may kill it and emit mobDeath
                                      //   + mobDrop (or, for a boss, bossDefeated -- followed by
                                      //   mobDrop too if that boss is killable, e.g. molthkin)
   setRideInput(input),              // bound closure, equivalent to manager.setRideInput(mob, input)
 }
 ```
+
+## Animation & VFX
+
+**Phase 4a.** This pass extends the `root.userData.animate(t, state)`
+contract every creature module already implements (unchanged calling
+convention — `MobManager` still calls it once per LOD-eligible frame with
+`t` = elapsed seconds and `state` an object) with five new fields, and adds
+attack telegraphing, a death-dissolve animation with deferred removal, a
+small pooled particle system, camera-facing health-bar billboards, smooth
+turn+lean banking, and cheap distance-only LOD — all owned by
+`MobManager.js` itself; **no creature file changed** to get any of this
+(existing `animate()` implementations that ignore the new fields keep
+working exactly as before, since every field is always present and
+defensively defaulted).
+
+### The extended `animate(t, state)` contract
+
+```js
+// state passed to every mob's root.userData.animate(t, state), every
+// LOD-eligible frame (see "LOD" below):
+{
+  moving,     // boolean — unchanged. Whether the AI intends horizontal movement this tick.
+  grounded,   // boolean — unchanged. mob.grounded.
+  dimension,  // string — unchanged. manager.dimension (canonical display-name key).
+  fuse,       // 0..1 — unchanged. exploder-only fuse progress (0 for every other archetype).
+  hurt,       // 0..1 — unchanged. Decaying hurt-flash, spikes to 1.0 on hurtMob(), decays over
+              //   HURT_FLASH_DURATION=0.4s.
+  attack,     // 0..1 — unchanged in meaning, CHANGED in timing (see "Attack telegraphing"
+              //   below): spikes to 1.0 the instant a telegraphed wind-up completes (not the
+              //   instant the AI decided to attack), decays over ATTACK_FLASH_DURATION=0.35s.
+  phase,      // 0/1/2 (lastneedle) or 0/1 (molthkin), else 0 — unchanged. mob.bossPhase.
+
+  // ---- new in Phase 4a ------------------------------------------------
+  speed01,    // 0..1 — normalized horizontal ground speed: hypot(velocity.x,velocity.z) /
+              //   config.speed, clamped. Drive gait blending (e.g. rig.walkPhase(t, speed01)).
+  telegraph,  // 0..1 — attack wind-up progress, ramping over TELEGRAPH_DURATION=0.35s BEFORE
+              //   `attack` fires. See "Attack telegraphing" below; pairs with rig.windUp().
+  dying,      // 0..1 — death-ramp progress, 0 while alive, ramping 0->1 over the mob's death
+              //   duration (see "Death animation + deferred removal" below); pairs with
+              //   rig.dissolve(). A creature's own animate() should treat dying>0 as an
+              //   override of everything else (see every existing creature module's own
+              //   `if (dying > 0) { ...; return; }` pattern, e.g. mobs/creatures/spoolmare.js).
+  turn,       // signed yaw angular velocity, rad/s — how fast MobManager is currently rotating
+              //   mob.group.rotation.y toward the mob's movement heading this frame (0 while
+              //   idle/mounted/dying). See "Turn + lean" below.
+}
+```
+
+All ten fields are **always present**, defensively defaulted (`0`/`false`)
+even for archetypes/situations that never drive them (e.g. `fuse` is
+always `0` for a non-`exploder`, `phase` is always `0` for a non-boss) — a
+creature module can read any subset of them and ignore the rest, exactly
+as `mobs/creatures/spoolmare.js` (the reference implementation for this
+pass) does via its own `n()`/`clamp01()` defensive coercion helpers.
+
+### `mobs/anim/rig.js` — procedural-animation math library
+
+A small, **THREE-free** (imports nothing, touches no scene graph — pure
+numbers in, pure numbers out), pure/defensive (NaN/undefined/Infinity
+inputs coerce to a safe fallback instead of poisoning a transform) helper
+library any creature module can import from:
+
+```js
+import { breathe, sway, walkPhase, flap, lerpAngle, damp, windUp, strike, dissolve,
+         ease, easeInOut, easeOutBack, legSwing } from '../anim/rig.js';
+```
+
+| Function | Purpose |
+|---|---|
+| `ease(t)` / `easeInOut(t)` / `easeOutBack(t)` | 0..1 easing curves (smoothstep / quadratic / back-overshoot). |
+| `breathe(t, amp?, freq?)` | Subtle idle breathing oscillation for a torso scale pulse. |
+| `sway(t, amp?, freq?, phase?)` | Slow idle drift (heads, hanging threads, antennae), phase-offsettable so parts don't move in lockstep. |
+| `legSwing(cyclePhase, amp)` | A single limb's swing angle at a given stride-cycle phase. |
+| `walkPhase(t, speed01?, strideFreq?)` | Diagonal-pair quadruped walk/trot cycle → `{FR,FL,BR,BL,lift}`; degrades gracefully to a shuffle at `speed01=0`. Used by `spoolmare.js`. |
+| `flap(t, freq?, amp?)` | Wing-flap angle with a snappier downstroke than upstroke. |
+| `lerpAngle(a, b, t)` | Shortest-path angle interpolation (used by `MobManager._animateMob` for turn damping — see "Turn + lean" below). |
+| `damp(current, target, lambda, dt)` | Frame-rate-independent exponential smoothing toward a target (used for bank-lean; `spoolmare.js` also uses it for its own lean). |
+| `windUp(telegraph)` / `strike(attack)` | Anticipation pull-back / whip-crack strike curves — pair directly with `state.telegraph`/`state.attack`. |
+| `dissolve(dying)` | `{scale, drop, spread}` — death-dissolve multipliers for `state.dying`; see "Death animation" below. |
+
+`MobManager.js` itself only uses `lerpAngle`/`damp` (for turn+lean, see
+below); everything else is there for creature modules to reach for.
+Because it's dependency-free, `rig.js` can also be unit-tested or imported
+from tooling/workers without loading `three`.
+
+### `mobs/vfx/Particles.js` — pooled particle system (swappable)
+
+Loomfall lore: creatures don't bleed or gore when they die — they
+**unravel** into loose strands of their own thread-color. `Particles` is a
+small, self-contained, pooled `THREE.Mesh(BoxGeometry, MeshBasicMaterial)`
+system (default pool size 400; a fixed mesh combo guaranteed to exist and
+render everywhere, including headless SwiftShader) implementing exactly
+that, with **zero gameplay logic** — `MobManager` constructs exactly one
+instance in its own constructor (`this._particles = new Particles(scene)`,
+degrades to a no-op with a `null` scene), calls `.update(dt)` every frame
+in `update()`, and disposes it in `.dispose()`:
+
+```js
+const particles = new Particles(scene, { poolSize: 400, particleSize: 0.06 }); // both optional
+particles.emitShimmer(pos, color, count = 12); // soft rising fade — on every mobSpawn
+particles.emitUnravel(pos, color, count = 24); // spiral-out thread-poof — on every death, right
+                                                //   as _beginDeathRamp starts (see below); 48 for bosses
+particles.emitBurst(pos, color, count = 40);   // fast radial explosion — on every boss phase transition
+particles.emitSparks(pos, color, count = 8);   // short hot sparks — while an exploder is fusing,
+                                                //   throttled to ~every 0.08s (SPARK_INTERVAL)
+particles.update(dt);
+particles.dispose();
+```
+
+`color` is each species' **primary palette color** — the first value in
+`meta.palette` (cached per-mob as `mob._color` at spawn time via
+`primaryPaletteColor(meta)`), so a Skeinling unravels in raw-skein tan
+while a Waxling sparks in its own tallow-orange, etc.
+
+**Intentionally swappable.** This module holds no gameplay state and can
+be replaced by the graphics team's own particle system later **without
+touching any caller** — just keep the same public API (`constructor(scene,
+opts)`, `emitUnravel`/`emitShimmer`/`emitBurst`/`emitSparks`, `update(dt)`,
+`dispose()`). `MobManager.js` never reaches into `Particles`' internals.
+
+### `mobs/ui/Billboard.js` — health-bar billboards (hostiles/bosses only)
+
+A camera-facing `THREE.Sprite` (Sprites auto-face the camera — no manual
+`lookAt` bookkeeping) whose map is a hand-drawn `CanvasTexture`: species
+name up top (outlined/shadowed for legibility) and a green→amber→red HP
+bar beneath it. The boss variant renders larger with a gold frame.
+Dependency-free (only `three`); defensive against a non-browser/no-Canvas2D
+environment (falls back to a small colored `Mesh` pair, or a plain colored
+`Sprite` with no `document` at all, so the caller always gets a valid
+`.sprite` to add to the scene).
+
+```js
+const billboard = new Billboard({ name: 'Understruck', color: '#8fd8a0', boss: false });
+billboard.sprite;         // THREE.Sprite (or a THREE.Group in the mesh-fallback path)
+billboard.setName(name);
+billboard.setHp(frac);    // 0..1, throttled — redraws only past a small epsilon change
+billboard.setVisible(bool);
+billboard.setScale(s);
+billboard.dispose();      // frees canvas/texture/material/geometry
+```
+
+**Only hostile/boss mobs get one — passives never do.**
+`MobManager.spawn()` checks `config.hostile || config.isBoss` and, if
+true, constructs a `Billboard` and parents its `.sprite` to `mob.group`
+(so it rides along for free), positioned just above `headAnchor` (or
+`config.height` if the creature module didn't expose a `headAnchor`).
+Every frame, `_updateMobVisuals` calls `billboard.setHp(mob.hp/mob.maxHp)`
+and `billboard.setVisible(lod === 0)` (hidden past `opts.lodDistance` — see
+"LOD" below). The billboard is disposed automatically the moment its mob
+is actually removed from the scene (`_flushRemovals`/`_despawnAll`), i.e.
+only after its death-ramp finishes, not the instant it dies.
+
+### Attack telegraphing
+
+Every hostile/boss `aiBase` (`_aiGuardian`/`_aiGroaner`/`_aiScreecher`/
+`_aiLastNeedle`/`_aiMolthkin`) now calls `_beginTelegraph(mob, dmg)`
+instead of applying damage the instant its attack cooldown expires.
+`_beginTelegraph` stashes the damage and starts `mob.telegraphTimer`
+ramping 0→1 over `TELEGRAPH_DURATION=0.35s` (exposed as `state.telegraph`
+every tick via `_updateTelegraph`, called every AI tick); once it reaches
+1, the real `_doAttack(mob, dmg)` fires (setting `mob.attackFlash = 1.0`,
+i.e. `state.attack`, and emitting `'mobAttack'`) — so damage/the
+`'mobAttack'` event now land ~0.35s **after** the AI decided to attack, not
+instantly. **Cooldown-reset timing is unchanged**: `attackCooldownTimer` is
+still set the instant the wind-up starts, exactly as before this pass
+called `_doAttack` directly at that point — only when the *hit itself*
+lands moved. Pair `state.telegraph`/`state.attack` with
+`rig.windUp()`/`rig.strike()` in a creature's own `animate()` for a
+pull-back-then-snap read (see `mobs/creatures/spoolmare.js`'s telegraph/
+attack overlay for a reference implementation — harmless on a passive mob
+that never actually attacks, since `telegraph`/`attack` simply stay 0).
+
+### Death animation + deferred removal
+
+`mobDeath`/`bossDefeated` (+ loot) still fire **exactly once**, at the
+same instant as before this pass (the moment `hp` hits 0) — that timing is
+completely unchanged. What's new is what happens to the mob's `THREE.Group`
+*after* that: `_killMob`/`_killBoss` now call `_beginDeathRamp(mob)` instead
+of queuing the mob straight for removal. `_beginDeathRamp`:
+
+- sets `mob.dying = 0`, `mob._dying = true`, zeroes velocity, and fires
+  `particles.emitUnravel(mob.position, mob._color, isBoss ? 48 : 24)`.
+- does **not** remove the mob from the scene or `manager.mobs` yet.
+
+Every subsequent `update(dt)` tick, `_updateDeathRamp` advances
+`mob.dying` 0→1 over `mob._deathDuration` (default `opts.deathDuration`,
+0.8s for a regular mob; bosses get a **proportionally scaled** duration,
+default 1.4s at the 0.8s baseline) while AI **and physics stay frozen**
+(the group just sits at its last live position) — but the mob **keeps
+animating** (LOD-aware, exactly like a live mob, via the same
+`_updateMobVisuals` path) so a creature's own `animate()` gets to play a
+full death pose against `state.dying` ramping up. A creature module should
+treat `dying > 0` as an override — see `dissolve(dying) ->
+{scale, drop, spread}` in `rig.js` and every existing creature's own
+`if (dying > 0) { ...; return; }` branch (e.g. `spoolmare.js`: shrinks via
+`scale`, sinks via `drop`, and flings legs/mane/tail outward via `spread`).
+Once the timer expires, the mob is finally queued into
+`_pendingRemoval` — `_flushRemovals` (end of every `update()`) removes the
+`THREE.Group` from the scene **and disposes its `Billboard`** (if any).
+
+**Turn+lean and mounting are both skipped while `mob.dying > 0`** (see
+below) so a dissolving mob doesn't fight its own death pose.
+
+### Turn + lean
+
+`_animateMob` now damps `mob.group.rotation.y` toward the heading implied
+by horizontal velocity (`Math.atan2(vx, vz)`) via `rig.lerpAngle` with a
+frame-rate-independent exponential factor (`TURN_LAMBDA=8`, i.e.
+`1 - Math.exp(-8*dt)`), and exposes the resulting **signed yaw rate** as
+`state.turn`. A clamped bank (`rotation.z`, up to `MAX_BANK=0.3` rad,
+proportional to `-turn * BANK_FACTOR(0.12)`, itself damped toward via
+`rig.damp` at `BANK_LAMBDA=10`) is applied on top, so a mob visibly leans
+into its own turns. **Skipped entirely while `mob.rider` (mounted) or
+`mob.dying > 0`** — `state.turn` is `0` in both cases.
+
+> **`raveler` is a deliberate exception.** Its own `animate()`
+> unconditionally sets `root.rotation.y`/`root.rotation.z` every frame (its
+> existing idle yaw-drift + hurt-jolt), which runs *after* MobManager's
+> turn/lean assignment in the same tick — so raveler's own rotation wins,
+> preserving its pre-existing look. Every other creature module only
+> touches **sub-part** rotations (legs, neck, head, wings, ...), never
+> `root`/`group`-level rotation directly, so turn+lean is visible on all of
+> them.
+
+### LOD (level of detail)
+
+Cheap, **distance-only** LOD gating `animate()` cadence and billboard
+visibility — explicitly **not** mesh-level LOD or instancing (that stays
+the graphics team's own domain; nothing here touches geometry/materials or
+spawn/despawn eligibility). Every frame, `_updateMobVisuals` computes
+`mob._lod` from the horizontal distance between the mob and an "observer"
+position (`getPlayerPos()`, falling back to `opts.getCamera()?.position` if
+`getPlayerPos` is missing/throws — see `opts.getCamera` below):
+
+| `mob._lod` | Distance | Effect |
+|---|---|---|
+| `0` (near) | `<= opts.lodDistance` (default 40) | Animates every frame; billboard visible. |
+| `1` (mid) | `> lodDistance`, `<= 2×lodDistance` | Animates every **3rd** frame (`(frameCounter + mob.id) % 3 === 0`, staggered per-mob so LOD'd mobs don't all pop on the same frame); billboard **hidden**. |
+| `2` (far) | `> 2×lodDistance` | `animate()` **skipped entirely** that frame (cheap — a far-away skipped frame is imperceptible); billboard hidden. |
+
+`opts.lodDistance` (default 40) controls the near/mid threshold directly;
+the mid/far threshold is always `2×` that. Mesh/model detail is untouched
+regardless of `mob._lod` — swap in real geometry LOD/instancing separately
+without needing any change here.
+
+### `opts.getCamera`
+
+```js
+const manager = new MobManager(scene, world, {
+  getPlayerPos, onPlayerHurt,           // existing, required as before
+  getCamera: () => camera,              // optional — Phase 4a
+});
+```
+
+Purely a **distance-origin fallback for LOD** (see above) when
+`getPlayerPos` is missing or throws — **not** required for billboards to
+face the camera (a `THREE.Sprite` always does that on its own regardless
+of whether `getCamera` is wired up), and never used for AI/aggro (that
+stays strictly `getPlayerPos`, unchanged). `mobs/demo.html` wires
+`getCamera: () => camera` on every `MobManager` it constructs (the main
+showcase manager and both boss-sim managers) purely so LOD keeps working
+correctly even in a hypothetical future where `getPlayerPos` is dropped.
 
 ## World contract
 
@@ -905,19 +1203,28 @@ Then open:
   `bossDefeated`/`mobMount`/`mobDismount`/`mobBreed` event, each tagged
   with both `archetype` and `canonicalId`. Buttons let you toggle
   day/night, force-spawn the non-hand-placed archetypes, **run both boss
-  sims**, **mount a spoolmare**, and **run the provoke test** (see below).
+  sims**, **mount a spoolmare**, **run the provoke test**, **run the
+  Phase 4a anim showcase (forced walk cycle)**, and **kill a mob for its
+  death VFX** (see below).
 - `http://localhost:8130/mobs/demo.html?mob=<archetype>` — isolates that
-  one creature, centered and slowly auto-rotating, with a synthetic
-  `animate()` state driven for it (looping fuse ramp for `exploder`,
-  hover/moving for `screecher`/`silencemoth`, a full phase-0→1→2 cycle
-  with periodic attack flashes for `lastneedle`, a phase-0→1 cycle with
-  attack flashes for `molthkin`, walking/attack-pulse for the hostile
-  grounded archetypes (now including `selvagewarden`), idle for the rest).
+  one creature, centered and slowly auto-rotating (or pinned to an exact
+  azimuth via `window.__setSpin(deg)` — see below), with a synthetic
+  `animate()` state driven for it against the full Phase 4a EXTENDED
+  contract (`moving`/`grounded`/`fuse`/`hurt`/`attack`/`telegraph`/`phase`/
+  `dying`/`turn`/`speed01`/`dimension` — see "Animation & VFX" above):
+  looping fuse ramp for `exploder`, hover/moving for
+  `screecher`/`silencemoth`, a full phase-0→1→2 cycle with a periodic
+  windup→attack pulse (`telegraph` ramping into `attack`, via the same
+  `TELEGRAPH_DURATION`-shaped cadence `MobManager` itself now drives) for
+  `lastneedle`, a phase-0→1 cycle with the same windup→attack pulse for
+  `molthkin`, walking + windup→attack pulse for the hostile grounded
+  archetypes (now including `selvagewarden`), idle for the rest.
   `<archetype>` is any of `grazer`/`trader`/`groaner`/`exploder`/
   `screecher`/`bobbindeer`/`frayedhound`/`emberspinner`/`unpicked`/
   `needlejack`/`scaldwarden`/`raveler`/`spoolmare`/`silencemoth`/
   `selvagewarden`/`molthkin`/`lastneedle`. Intended for per-creature
-  screenshots.
+  screenshots. The hidden HUD/log, bounding-box camera framing, and
+  slow auto-rotate are all unchanged from before Phase 4a.
 
 ### Boss sims
 
@@ -966,6 +1273,45 @@ world space so they don't overlap). Each:
   hurts it once, and confirms `_hurtMob`'s `'guardian'`-specific branch
   flips `mob.provoked = true` (hostile for `provokeDuration` seconds).
   Result on `window.__scaldProvoked`.
+
+### Animation/VFX demos (Phase 4a)
+
+- Click **"Anim Showcase (Walk Cycle)"** or call `window.__animShowcase()`:
+  lines up one of each interesting `animate()` consumer — a grounded
+  walker (`frayedhound`), a flyer (`silencemoth`), the rideable
+  `spoolmare` (quadruped gait), and a hostile that gets a health-bar
+  `Billboard` (`groaner`) — at a fixed spot well clear of the scripted
+  player and every other fixed demo spot, then FORCES a walk-cycle
+  `animate()` state (`moving:true`, `speed01:0.8`) on all four every
+  frame, overriding whatever `MobManager`'s own AI-driven `animate()` call
+  decided that tick (idle/wander, this far from the player) — the same
+  "call `animate()` again with a synthetic state" pattern the static
+  showcase row and isolate mode already use, just applied to real
+  manager-owned mobs so the hostile still gets its `Billboard`. Position
+  is pinned back to the spawn spot every frame (x/z only) so the cycle
+  reads as walking **in place**. `window.__animT` accumulates elapsed
+  seconds while active, for scripted frame-sequence capture.
+- Click **"Kill (Death VFX)"** (cycles through `groaner`/`frayedhound`/
+  `spoolmare`/`exploder`/`screecher` on repeat clicks) or call
+  `window.__killDemo(archetype)` (any registered archetype, defaults to
+  `'groaner'`): spawns it in clear view of the default camera orbit, then
+  immediately `mob.hurt(9999)` (guaranteed overkill regardless of `maxHp`
+  tuning) so the death-dissolve animation and the UNRAVEL particle poof
+  both play. `window.__lastDeath` — `{archetype, dyingObserved}` —
+  `dyingObserved` starts `false` and flips to `true` the first frame that
+  actually observes `mob.dying > 0` (the ramp itself only starts advancing
+  on the *next* `manager.update()` tick after `hurt()`, not synchronously
+  within the `hurt()` call itself), so a caller can invoke
+  `__killDemo()` and then poll `__lastDeath.dyingObserved` without needing
+  to know the manager's internal frame timing.
+- Call `window.__setSpin(deg)` (isolate mode): pins the camera azimuth to
+  an **exact** angle in degrees, holding steady frame-over-frame (instead
+  of auto-rotating) for deterministic multi-angle capture — e.g.
+  `__setSpin(0)`, screenshot, `__setSpin(90)`, screenshot, `__setSpin(180)`,
+  screenshot, `__setSpin(270)`, screenshot. Only the azimuth is pinned —
+  the bbox-derived camera radius/height/target (see above) and the hidden
+  HUD/log are untouched. Works in showcase mode too if called there, but
+  is intended for isolate mode's per-creature screenshot harness.
 
 The demo exposes Playwright-friendly hooks on `window`:
 
@@ -1026,6 +1372,24 @@ The demo exposes Playwright-friendly hooks on `window`:
   provoked after).
 - `window.__scaldProvoked` — `boolean`, the result of the last
   `__provokeTest()` run.
+- `window.__animShowcase()` — Phase 4a. Triggers the anim-showcase demo
+  described above (lines up frayedhound/silencemoth/spoolmare/groaner and
+  forces a walk cycle on all four); returns `true` if all four spawned.
+  Idempotent — a second call just resets `window.__animT` to `0` and
+  re-activates the forced walk cycle on the same four mobs rather than
+  spawning duplicates.
+- `window.__animT` — `number`, seconds elapsed since the last
+  `__animShowcase()` call, updated every frame while it's active. `0`
+  before the first call.
+- `window.__killDemo(archetype)` — Phase 4a. Triggers the kill demo
+  described above; returns `true`/`false` (`false` if `archetype` failed
+  to spawn).
+- `window.__lastDeath` — Phase 4a. `{ archetype: string|null,
+  dyingObserved: boolean }`, set by `__killDemo()` and updated every frame
+  thereafter until the mob is fully removed (see above).
+- `window.__setSpin(deg)` — Phase 4a. Pins the (isolate- or showcase-mode)
+  camera azimuth to an exact angle in degrees, described above; returns
+  `true`/`false`.
 - `window.__setMob(archetype)` — navigates to `?mob=<archetype>` (isolate
   mode) for scripted screenshotting.
 - `window.__error` — set to a string (and rendered in a visible `<pre>`)
@@ -1056,6 +1420,27 @@ sitting in the working tree at `mobs/vendor/three.module.js` — see
 `mobs/integration.md`'s "Known issues" section; the stub was restored to
 its original found state afterward, unmodified, since fixing it isn't
 in scope for this pass.)
+
+**Phase 4a demo update verified via a headless Node smoke test** (not a
+browser run — `demo.html`'s DOM/renderer/HUD wiring itself was checked via
+`node --check` on the extracted `<script type="module">` body, which
+parses clean) against the real vendored `mobs/vendor/three.module.js`
+(temporarily aliased to a scratch `node_modules/three`, removed
+afterward — no repo files added/changed by this check) driving the exact
+same `MobManager` calls the new hooks make: spawning
+`frayedhound`/`silencemoth`/`spoolmare`/`groaner` and confirming only the
+hostile (`groaner`) gets a `Billboard`; calling each mob's real
+`root.userData.animate()` with the forced walk-cycle state across several
+frames without throwing; spawning a mob, calling `hurt(9999)`, and
+confirming `mob._dying` flips synchronously while `mob.dying` only starts
+ramping (and `dyingObserved` only flips `true`) on the next
+`manager.update()` tick, that exactly one `'mobDeath'` fires, and that the
+mob is actually removed once its death-ramp timer expires; and confirming
+`opts.getCamera`'s LOD fallback (`mob._lod === 0`) actually engages when
+`getPlayerPos` throws. `mobs/serve.mjs` re-checked with `node --check`
+(unchanged by this pass — it's a generic static file server, no
+Phase-4a-specific routing needed since `mobs/anim/`, `mobs/vfx/`,
+`mobs/ui/` are just more files under the repo root it already serves).
 
 ## Dimension / day-night spawn rules
 
