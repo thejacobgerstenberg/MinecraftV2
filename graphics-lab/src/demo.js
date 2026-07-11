@@ -1,231 +1,379 @@
 // graphics-lab/src/demo.js
 //
-// PLACEHOLDER demo entry. The integrator will replace this with the full
-// effect-driven renderer, but it must already render something: it builds the
-// worldgen volume as plain colored cubes, frames an OrbitControls camera on the
-// chunk, runs a render loop, wires a minimal window.demo API + the GUI, and
-// sets window.__demoReady = true after the first frame.
+// INTEGRATED SHOWCASE ENTRY.
 //
-// Everything here is deliberately simple — no AO / post / particles yet.
+// Wires the full effect stack together into one voxel vignette:
+//   worldgen volume -> AO-meshed chunk (voxelMesher + voxelMaterial),
+//   DynamicSky (sun/hemi light rig + dome/stars/clouds),
+//   ShadowController (soft directional shadows on the shared sun),
+//   Water surface + UnderwaterOverlay at WATER_LEVEL,
+//   DistanceFog synced to the sky horizon colour,
+//   Particles (torch flames at every glowstone + weather + block-break debris),
+//   PostFX (HDR bloom + ACES tonemap + vignette + FXAA) as the final pass.
+//
+// Exposes the window.demo control API from API_CONTRACT.md, builds the GUI, and
+// sets window.__demoReady = true after the first successful frame. The whole
+// init is wrapped in try/catch so any failure surfaces in a visible #error div
+// (and console.error) for verification.
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/OrbitControls.js';
+
 import { generateDemoChunk } from './worldgen.js';
 import { BLOCKS, AIR, WATER, LEAVES } from './blocks.js';
+import { buildChunkGeometry } from './voxelMesher.js';
+import { createVoxelMaterial } from './voxelMaterial.js';
+import { DynamicSky } from './sky.js';
+import { ShadowController } from './shadows.js';
+import { Water, UnderwaterOverlay } from './water.js';
+import { DistanceFog } from './fog.js';
+import { PostFX } from './postprocessing.js';
+import { Particles } from './particles.js';
 import { createGUI } from './gui.js';
 
-const canvasHost = document.getElementById('app') || document.body;
-
-// --- Renderer ----------------------------------------------------------------
-
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
-if ('outputColorSpace' in renderer) renderer.outputColorSpace = THREE.SRGBColorSpace;
-canvasHost.appendChild(renderer.domElement);
-
-// --- Scene & camera ----------------------------------------------------------
-
-const scene = new THREE.Scene();
-const SKY_DAY = new THREE.Color(0x8fc0ea);
-const SKY_UNDERWATER = new THREE.Color(0x123048);
-scene.background = SKY_DAY.clone();
-scene.fog = new THREE.Fog(SKY_DAY.clone(), 60, 140);
-
-const volume = generateDemoChunk();
-const cx = volume.sx / 2;
-const cz = volume.sz / 2;
-const cy = volume.WATER_LEVEL + 4;
-const center = new THREE.Vector3(cx, cy, cz);
-
-const camera = new THREE.PerspectiveCamera(
-  55,
-  window.innerWidth / window.innerHeight,
-  0.1,
-  500,
-);
-camera.position.set(cx + volume.sx * 0.85, cy + volume.sy * 1.15, cz + volume.sz * 0.9);
-
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.dampingFactor = 0.08;
-controls.target.copy(center);
-controls.maxPolarAngle = Math.PI * 0.495;
-controls.minDistance = 12;
-controls.maxDistance = 180;
-controls.update();
-
-// --- Lighting ----------------------------------------------------------------
-
-const hemi = new THREE.HemisphereLight(0xbfd8ff, 0x54432f, 0.85);
-scene.add(hemi);
-
-const sun = new THREE.DirectionalLight(0xfff2d6, 1.15);
-sun.position.set(cx + 40, 90, cz + 25);
-scene.add(sun);
-
-const ambient = new THREE.AmbientLight(0xffffff, 0.25);
-scene.add(ambient);
-
-// Glowstone/torch point lights.
-const torchLights = [];
-for (const l of volume.lights) {
-  const pl = new THREE.PointLight(0xffb35c, 1.4, 18, 2);
-  pl.position.set(l.x + 0.5, l.y + 0.7, l.z + 0.5);
-  scene.add(pl);
-  torchLights.push(pl);
-}
-
-// --- Voxel mesh (instanced, only exposed faces) ------------------------------
-
-const isTransparentId = (id) => id === WATER || id === LEAVES;
-
-function isExposed(x, y, z, id) {
-  const dirs = [
-    [1, 0, 0], [-1, 0, 0],
-    [0, 1, 0], [0, -1, 0],
-    [0, 0, 1], [0, 0, -1],
-  ];
-  for (const [dx, dy, dz] of dirs) {
-    const n = volume.get(x + dx, y + dy, z + dz);
-    if (n === AIR) return true;
-    if (isTransparentId(n) && n !== id) return true;
+// ---------------------------------------------------------------------------
+// Visible error surface (verification hook). Created lazily so a hard failure
+// anywhere in init() is always reported both on-page and to the console.
+// ---------------------------------------------------------------------------
+function showError(err) {
+  // eslint-disable-next-line no-console
+  console.error('[graphics-lab] init failed:', err);
+  let div = document.getElementById('error');
+  if (!div) {
+    div = document.createElement('div');
+    div.id = 'error';
+    div.style.cssText = [
+      'position:fixed', 'left:12px', 'bottom:12px', 'z-index:1000',
+      'max-width:min(90vw,640px)', 'max-height:60vh', 'overflow:auto',
+      'padding:12px 14px', 'border-radius:10px',
+      'background:rgba(60,12,12,0.92)', 'color:#ffd7d7',
+      'font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace',
+      'white-space:pre-wrap', 'border:1px solid rgba(255,120,120,0.4)',
+      'box-shadow:0 8px 24px rgba(0,0,0,0.5)',
+    ].join(';');
+    document.body.appendChild(div);
   }
-  return false;
+  const msg = (err && (err.stack || err.message)) || String(err);
+  div.textContent = 'graphics-lab error:\n' + msg;
 }
 
-// Group visible blocks by id.
-const visibleById = new Map();
-for (const b of volume.blocks) {
-  if (!isExposed(b.x, b.y, b.z, b.id)) continue;
-  let arr = visibleById.get(b.id);
-  if (!arr) { arr = []; visibleById.set(b.id, arr); }
-  arr.push(b);
+try {
+  init();
+} catch (err) {
+  showError(err);
 }
 
-const cubeGeo = new THREE.BoxGeometry(1, 1, 1);
-const dummy = new THREE.Object3D();
-const meshesById = new Map();
-let waterMesh = null;
+function init() {
+  const canvasHost = document.getElementById('app') || document.body;
 
-for (const [id, list] of visibleById) {
-  const desc = BLOCKS[id] || BLOCKS[0];
-  const transparent = !!desc.transparent;
-  const mat = new THREE.MeshLambertMaterial({
-    color: 0xffffff,
-    transparent,
-    opacity: transparent ? (desc.opacity ?? 0.75) : 1,
-    depthWrite: !transparent,
+  // ==========================================================================
+  // 1. Renderer.  AA off (FXAA in PostFX), high-performance, colour-managed,
+  //    NoToneMapping so PostFX owns ACES.
+  // ==========================================================================
+  THREE.ColorManagement.enabled = true;
+
+  const renderer = new THREE.WebGLRenderer({
+    antialias: false,
+    alpha: false,
+    powerPreference: 'high-performance',
+    stencil: false,
   });
-  if (desc.emissive) {
-    mat.emissive = new THREE.Color(desc.emissive[0], desc.emissive[1], desc.emissive[2]);
-    mat.emissiveIntensity = 0.9;
-  }
-
-  const mesh = new THREE.InstancedMesh(cubeGeo, mat, list.length);
-  const col = new THREE.Color();
-  for (let i = 0; i < list.length; i++) {
-    const b = list[i];
-    dummy.position.set(b.x + 0.5, b.y + 0.5, b.z + 0.5);
-    dummy.updateMatrix();
-    mesh.setMatrixAt(i, dummy.matrix);
-    const c = desc.color;
-    // Slight deterministic per-cube tint variation for a natural look.
-    const jitter = 0.92 + 0.16 * (((b.x * 7 + b.y * 13 + b.z * 5) % 5) / 5);
-    col.setRGB(c[0] * jitter, c[1] * jitter, c[2] * jitter);
-    mesh.setColorAt(i, col);
-  }
-  mesh.instanceMatrix.needsUpdate = true;
-  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  mesh.renderOrder = transparent ? 1 : 0;
-  scene.add(mesh);
-  meshesById.set(id, mesh);
-  if (id === WATER) waterMesh = mesh;
-}
-
-// --- Minimal window.demo API (placeholder behaviour) -------------------------
-
-const state = {
-  effects: { ao: true, sky: true, shadows: true, water: true, post: true, particles: true, fog: true },
-  quality: 'medium',
-  timeOfDay: 0.35,
-  weather: 'clear',
-  underwater: false,
-};
-
-function applyUnderwater(on) {
-  state.underwater = on;
-  if (on) {
-    scene.background = SKY_UNDERWATER.clone();
-    if (scene.fog) { scene.fog.color.copy(SKY_UNDERWATER); scene.fog.near = 2; scene.fog.far = 34; }
-    controls.target.set(cx, volume.WATER_LEVEL - 2, cz);
-    camera.position.set(cx + 6, volume.WATER_LEVEL - 1.2, cz + 8);
-  } else {
-    scene.background = SKY_DAY.clone();
-    if (scene.fog) { scene.fog.color.copy(SKY_DAY); scene.fog.near = 60; scene.fog.far = 140; }
-    controls.target.copy(center);
-    camera.position.set(cx + volume.sx * 0.85, cy + volume.sy * 1.15, cz + volume.sz * 0.9);
-  }
-  controls.update();
-}
-
-window.demo = {
-  setTimeOfDay(t) {
-    state.timeOfDay = t;
-    // Simple day arc: move + tint the sun, dim at night.
-    const ang = (t - 0.25) * Math.PI * 2;
-    sun.position.set(cx + Math.cos(ang) * 70, Math.sin(ang) * 90 + 8, cz + 25);
-    const day = Math.max(0, Math.sin(t * Math.PI));
-    sun.intensity = 0.15 + day * 1.1;
-    hemi.intensity = 0.25 + day * 0.7;
-    if (!state.underwater) {
-      scene.background.copy(SKY_DAY).multiplyScalar(0.25 + day * 0.75);
-      if (scene.fog) scene.fog.color.copy(scene.background);
-    }
-  },
-  setWeather(w) { state.weather = w; /* full weather lives in the real demo */ },
-  setUnderwater(on) { applyUnderwater(!!on); },
-  setQuality(q) {
-    state.quality = q;
-    const map = { low: 0.75, medium: 1.0, high: 1.35, ultra: 2.0 };
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, map[q] ?? 1));
-  },
-  toggle(name, on) {
-    state.effects[name] = !!on;
-    if (name === 'water' && waterMesh) waterMesh.visible = !!on;
-    if (name === 'fog') scene.fog = on ? new THREE.Fog(scene.background.clone(), 60, 140) : null;
-    // ao/sky/shadows/post/particles are no-ops in the placeholder.
-  },
-};
-
-// Initialise from state and build the GUI.
-window.demo.setTimeOfDay(state.timeOfDay);
-createGUI(window.demo, state);
-
-// --- Resize & render loop ----------------------------------------------------
-
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
   renderer.setSize(window.innerWidth, window.innerHeight);
-});
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.NoToneMapping; // PostFX does ACES on the HDR buffer
+  canvasHost.appendChild(renderer.domElement);
 
-const clock = new THREE.Clock();
-let firstFrame = true;
+  // ==========================================================================
+  // 2. Scene, camera, controls.
+  // ==========================================================================
+  const scene = new THREE.Scene();
 
-function animate() {
-  requestAnimationFrame(animate);
-  const dt = clock.getDelta();
-  // Gentle torch flicker.
-  const t = clock.elapsedTime;
-  for (let i = 0; i < torchLights.length; i++) {
-    torchLights[i].intensity = 1.2 + 0.35 * Math.sin(t * 9 + i * 2.1);
-  }
+  const volume = generateDemoChunk();
+  const { sx, sy, sz, WATER_LEVEL } = volume;
+
+  // A pleasing daytime 3/4 framing on the chunk, plus a submerged lake framing.
+  const CENTER = new THREE.Vector3(sx / 2, WATER_LEVEL + 2, sz / 2); // ~(24,12,24)
+  const ABOVE_TARGET = CENTER.clone();
+  const ABOVE_CAM = new THREE.Vector3(sx * 1.18, sy * 1.55, sz * 1.28); // ~(57,50,61)
+  // Lake centre is (13,34) r=10 in worldgen; dip to WATER_LEVEL-2 inside it.
+  const UNDER_CAM = new THREE.Vector3(13, WATER_LEVEL - 2, 40);         // ~(13,8,40)
+  const UNDER_TARGET = new THREE.Vector3(20, WATER_LEVEL + 1, 26);
+
+  const camera = new THREE.PerspectiveCamera(
+    55, window.innerWidth / window.innerHeight, 0.1, 4000,
+  );
+  camera.position.copy(ABOVE_CAM);
+
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.target.copy(ABOVE_TARGET);
+  controls.minDistance = 10;
+  controls.maxDistance = 220;
+  controls.maxPolarAngle = Math.PI * 0.495; // stay above the ground plane
+  controls.autoRotate = true;               // gentle auto-orbit option
+  controls.autoRotateSpeed = 0.45;
   controls.update();
-  renderer.render(scene, camera);
-  if (firstFrame) {
-    firstFrame = false;
-    window.__demoReady = true;
+
+  // ==========================================================================
+  // 3. Voxel chunk: AO-meshed solid + transparent(leaves) geometry.
+  // ==========================================================================
+  const geom = buildChunkGeometry(volume, { ao: true });
+
+  const solidMat = createVoxelMaterial({ transparent: false });
+  const leavesMat = createVoxelMaterial({ transparent: true });
+
+  const solidMesh = new THREE.Mesh(geom.solid, solidMat);
+  solidMesh.name = 'ChunkSolid';
+  scene.add(solidMesh);
+
+  let leavesMesh = null;
+  if (geom.transparent) {
+    leavesMesh = new THREE.Mesh(geom.transparent, leavesMat);
+    leavesMesh.name = 'ChunkLeaves';
+    leavesMesh.renderOrder = 1;
+    scene.add(leavesMesh);
   }
+
+  // Warm glowstone/torch point lights at every worldgen light position.
+  const torchLights = [];
+  for (const l of volume.lights) {
+    const pl = new THREE.PointLight(0xffb262, 1.4, 20, 2);
+    pl.position.set(l.x + 0.5, l.y + 0.6, l.z + 0.5);
+    pl.castShadow = false; // point-light shadows are too costly for the target fps
+    scene.add(pl);
+    torchLights.push(pl);
+  }
+
+  // ==========================================================================
+  // 4. Sky (owns the sun + hemi lights), shadows, water, fog, particles.
+  // ==========================================================================
+  const sky = new DynamicSky(renderer, { size: 4000, stars: 2200 });
+  scene.add(sky.object3d);           // brings sky.sun + sky.hemi into the scene
+  sky.setTimeOfDay(0.35);
+
+  const shadows = new ShadowController(renderer, sky.sun, {
+    quality: 'medium',
+    center: CENTER,
+    groundY: WATER_LEVEL + 3,
+    lightDistance: 140,
+  });
+
+  const water = new Water(scene, {
+    level: WATER_LEVEL,
+    size: Math.max(sx, sz) + 24,
+    center: { x: sx / 2, z: sz / 2 },
+    segments: 64,
+    sunRef: sky,                     // pulls sun colour/dir + reflection colour
+  });
+  water.setSkyReflectionColor(sky.getFogColor());
+
+  const underwater = new UnderwaterOverlay(scene, camera, { level: WATER_LEVEL });
+  // Keep the camera-enveloping tint sphere out of the shadow pass.
+  underwater.object3d.userData.noShadow = true;
+  underwater.object3d.castShadow = false;
+  underwater.object3d.receiveShadow = false;
+
+  const fog = new DistanceFog(scene, {
+    mode: 'exp2',
+    density: 0.0055,
+    skyRef: sky,                     // auto-tints toward the sky horizon colour
+  });
+  fog.setSkyColor(sky.getFogColor());
+
+  const particles = new Particles(scene, { camera });
+  for (const l of volume.lights) particles.addTorch(l);
+  particles.setWeather('clear');
+
+  // ==========================================================================
+  // 5. PostFX — the final render step (replaces renderer.render).
+  // ==========================================================================
+  const post = new PostFX(renderer, scene, camera, { quality: 'medium' });
+
+  // Mark cast/receive flags AFTER every mesh (incl. water) is in the scene.
+  shadows.applyToScene(scene);
+
+  // ==========================================================================
+  // Shared state + a stable ctx object (mutated in place; no per-frame alloc).
+  // ==========================================================================
+  const state = {
+    effects: { ao: true, sky: true, shadows: true, water: true, post: true, particles: true, fog: true },
+    quality: 'medium',
+    timeOfDay: 0.35,
+    weather: 'clear',
+    underwater: false,
+  };
+
+  const ctxSkyColor = new THREE.Color().copy(sky.getFogColor());
+  const ctx = {
+    camera,
+    renderer,
+    scene,
+    elapsed: 0,
+    timeOfDay: state.timeOfDay,
+    sunDir: sky.sunDir,              // live vector, re-aimed by sky.setTimeOfDay
+    weather: state.weather,
+    underwater: state.underwater,
+    skyColor: ctxSkyColor,           // DistanceFog eases toward this every frame
+  };
+
+  // ==========================================================================
+  // Pre-collect exposed top surfaces so the periodic block-break debris always
+  // erupts off a visible face (grass/sand/snow/stone/plank tops, air above).
+  // ==========================================================================
+  const surfaces = [];
+  for (const b of volume.blocks) {
+    if (b.id === WATER || b.id === LEAVES) continue;
+    if (volume.get(b.x, b.y + 1, b.z) !== AIR) continue;
+    const desc = BLOCKS[b.id];
+    if (!desc || desc.air || desc.emissive) continue; // skip air-ish + glowstone
+    surfaces.push(b);
+  }
+
+  // ==========================================================================
+  // 7. window.demo control API (EXACTLY per API_CONTRACT.md, plus a debug
+  //    spawnBlockBreak helper used by the render loop).
+  // ==========================================================================
+  function frameAbove() {
+    controls.autoRotate = true;
+    controls.maxPolarAngle = Math.PI * 0.495;
+    controls.target.copy(ABOVE_TARGET);
+    camera.position.copy(ABOVE_CAM);
+    controls.update();
+  }
+  function frameUnderwater() {
+    controls.autoRotate = false;
+    controls.maxPolarAngle = Math.PI * 0.9; // allow looking up at the surface
+    controls.target.copy(UNDER_TARGET);
+    camera.position.copy(UNDER_CAM);
+    controls.update();
+  }
+
+  window.demo = {
+    setTimeOfDay(t) {
+      const v = Math.max(0, Math.min(1, Number(t)));
+      state.timeOfDay = v;
+      ctx.timeOfDay = v;
+      sky.setTimeOfDay(v);
+      ctxSkyColor.copy(sky.getFogColor()); // feed the new horizon to fog + water
+    },
+
+    setWeather(w) {
+      const mode = (w === 'rain' || w === 'snow') ? w : 'clear';
+      state.weather = mode;
+      ctx.weather = mode;
+      particles.setWeather(mode);          // reseed the weather field
+      // DistanceFog scales its density from ctx.weather every frame (rain/snow
+      // thicken the haze); nothing else to poke here.
+    },
+
+    setUnderwater(on) {
+      const b = !!on;
+      state.underwater = b;
+      ctx.underwater = b;                  // UnderwaterOverlay + fog react to this
+      if (b) frameUnderwater();
+      else frameAbove();
+    },
+
+    setQuality(q) {
+      const quality = ['low', 'medium', 'high', 'ultra'].includes(q) ? q : 'medium';
+      state.quality = quality;
+      post.setQuality(quality);
+      shadows.setQuality(quality);
+    },
+
+    toggle(name, on) {
+      const b = !!on;
+      if (name in state.effects) state.effects[name] = b;
+      switch (name) {
+        case 'ao':
+          solidMat.userData.setAoEnabled(b);
+          leavesMat.userData.setAoEnabled(b);
+          break;
+        case 'sky': sky.setEnabled(b); break;
+        case 'shadows': shadows.setEnabled(b); break;
+        case 'water': water.setEnabled(b); break;
+        case 'post': post.setEnabled(b); break;
+        case 'particles': particles.setEnabled(b); break;
+        case 'fog': fog.setEnabled(b); break;
+        default: break;
+      }
+    },
+
+    // Debug/demo helper: burst debris off a broken block face.
+    spawnBlockBreak(pos, color) {
+      particles.spawnBlockBreak(pos, color);
+    },
+  };
+
+  // ==========================================================================
+  // 8. GUI + resize.
+  // ==========================================================================
+  createGUI(window.demo, state);
+
+  function onResize() {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
+    post.setSize(); // auto-detects the new drawing-buffer size
+  }
+  window.addEventListener('resize', onResize);
+
+  // ==========================================================================
+  // 9. Render loop.
+  // ==========================================================================
+  const clock = new THREE.Clock();
+  let firstFrame = true;
+  let bbTimer = 0;
+  let bbIndex = 0;
+
+  function animate() {
+    requestAnimationFrame(animate);
+
+    const dt = Math.min(clock.getDelta(), 0.05);
+    const elapsed = clock.elapsedTime;
+
+    // Refresh the shared ctx (mutated in place).
+    ctx.elapsed = elapsed;
+    ctx.timeOfDay = state.timeOfDay;
+    ctx.weather = state.weather;
+    ctx.underwater = state.underwater;
+
+    // Gentle torch flicker on the warm point lights.
+    for (let i = 0; i < torchLights.length; i++) {
+      torchLights[i].intensity = 1.25 + 0.35 * Math.sin(elapsed * 8.5 + i * 2.3);
+    }
+
+    controls.update();
+
+    // Effect updates (each module self-gates on its own enabled flag).
+    sky.update(dt, ctx);
+    shadows.update(dt, ctx);
+    water.update(dt, ctx);
+    underwater.update(dt, ctx);
+    fog.update(dt, ctx);
+    particles.update(dt, ctx);
+
+    // Periodic block-break debris so shots always show flying voxels.
+    bbTimer += dt;
+    if (bbTimer >= 1.5 && surfaces.length > 0) {
+      bbTimer = 0;
+      const b = surfaces[bbIndex % surfaces.length];
+      bbIndex += 7; // stride to spread bursts across the terrain
+      window.demo.spawnBlockBreak(b, BLOCKS[b.id] && BLOCKS[b.id].color);
+    }
+
+    // Final render (PostFX self-bypasses to a plain render when disabled).
+    post.render(dt);
+
+    if (firstFrame) {
+      firstFrame = false;
+      window.__demoReady = true;
+    }
+  }
+
+  animate();
 }
-animate();
