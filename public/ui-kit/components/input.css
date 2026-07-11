@@ -1,0 +1,92 @@
+/* =========================================================================
+   Loomfall UI Kit — lf-input
+   Requires tokens.css + base.css. Colors via var(--lf-*) tokens ONLY.
+   Labeled native text field; recessed woven box; hint line; error state =
+   error border + frayed-X glyph message (shape cue, never color alone).
+   States: default / :focus-visible / [error] / [disabled].
+   ========================================================================= */
+
+lf-input {
+  display: block;
+  max-width: 320px;
+}
+
+lf-input .lf-input__label {
+  display: block;
+  margin-bottom: var(--lf-space-1);
+  font-size: var(--lf-text-sm);
+  font-weight: 600;
+  color: var(--lf-color-text-body);
+}
+
+lf-input .lf-input__field {
+  display: block;
+  width: 100%;
+  min-height: var(--lf-hit-min, 32px); /* stretches to 44px on coarse pointers */
+  padding: var(--lf-space-1) var(--lf-space-2);
+  font-family: var(--lf-font-ui);
+  font-size: var(--lf-text-md);
+  background: var(--lf-color-bg-input);
+  color: var(--lf-color-input-text);
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-sm);
+  /* recessed hem: dark inner top edge */
+  box-shadow: inset 0 1px 0 color-mix(in oklab, var(--lf-color-bg-input), var(--lf-brand-void) 45%);
+  caret-color: var(--lf-color-input-text);
+}
+
+lf-input .lf-input__field::placeholder {
+  color: var(--lf-color-input-placeholder);
+  opacity: 1;
+}
+
+/* Light hem when focused (spec 1.4) — base.css adds the outer ring. */
+lf-input .lf-input__field:focus {
+  border-color: var(--lf-color-focus-ring);
+}
+
+/* ---- Error state ------------------------------------------------------------ */
+lf-input[error] .lf-input__field {
+  border-color: var(--lf-status-error);
+  box-shadow: inset 0 0 0 1px var(--lf-status-error);
+}
+
+/* ---- Message lines ------------------------------------------------------------ */
+lf-input .lf-input__msg {
+  display: flex;
+  align-items: center;
+  gap: var(--lf-space-1);
+  margin-top: var(--lf-space-1);
+  font-size: var(--lf-text-xs);
+  line-height: var(--lf-leading);
+}
+
+lf-input .lf-input__msg[hidden] {
+  display: none;
+}
+
+lf-input .lf-input__hint {
+  color: var(--lf-color-text-dim);
+}
+
+lf-input .lf-input__error {
+  color: var(--lf-status-error);
+  font-weight: 600;
+}
+
+lf-input .lf-input__error-glyph {
+  display: inline-flex;
+  flex: none;
+}
+
+/* ---- Disabled ------------------------------------------------------------------ */
+lf-input[disabled] .lf-input__label {
+  color: var(--lf-color-text-disabled);
+}
+
+lf-input[disabled] .lf-input__field {
+  background: var(--lf-color-button-disabled-bg);
+  color: var(--lf-color-text-disabled);
+  box-shadow: none;
+  cursor: not-allowed;
+}

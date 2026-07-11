@@ -1,0 +1,270 @@
+{
+  "version": 1,
+  "$comment": "Loomfall onboarding flow — compiled from content/onboarding.md (beat order is canonical) and dialogue.json tutorialNarrator (narratorLine is verbatim). gateEvent is the lf-game-event detail.type that advances the tutorial TO this beat: <lf-tutorial> waits silently, shows a beat's coach mark when its gateEvent fires, and each later gateEvent replaces the mark with the next beat's (forward jumps allowed; already-passed events are ignored — once per save). coachMark.anchor is a data-lf-anchor id from the reserved vocabulary (see README.md); null = center-screen modal card. [MOVE]/[BREAK]/[PLACE]/[INVENTORY]/[INTERACT]/[EAT] tokens in body are substituted from the active bindings (localStorage loomfall.bindings, falling back to ux/keybinds/bindings.default.json) at render time.",
+  "beats": [
+    {
+      "id": "on_world_start",
+      "narratorLine": "You were woven into this field like any other thread, and this morning you came loose. Open your eyes, Mender — the ground is cloth, the sky is thread, and none of it is finished.",
+      "coachMark": {
+        "anchor": null,
+        "title": "Open your eyes, Mender",
+        "body": "You were woven into this field like any other thread. This morning, you came loose. The ground is cloth, the sky is thread — none of it is finished.",
+        "placement": "center"
+      },
+      "gateEvent": "on_world_start",
+      "skippable": true
+    },
+    {
+      "id": "on_first_move",
+      "narratorLine": "Good — the legs still answer. You are the one thing in all the weave that chooses its own direction, so start by choosing one.",
+      "coachMark": {
+        "anchor": "crosshair",
+        "title": "Choose a direction",
+        "body": "Good — the legs still answer. You are the one thing in all the weave that chooses its own direction. Use [MOVE] to walk.",
+        "placement": "bottom"
+      },
+      "gateEvent": "on_first_move",
+      "skippable": true
+    },
+    {
+      "id": "on_first_block_broken",
+      "narratorLine": "A block is only a knot — a thread that agreed, for a while, to hold. You have just changed its mind.",
+      "coachMark": {
+        "anchor": "crosshair",
+        "title": "A thread comes loose",
+        "body": "The warpsod gives like cloth, because it is cloth. Hold [BREAK] to pick a block loose — what comes free is yours to keep.",
+        "placement": "bottom"
+      },
+      "gateEvent": "on_first_block_broken",
+      "skippable": true
+    },
+    {
+      "id": "on_first_wood_collected",
+      "narratorLine": "Thrumwood, humming faint in your hands. Everything here is still strung to the Loom — even the parts you carry away.",
+      "coachMark": {
+        "anchor": "hotbar",
+        "title": "Thrumwood",
+        "body": "Cut from a braided trunk — feel it hum, faint, in your hands. Wood becomes plank, plank becomes handloom, and a handloom puts a Mender's work in your hands.",
+        "placement": "top"
+      },
+      "gateEvent": "on_first_wood_collected",
+      "skippable": true
+    },
+    {
+      "id": "on_first_block_placed",
+      "narratorLine": "And there — set down again, where you chose. Breaking is picking loose, building is stitching, and only you do the second on purpose.",
+      "coachMark": {
+        "anchor": "crosshair",
+        "title": "Stitching",
+        "body": "Set down again, but where you chose. Breaking is picking loose; building is stitching. Use [PLACE] to stitch a block back into the world.",
+        "placement": "bottom"
+      },
+      "gateEvent": "on_first_block_placed",
+      "skippable": true
+    },
+    {
+      "id": "on_open_inventory",
+      "narratorLine": "This is your skein: what you carry, and what you can be made to lose. Carry less than you would grieve to leave behind.",
+      "coachMark": {
+        "anchor": "inventory-button",
+        "title": "Your skein",
+        "body": "Everything you gather is thread of one kind or another. Press [INVENTORY] to open your skein — carry less than you would grieve to leave behind.",
+        "placement": "bottom"
+      },
+      "gateEvent": "on_open_inventory",
+      "skippable": true
+    },
+    {
+      "id": "on_first_skein_sheared",
+      "narratorLine": "The skeinling trusted you the whole while, and the wool will grow back. Shear, do not slaughter — a patient Mender eats many nights from a flock kept whole.",
+      "coachMark": {
+        "anchor": "hotbar",
+        "title": "Something to spin",
+        "body": "The skeinling trusted you the whole while, and the wool will grow back. Shear, do not slaughter — a patient Mender eats many nights from a flock kept whole.",
+        "placement": "top"
+      },
+      "gateEvent": "on_first_skein_sheared",
+      "skippable": true
+    },
+    {
+      "id": "on_craft_handloom",
+      "narratorLine": "The great Loom weaves without wanting; this small one weaves whatever you ask of it. That is the whole difference between them, and it is everything.",
+      "coachMark": {
+        "anchor": "hotbar",
+        "title": "The first stitch",
+        "body": "A handloom of your own. The great Loom weaves without wanting; this small one weaves whatever you ask of it. That is the whole difference between them, and it is everything.",
+        "placement": "top"
+      },
+      "gateEvent": "on_craft_handloom",
+      "skippable": true
+    },
+    {
+      "id": "on_craft_first_tool",
+      "narratorLine": "Threadstone and old cord, pressed hard into a pick — rough work, but enough to open the ground and ask what it hides. Stone first; iron, dawn, and Everthread each come in their season.",
+      "coachMark": {
+        "anchor": "hotbar",
+        "title": "Threadbare tools",
+        "body": "Threadstone and old cord, pressed hard into a pick — rough work, but enough to open the ground and ask it what it hides. Stone first; iron, dawn, and Everthread each come in their season.",
+        "placement": "top"
+      },
+      "gateEvent": "on_craft_first_tool",
+      "skippable": true
+    },
+    {
+      "id": "on_first_ore_mined",
+      "narratorLine": "Needle-Iron, cold in the seam — named for the needles the woven folk once mended themselves with, back when they knew they could tear. Cut stairs as you go down; nothing beneath you catches gently.",
+      "coachMark": {
+        "anchor": "crosshair",
+        "title": "The cold workhorse",
+        "body": "Needle-Iron — a cold grey seam pressed hard into the cloth. The deeper cloth hides harder thread yet. Cut stairs as you go; nothing beneath you catches gently.",
+        "placement": "bottom"
+      },
+      "gateEvent": "on_first_ore_mined",
+      "skippable": true
+    },
+    {
+      "id": "on_enter_cinderloom_first_ore",
+      "narratorLine": "Emberskein — a seam that kept its own fire. Feed it to a furnace and the flame owes you nothing more; carry it carefully, for it does not wait to be asked.",
+      "coachMark": {
+        "anchor": "crosshair",
+        "title": "It burns its own fuel",
+        "body": "Emberskein — a seam that kept its own fire. Feed it to a furnace and the flame owes you nothing more. Carry it carefully; it does not wait to be asked.",
+        "placement": "bottom"
+      },
+      "gateEvent": "on_enter_cinderloom_first_ore",
+      "skippable": true
+    },
+    {
+      "id": "on_first_knotlight_placed",
+      "narratorLine": "One warmth the Loom lets you keep. Where the glow ends the dark begins to move, and a dark corner left standing open is a door.",
+      "coachMark": {
+        "anchor": "crosshair",
+        "title": "One warmth kept",
+        "body": "One warmth the Loom lets you keep. Where the glow ends, the dark begins to move — ring your camp before the light goes. A dark corner left open is a door.",
+        "placement": "bottom"
+      },
+      "gateEvent": "on_first_knotlight_placed",
+      "skippable": true
+    },
+    {
+      "id": "on_set_anchor",
+      "narratorLine": "This flame is your knot now — your own thread tied fast to one place in all the weave. If the dark takes you, you wake here.",
+      "coachMark": {
+        "anchor": "crosshair",
+        "title": "A knot of your own",
+        "body": "This flame is now your knot — if the dark takes you, you wake here. Press [INTERACT] on a placed knotlight to knot your thread to it, and set a new knot often.",
+        "placement": "bottom"
+      },
+      "gateEvent": "on_set_anchor",
+      "skippable": true
+    },
+    {
+      "id": "on_first_night_warning",
+      "narratorLine": "The dreamdye is draining from the sky, and night is when the crooked-woven unbend and go walking. This dusk is beautiful. It is not on your side.",
+      "coachMark": {
+        "anchor": null,
+        "title": "The last color",
+        "body": "The dreamdye is draining from the sky. Night is when the crooked-woven unbend and go walking. Walls, a roof, a ring of light — have them before the last color goes.",
+        "placement": "center"
+      },
+      "gateEvent": "on_first_night_warning",
+      "skippable": true
+    },
+    {
+      "id": "on_first_mob_encounter",
+      "narratorLine": "Hold — that needle-limbed thing was woven wrong, and then it was left that way. Pity it if you must, from behind a wall; it cannot be talked down.",
+      "coachMark": {
+        "anchor": "crosshair",
+        "title": "Woven wrong",
+        "body": "Hold. That needle-limbed thing was woven wrong, and then it was left that way. Pity it if you must — from behind a wall, or a raised tool. It cannot be talked down.",
+        "placement": "bottom"
+      },
+      "gateEvent": "on_first_mob_encounter",
+      "skippable": true
+    },
+    {
+      "id": "on_first_shelter",
+      "narratorLine": "Walls of your own raising, a roof, a light, a knot — small, and honest, and yours. There is no Mender walking who did not begin their nights under Knotwood. The Loom did not make this room. You did. Keep hold of what that feels like.",
+      "coachMark": {
+        "anchor": null,
+        "title": "First shelter",
+        "body": "Walls of your own raising. A roof, a light, a knot — small, and honest, and yours. The Loom did not make this room. You did. Keep hold of what that feels like.",
+        "placement": "center"
+      },
+      "gateEvent": "on_first_shelter",
+      "skippable": true
+    },
+    {
+      "id": "on_hunger_low",
+      "narratorLine": "You are wearing thin — not wounded, only worn. Eat, before your own cloth begins to fray from want alone; the meadow is kind, and it will not always be.",
+      "coachMark": {
+        "anchor": "hungerbar",
+        "title": "Wearing thin",
+        "body": "You are wearing thin — not wounded, only worn. Select food and hold [EAT] before your own cloth begins to fray from want alone.",
+        "placement": "right"
+      },
+      "gateEvent": "on_hunger_low",
+      "skippable": true
+    },
+    {
+      "id": "on_first_death",
+      "narratorLine": "Be still. You are not ended — only unpicked, pulled loose from the pattern for a moment. A weaving with its ending unstitched cannot yet be allowed to stop, and neither, yet, can you.",
+      "coachMark": {
+        "anchor": "deathscreen-respawn",
+        "title": "Unpicked",
+        "body": "Be still. You are not ended — only unpicked, pulled loose from the pattern for a moment. A weaving with its ending still unstitched cannot yet be allowed to stop. Neither, yet, can you.",
+        "placement": "top"
+      },
+      "gateEvent": "on_first_death",
+      "skippable": true
+    },
+    {
+      "id": "on_respawn",
+      "narratorLine": "Re-stitched, at your last knot, a little lighter than you were. What you dropped lies where you fell, fraying slowly — go back for it, or let it go. Both are allowed.",
+      "coachMark": {
+        "anchor": "healthbar",
+        "title": "Re-stitched",
+        "body": "Re-stitched, at your last knot. A little of your gathered thread was lost in the tearing — what you dropped lies where you fell, fraying slowly. Go back for it, or let it go. Both are allowed.",
+        "placement": "right"
+      },
+      "gateEvent": "on_respawn",
+      "skippable": true
+    },
+    {
+      "id": "on_survive_first_night",
+      "narratorLine": "Dawn, bleeding back through the cloth, and you are still knotted. Every morning here is the same quiet miracle: the world, unfinished, deciding to go on. So do you.",
+      "coachMark": {
+        "anchor": null,
+        "title": "The long first dark",
+        "body": "Dawn, bleeding back through the cloth. You outlasted the long first dark, and you are still knotted. Every morning here is the same quiet miracle: the world, unfinished, deciding to go on. So do you.",
+        "placement": "center"
+      },
+      "gateEvent": "on_survive_first_night",
+      "skippable": true
+    },
+    {
+      "id": "on_hear_thrum",
+      "narratorLine": "That low hum in your teeth is the Thrum — the great Loom, still turning, and no hand on the shuttle. Nobody is weaving; the weaving goes on. Sit with that as long as you can bear, then get up, Mender. There is work.",
+      "coachMark": {
+        "anchor": null,
+        "title": "The Thrum",
+        "body": "That low hum in your teeth is the Thrum — the great Loom, still turning, and no hand on the shuttle. Nobody is weaving; the weaving goes on. Then get up, Mender. There is work.",
+        "placement": "center"
+      },
+      "gateEvent": "on_hear_thrum",
+      "skippable": true
+    },
+    {
+      "id": "minute_10_wrapup",
+      "narratorLine": "Ten minutes loose, and already you hold a Mender's whole alphabet — everything after is only longer words. Go carefully. Mend what you can. Bind what you love. Nothing here is finished, and that is not a flaw; that is the invitation.",
+      "coachMark": {
+        "anchor": null,
+        "title": "A Mender's alphabet",
+        "body": "Ten minutes loose, and already you can walk, pick free, stitch back, make light, tie a knot, eat, and last a night. That is a Mender's whole alphabet — everything after is only longer words. Go carefully. Mend what you can. Bind what you love. Nothing here is finished. That is not a flaw. That is the invitation.",
+        "placement": "center"
+      },
+      "gateEvent": "minute_10_wrapup",
+      "skippable": true
+    }
+  ]
+}

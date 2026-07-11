@@ -57,6 +57,11 @@ import {
 import { loadDeathMessages, deathMessageFor } from './systems/deathmessages.js';
 import { initDeathScreen } from './ui/deathscreen.js';
 import { initHelp } from './ui/help.js';
+// HUD/audio integration facades: HudKit (ui-kit brand palette + ux-access
+// captions) and AudioStack (the lf-audio-event caption bridge). Both are
+// additive adapters — neither imports three nor touches the render loop.
+import HudKit from '../ui-integrate/integrate.js';
+import { AudioStack } from '../audio-integrate/integrate.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -266,6 +271,13 @@ const audio = new GameAudio();
 window.addEventListener('pointerdown', () => audio.resume(), { once: true });
 window.addEventListener('keydown', () => audio.resume(), { once: true });
 
+/** AudioStack caption bridge: decorates GameAudio (non-invasive, revertible
+ *  via audioStack.detach()) so every sound — one-shots, ambient loops and
+ *  music — also dispatches window "lf-audio-event" {name, direction, volume,
+ *  loop, ended} with real positional direction for the caption layer. */
+const audioStack = new AudioStack();
+audioStack.attach(audio);
+
 // ---------------------------------------------------------------------------
 // Content + achievements (page lifetime)
 // ---------------------------------------------------------------------------
@@ -378,6 +390,24 @@ ui.menus = initMenus({
   onHowToPlay: () => { help.open(); },
   onAchievements: () => { achievements.openScreen(); },
   onSettingsChange: (s) => applySettings(s),
+  // Audio settings dock: the <volume-settings> widget (public/audio/) replaces
+  // the three bespoke volume sliders. It binds the live engine and persists to
+  // localStorage "audio.volumes" (menu.js migrates the legacy loomfall.settings
+  // volume keys into that store once at load).
+  mountVolumeControl: (host) => {
+    audioStack.mountVolumeSettings(host, { engine: audio.engine }).then((widget) => {
+      if (!widget) return;
+      // Mirror the widget into GameAudio so its QA-visible state
+      // (audio.state.volumes — docs/DEV.md) stays truthful: once for the
+      // persisted values it just applied, then on every slider input.
+      const sync = () => {
+        const v = widget.volumes;
+        audio.setVolumes({ volumeMaster: v.master, volumeSfx: v.sfx, volumeMusic: v.music });
+      };
+      sync();
+      widget.addEventListener('input', sync);
+    });
+  },
   onResume: () => resumeGame(),
   onQuitToTitle: () => quitToTitle(),
   // Pause-menu Travel row (creative convenience; portals are the physical
@@ -410,18 +440,65 @@ ui.inventoryUI = initInventory({
     G.inventory.setSlot(G.inventory.selected, id);
     ui.hotbar.setSlots(G.inventory.slots);
     ui.hotbar.setSelected(G.inventory.selected);
+    audioStack.pickup(); // gap-fill: 'pop' on an inventory palette pick
   },
 });
 ui.debug = initDebug();
 
-// Menu buttons: every click is a user gesture (resume audio) + ui.click.
-document.getElementById('menu-root')?.addEventListener('click', (e) => {
-  if (e.target && e.target.closest && e.target.closest('button')) {
+// UI buttons: every click is a user gesture (resume audio) + ui.click.
+// Document-level delegation on .vx-btn covers every panel that uses the
+// shared button style — menus, pause, help, achievements, death screen —
+// not just #menu-root (ui.click coverage gap-fill).
+document.addEventListener('click', (e) => {
+  if (e.target && e.target.closest && e.target.closest('button.vx-btn')) {
     audio.resume();
     audio.ui();
   }
 });
 audio.setVolumes(ui.menus.getSettings());
+
+// ---------------------------------------------------------------------------
+// HudKit — Tier-1 brand palette + <lf-captions> (page lifetime)
+// ---------------------------------------------------------------------------
+
+/** Tier-1 theming: links ui-kit tokens/base + the brand overlay AFTER the
+ *  bespoke stylesheet, so every existing widget re-skins with zero markup
+ *  change (revert: hudKit.removeTheme()). */
+const hudKit = HudKit.init({
+  ui,
+  assetBase: './',
+  themeHref: './ui-integrate/brand-theme.css',
+  // Absolute path: HudKit dynamic-imports ux modules relative to ITS OWN
+  // module URL (/ui-integrate/), so a page-relative './ux/' would miss.
+  uxBase: '/ux/',
+});
+hudKit.applyTheme();
+
+/** Sound-captions overlay (deaf/HoH accessibility). Mounted only while the
+ *  "Sound Captions" settings toggle (default OFF) is on; it renders the
+ *  window "lf-audio-event" stream produced by the AudioStack bridge. */
+let captionsHandle = null;
+let captionsDocPromise = null;
+function applyCaptionsSetting(on) {
+  if (on && !captionsHandle) {
+    captionsDocPromise = captionsDocPromise
+      || fetch('./ux/captions/captions.json').then((r) => r.json()).catch(() => null);
+    captionsHandle = hudKit.adoptCaptions({ corner: 'bottom-right' });
+    const el = captionsHandle && captionsHandle.element;
+    if (el) {
+      captionsDocPromise.then((doc) => {
+        if (!doc) return;
+        customElements.whenDefined('lf-captions')
+          .then(() => { el.captions = doc; })
+          .catch(() => {});
+      });
+    }
+  } else if (!on && captionsHandle) {
+    captionsHandle.revert();
+    captionsHandle = null;
+  }
+}
+applyCaptionsSetting(!!settings.captions);
 
 ui.hud.showCrosshair(false); // hidden until a game starts
 ui.menus.setLoading(null);
@@ -471,7 +548,9 @@ function applySettings(next) {
     gameEvents.emit('pack:switched', { packId: settings.texturePack, from: prevPack });
   }
   lastPackSeen = settings.texturePack;
-  audio.setVolumes(settings);
+  audio.setVolumes(settings); // volume keys now live in the widget; this is a
+                              // no-op for them (kept for any legacy callers)
+  applyCaptionsSetting(!!settings.captions);
   if (!G) return;
   G.camera.fov = settings.fov;
   G.camera.updateProjectionMatrix();
@@ -1183,6 +1262,7 @@ async function bootSession(worldMeta) {
         });
         break;
       case 'mobDrop':
+        audioStack.pickup(pos || undefined); // gap-fill: 'pop' on loot pickup
         gameEvents.emit('mob:drop', { itemId: detail.itemId, count: detail.count });
         gameEvents.emit('item:collected', { itemId: detail.itemId, count: detail.count });
         break;

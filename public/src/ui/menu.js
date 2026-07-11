@@ -32,7 +32,11 @@
 //
 //   Settings shape (persisted to localStorage "loomfall.settings"):
 //     { renderDistance: 2..12 (6), fov: 60..110 (75),
-//       sensitivity: 0.1..2 (1.0), texturePack: packId ('default') }
+//       sensitivity: 0.1..2 (1.0), texturePack: packId ('default'),
+//       graphicsQuality: 'off'|'low'|'medium'|'high'|'ultra' ('medium'),
+//       captions: boolean (false) }
+//   Audio volumes live in the <volume-settings> widget under localStorage
+//   "audio.volumes" (legacy volume keys are migrated there once at load).
 //
 //   The game title <h1 id="game-title"> is defined in index.html and adopted
 //   into the main menu; if absent (dev harness), document.title is used.
@@ -104,10 +108,12 @@ const SETTINGS_SPEC = {
   renderDistance: { min: 2, max: 12, def: 6 },
   fov: { min: 60, max: 110, def: 75 },
   sensitivity: { min: 0.1, max: 2, def: 1 },
-  volumeMaster: { min: 0, max: 1, def: 1 },
-  volumeSfx: { min: 0, max: 1, def: 1 },
-  volumeMusic: { min: 0, max: 1, def: 0.7 },
 };
+
+// Audio volumes moved to the <volume-settings> widget (public/audio/), which
+// persists to localStorage "audio.volumes". Legacy loomfall.settings volume
+// keys are migrated into that store once at load (see migrateVolumeSettings).
+const AUDIO_VOLUMES_KEY = 'audio.volumes';
 
 // Graphics post-processing tiers (graphics phase). 'off' bypasses the chain.
 const GRAPHICS_QUALITIES = ['off', 'low', 'medium', 'high', 'ultra'];
@@ -118,9 +124,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   sensitivity: 1,
   texturePack: 'default',
   graphicsQuality: 'medium',
-  volumeMaster: 1,
-  volumeSfx: 1,
-  volumeMusic: 0.7,
+  captions: false, // sound-captions overlay (deaf/HoH accessibility)
 });
 
 function clampNum(v, min, max, def) {
@@ -164,6 +168,7 @@ export function initMenus(opts = {}) {
     getWorlds,
     packsList = [],
     travelDims = [],
+    mountVolumeControl,
   } = opts;
 
   // --- Root + backdrop -------------------------------------------------------
@@ -211,14 +216,35 @@ export function initMenus(opts = {}) {
       if (GRAPHICS_QUALITIES.includes(raw.graphicsQuality)) {
         s.graphicsQuality = raw.graphicsQuality;
       }
+      if (typeof raw.captions === 'boolean') s.captions = raw.captions;
     }
     return s;
+  }
+
+  /** One-time migration: legacy loomfall.settings volume keys -> the widget's
+   *  "audio.volumes" store. Runs only when the new key is absent, so a value
+   *  the user has since set through the widget is never clobbered. */
+  function migrateVolumeSettings(raw) {
+    try {
+      if (!raw || typeof raw !== 'object') return;
+      if (raw.volumeMaster == null && raw.volumeSfx == null && raw.volumeMusic == null) return;
+      if (localStorage.getItem(AUDIO_VOLUMES_KEY) != null) return;
+      localStorage.setItem(AUDIO_VOLUMES_KEY, JSON.stringify({
+        master: clampNum(raw.volumeMaster, 0, 1, 1),
+        sfx: clampNum(raw.volumeSfx, 0, 1, 1),
+        music: clampNum(raw.volumeMusic, 0, 1, 0.7),
+      }));
+    } catch (_) { /* storage unavailable — widget falls back to defaults */ }
   }
 
   function loadSettings() {
     try {
       const raw = localStorage.getItem(SETTINGS_KEY);
-      if (raw) return sanitizeSettings(JSON.parse(raw));
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        migrateVolumeSettings(parsed);
+        return sanitizeSettings(parsed);
+      }
     } catch (_) { /* corrupted or unavailable storage -> defaults */ }
     return { ...DEFAULT_SETTINGS };
   }
@@ -419,6 +445,25 @@ export function initMenus(opts = {}) {
       return select;
     }
 
+    /** Labeled checkbox row (boolean settings). Keyboard/ARIA: native
+     *  checkbox + aria-label; the value column mirrors On/Off. */
+    function toggleRow(key, label) {
+      const row = el('div', 'set-row', body);
+      el('span', 'set-label', row, label);
+      const input = el('input', 'vx-check', row);
+      input.type = 'checkbox';
+      input.checked = !!settings[key];
+      input.setAttribute('aria-label', label);
+      const fmt = (v) => (v ? 'On' : 'Off');
+      const valueEl = el('span', 'set-value', row, fmt(settings[key]));
+      input.addEventListener('change', () => {
+        settings[key] = input.checked;
+        valueEl.textContent = fmt(settings[key]);
+        settingChanged();
+      });
+      settingControls[key] = { input, valueEl, fmt };
+    }
+
     const pct = (v) => `${Math.round(v * 100)}%`;
 
     sliderRow('renderDistance', 'Render Distance', 2, 12, 1, (v) => `${v} chunks`);
@@ -431,10 +476,19 @@ export function initMenus(opts = {}) {
       name: q === 'off' ? 'Off' : q.charAt(0).toUpperCase() + q.slice(1),
     }))).classList.add('set-graphics-quality');
 
-    // Audio volume channels (audio phase; applied live via onSettingsChange).
-    sliderRow('volumeMaster', 'Master Volume', 0, 1, 0.05, pct);
-    sliderRow('volumeSfx', 'SFX Volume', 0, 1, 0.05, pct);
-    sliderRow('volumeMusic', 'Music Volume', 0, 1, 0.05, pct);
+    // Audio volume channels: the shadow-DOM <volume-settings> widget docks
+    // here (replacing the three bespoke sliders — one source of truth). The
+    // host page mounts it via mountVolumeControl so this module stays free of
+    // audio imports (node-safe).
+    if (typeof mountVolumeControl === 'function') {
+      const row = el('div', 'set-row set-row--volume', body);
+      el('span', 'set-label', row, 'Volume');
+      const host = el('div', 'set-volume-host', row);
+      mountVolumeControl(host);
+    }
+
+    // Accessibility: sound-captions overlay toggle (default off).
+    toggleRow('captions', 'Sound Captions');
 
     // Texture pack select
     {
@@ -473,7 +527,8 @@ export function initMenus(opts = {}) {
   function syncSettingsControls() {
     for (const key of Object.keys(settingControls)) {
       const c = settingControls[key];
-      c.input.value = String(settings[key]);
+      if (c.input.type === 'checkbox') c.input.checked = !!settings[key];
+      else c.input.value = String(settings[key]);
       c.valueEl.textContent = c.fmt(settings[key]);
     }
   }

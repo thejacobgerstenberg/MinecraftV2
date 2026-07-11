@@ -1,0 +1,33 @@
+{
+  "$schema": "../schemas/bindings.schema.json",
+  "version": 1,
+  "bindings": {
+    "moveForward":  { "primary": "KeyW",      "secondary": "ArrowUp",    "gamepad": null },
+    "moveBack":     { "primary": "KeyS",      "secondary": "ArrowDown",  "gamepad": null },
+    "moveLeft":     { "primary": "KeyA",      "secondary": "ArrowLeft",  "gamepad": null },
+    "moveRight":    { "primary": "KeyD",      "secondary": "ArrowRight", "gamepad": null },
+    "jump":         { "primary": "Space",     "secondary": null,         "gamepad": 0 },
+    "sneak":        { "primary": "ShiftLeft", "secondary": null,         "gamepad": 10 },
+    "sprint":       { "primary": "ControlLeft", "secondary": null,       "gamepad": 11 },
+    "break":        { "primary": "Mouse0",    "secondary": null,         "gamepad": 7 },
+    "place":        { "primary": "Mouse2",    "secondary": null,         "gamepad": 6 },
+    "interact":     { "primary": "Mouse2",    "secondary": "KeyF",       "gamepad": 2 },
+    "eat":          { "primary": "Mouse2",    "secondary": null,         "gamepad": 6 },
+    "hotbar1":      { "primary": "Digit1",    "secondary": null,         "gamepad": null },
+    "hotbar2":      { "primary": "Digit2",    "secondary": null,         "gamepad": null },
+    "hotbar3":      { "primary": "Digit3",    "secondary": null,         "gamepad": null },
+    "hotbar4":      { "primary": "Digit4",    "secondary": null,         "gamepad": null },
+    "hotbar5":      { "primary": "Digit5",    "secondary": null,         "gamepad": null },
+    "hotbar6":      { "primary": "Digit6",    "secondary": null,         "gamepad": null },
+    "hotbar7":      { "primary": "Digit7",    "secondary": null,         "gamepad": null },
+    "hotbar8":      { "primary": "Digit8",    "secondary": null,         "gamepad": null },
+    "hotbar9":      { "primary": "Digit9",    "secondary": null,         "gamepad": null },
+    "hotbarPrev":   { "primary": "WheelUp",   "secondary": null,         "gamepad": 4 },
+    "hotbarNext":   { "primary": "WheelDown", "secondary": null,         "gamepad": 5 },
+    "inventory":    { "primary": "KeyE",      "secondary": null,         "gamepad": 3 },
+    "chat":         { "primary": "KeyT",      "secondary": null,         "gamepad": null },
+    "pause":        { "primary": "Escape",    "secondary": null,         "gamepad": 9 },
+    "debug":        { "primary": "F3",        "secondary": null,         "gamepad": null },
+    "toggleFlight": { "primary": null,        "secondary": null,         "gamepad": null }
+  }
+}

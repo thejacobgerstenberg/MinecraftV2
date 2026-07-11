@@ -1,0 +1,87 @@
+/* =========================================================================
+   Loomfall UX — <lf-access-options> panel styles (ux/options/)
+   Requires ui-kit/tokens.css + base.css + slider/toggle/dropdown css.
+   Colors and spacing from var(--lf-*) tokens ONLY — no raw hex.
+   ========================================================================= */
+
+lf-access-options {
+  display: block;
+}
+
+/* One titled group per concern (Vision / Motion / Audio / Gameplay). */
+lf-access-options .lf-access-options__group {
+  display: grid;
+  gap: var(--lf-space-3);
+  padding: var(--lf-space-4) 0;
+  border-top: var(--lf-border-hem);
+}
+
+lf-access-options .lf-access-options__group:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+/* Constrain kit widgets to the settings pane (narrow-viewport fix):
+   grid items default to min-width:auto, so the dropdown trigger's nowrap
+   value label ("Reduced Motion: Match system") would set the group's
+   min-content width (~367px) and overflow/clip inside
+   .lf-settings-shell__pane at small widths. Page-level override only —
+   ui-kit untouched; the kit's own .lf-dropdown__triggervalue ellipsis
+   takes over once the width is capped. */
+lf-access-options .lf-access-options__group > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+lf-access-options lf-dropdown {
+  width: 100%;
+  min-width: 0;
+}
+
+lf-access-options lf-dropdown .lf-dropdown__trigger {
+  min-width: 0;
+  /* Squeeze guard: when the docking context gets too narrow for
+     "Label: Value ⌄" on one line, wrap the value under the label instead
+     of letting flex crush it to 0px (the kit gives the value flex:1 +
+     overflow:hidden, so its automatic minimum size is zero). No effect at
+     comfortable widths — wrapping only happens when the line can't fit. */
+  flex-wrap: wrap;
+}
+
+lf-access-options lf-dropdown .lf-dropdown__triggervalue {
+  /* Keep the selected value readable before the kit's ellipsis kicks in. */
+  min-width: min(12ch, 100%);
+}
+
+/* The toggle face is inline-flex (content-sized) in the kit; cap it to the
+   host so it can never poke past the pane, and let the text label ellipsize
+   (track + ON/OFF state word keep their fixed cues). */
+lf-access-options lf-toggle .lf-toggle__face {
+  max-width: 100%;
+  min-width: 0;
+}
+
+lf-access-options lf-toggle .lf-toggle__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Group titles: quiet caps, hem-colored — headings, not controls. */
+lf-access-options .lf-access-options__title {
+  font-size: var(--lf-text-sm);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--lf-color-text-dim);
+}
+
+/* Helper / flavor lines under controls. */
+lf-access-options .lf-access-options__hint {
+  font-size: var(--lf-text-sm);
+  line-height: var(--lf-leading);
+  color: var(--lf-color-text-dim);
+  max-width: 52ch;
+  margin-top: calc(-1 * var(--lf-space-1));
+}

@@ -1,0 +1,64 @@
+/* =========================================================================
+   Loomfall UI Kit — lf-hotbar
+   Requires tokens.css + base.css + inventory.css (lf-item-slot cells).
+   Colors via var(--lf-*) tokens ONLY (translucency via color-mix).
+   Selection visuals (stitched border + notch) live in inventory.css on
+   lf-item-slot[selected]; this file styles the bar frame + name popup.
+   ========================================================================= */
+
+lf-hotbar {
+  position: relative;
+  display: inline-block;
+  /* headroom for the selection notch + item-name popup */
+  padding-top: var(--lf-space-6);
+}
+
+lf-hotbar .lf-hotbar__bar {
+  display: flex;
+  gap: var(--lf-space-1);
+  padding: var(--lf-space-1);
+  /* translucent void strip so the bar reads over any world background */
+  background: color-mix(in srgb, var(--lf-brand-void) 72%, transparent);
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-md);
+}
+
+/* Item-name popup: appears above the bar on selection change, fades ~2.6s.
+   HUD text = light face + void outline shadow (luminance edge over world). */
+lf-hotbar .lf-hotbar__label {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% - var(--lf-space-5));
+  transform: translateX(-50%);
+  padding: var(--lf-space-1) var(--lf-space-2);
+  font-size: var(--lf-text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--lf-pair-dark-hud-fg);
+  background: color-mix(in srgb, var(--lf-brand-void) 72%, transparent);
+  border-radius: var(--lf-radius-sm);
+  text-shadow: 1px 1px 0 var(--lf-brand-void);
+  opacity: 0;
+  transition: opacity var(--lf-dur-slow) var(--lf-ease);
+  pointer-events: none;
+}
+
+/* Rarity-colored popup (rubric R7.6). The strip is a translucent VOID card
+   in both themes, so use theme-independent dark-pair/accent tokens that stay
+   >= 4.5:1 on it; the rarity WORD is appended to the popup text (non-hue
+   cue), and the void text-shadow carries contrast over the world. */
+lf-hotbar .lf-hotbar__label[data-rarity="uncommon"] {
+  color: var(--lf-pair-dark-success-fg);
+}
+
+lf-hotbar .lf-hotbar__label[data-rarity="rare"] {
+  color: var(--lf-accent-hemstone-cyan);
+}
+
+lf-hotbar .lf-hotbar__label[data-rarity="epic"] {
+  color: var(--lf-brand-primary-glow);
+}
+
+lf-hotbar .lf-hotbar__label[data-show="true"] {
+  opacity: 1;
+}

@@ -1,0 +1,128 @@
+/* =========================================================================
+   Loomfall UI Kit — lf-main-menu
+   Title screen: woven duskwarp backdrop, brand wordmark, splash, button
+   column, version corner. Brand-anchored (loom-room night) in BOTH themes.
+   Colors from tokens only (alpha via color-mix on tokens).
+   ========================================================================= */
+
+lf-main-menu {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: var(--lf-z-screen);
+  overflow: hidden;
+  color: var(--lf-brand-muslin);
+}
+
+/* Gallery/demo mode: contained in-flow block for screenshots. */
+lf-main-menu[static] {
+  position: relative;
+  inset: auto;
+  min-height: 560px;
+  border-radius: var(--lf-radius-md);
+}
+
+/* Subtle woven backdrop: warp/weft diagonals over a void->duskwarp night,
+   with a faint Everthread glow behind the wordmark band. */
+lf-main-menu .lf-main-menu__backdrop {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(
+      ellipse 70% 34% at 50% 22%,
+      color-mix(in srgb, var(--lf-brand-primary) 12%, transparent),
+      transparent 70%
+    ),
+    repeating-linear-gradient(
+      45deg,
+      color-mix(in srgb, var(--lf-brand-secondary-mid) 14%, transparent) 0 2px,
+      transparent 2px 14px
+    ),
+    repeating-linear-gradient(
+      -45deg,
+      color-mix(in srgb, var(--lf-brand-secondary) 12%, transparent) 0 2px,
+      transparent 2px 14px
+    ),
+    linear-gradient(180deg, var(--lf-brand-void) 0%, var(--lf-brand-secondary-deep) 78%, var(--lf-brand-secondary) 130%);
+}
+
+lf-main-menu .lf-main-menu__col {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--lf-space-4);
+  padding: var(--lf-space-7) var(--lf-space-4) var(--lf-space-6);
+  min-height: 100%;
+}
+
+lf-main-menu .lf-main-menu__wordmark {
+  width: min(420px, 72vw);
+}
+
+lf-main-menu .lf-main-menu__wm-svg {
+  width: 100%;
+  height: auto;
+}
+
+/* Wordmark colors — the saved brand asset's palette, via tokens.
+   The void keyline under the gold keeps a >=0.15 luminance edge. */
+lf-main-menu .lf-main-menu__wm-key {
+  stroke: var(--lf-brand-void);
+}
+
+lf-main-menu .lf-main-menu__wm-thread {
+  stroke: var(--lf-brand-primary);
+}
+
+lf-main-menu .lf-main-menu__wm-glyph {
+  fill: var(--lf-brand-muslin);
+}
+
+/* Splash line: knotlight gold, tilted like a hung tag; void shadow keeps
+   contrast over the backdrop. */
+lf-main-menu .lf-main-menu__splash {
+  font-family: var(--lf-font-display);
+  font-size: var(--lf-text-md);
+  font-weight: 700;
+  color: var(--lf-accent-knotlight);
+  text-shadow: 1px 1px 0 var(--lf-brand-void);
+  transform: rotate(-4deg);
+  margin-top: calc(-1 * var(--lf-space-3));
+}
+
+lf-main-menu .lf-main-menu__stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lf-space-2);
+  width: min(280px, 86vw);
+  margin-top: var(--lf-space-4);
+}
+
+lf-main-menu .lf-main-menu__row {
+  display: flex;
+  gap: var(--lf-space-2);
+}
+
+/* Full-width buttons; the half-row splits evenly around the icon button. */
+lf-main-menu .lf-main-menu__stack > lf-button,
+lf-main-menu .lf-main-menu__row > lf-button:not([size="icon"]) {
+  flex: 1 1 0;
+  display: flex;
+}
+
+lf-main-menu .lf-main-menu__stack > lf-button > .lf-button__face,
+lf-main-menu .lf-main-menu__row > lf-button:not([size="icon"]) > .lf-button__face {
+  width: 100%;
+  justify-content: center;
+}
+
+/* Version corner: dim muslin + void shadow (readable over the weave). */
+lf-main-menu .lf-main-menu__version {
+  position: absolute;
+  left: var(--lf-space-2);
+  bottom: var(--lf-space-2);
+  font-family: var(--lf-font-mono);
+  color: var(--lf-pair-dark-text-dim-fg);
+  text-shadow: 1px 1px 0 var(--lf-brand-void);
+}

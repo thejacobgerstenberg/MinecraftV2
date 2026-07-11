@@ -1,0 +1,143 @@
+/* =========================================================================
+   Loomfall UI Integrate — brand-theme.css
+   DROP-IN TOKEN OVERLAY (Tier 1 of the HudKit adoption).
+
+   WHAT THIS IS
+     A single stylesheet that remaps the builder's BESPOKE :root hex vars
+     (public/css/style.css: --bg0, --panel, --text, --green, --shard, ...)
+     onto the lf brand tokens (ui-kit/tokens.css). Every existing builder
+     widget re-skins to the Everthread-Gold / Duskwarp-Violet / Void-Ink
+     palette with ZERO markup change — the HUD, hotbar, inventory, chat,
+     debug and menus all read the same var names they already use, so only
+     their VALUES change.
+
+   LINK ORDER (load-bearing — this file must win the cascade)
+     1. ui-kit/tokens.css        (defines --lf-* tokens; dark = :root default)
+     2. ui-kit/base.css          (kit base / resets)
+     3. public/css/style.css     (builder's bespoke :root + widget rules)
+     4. ui-integrate/brand-theme.css   <-- THIS FILE (last, so its :root wins)
+
+   FULLY REVERTIBLE
+     Remove this one <link> and the builder reverts to its original bespoke
+     palette with no residue. No @import is used so the link order stays
+     explicit and controllable by the host page.
+
+   CONTRAST (rubric R1)
+     The bespoke --dim/--faint hexes fail WCAG on the dark panels; they are
+     lifted to the WCAG-verified lf dim token. HUD/chat/debug/hotbar-label
+     text sits over the LIVE 3D WORLD (a translucent/absent strip), so those
+     get an explicit void-ink outline + the HUD pair fg to carry >=4.5:1
+     regardless of the world pixels behind them.
+   ========================================================================= */
+
+/* -------------------------------------------------------------------------
+   1) Remap the builder's bespoke :root vars -> lf brand tokens.
+   Selector doubled for specificity so it beats style.css's own :root.
+   ------------------------------------------------------------------------- */
+:root {
+  /* Surfaces */
+  --bg0: var(--lf-brand-void);                       /* #14101F — root void */
+  --bg1: var(--lf-color-bg-root);                    /* #14101F */
+  --panel: var(--lf-color-bg-panel);                 /* #221B33 */
+  --panel-2: var(--lf-color-bg-raised);              /* #2E2645 */
+  --panel-3: var(--lf-color-bg-raised);              /* #2E2645 */
+
+  /* Edges */
+  --edge: var(--lf-color-border-hem, #6A5F8C);
+  --edge-hi: var(--lf-brand-secondary-lift, #A48FD4);
+
+  /* Text */
+  --text: var(--lf-color-text-body);                 /* #EDE7DA — passes on panel/root */
+  --dim:  var(--lf-color-text-dim);                  /* #B4AAC9 — WCAG pair, replaces #93a0ba */
+  --faint: var(--lf-color-text-dim);                 /* was #5f6b84 (fails); lift to passing dim */
+
+  /* Accents — bespoke "green" system shifts to brand Everthread gold */
+  --green: var(--lf-brand-primary);                  /* #F2C14E */
+  --green-hi: var(--lf-brand-primary-glow, #FFDE8A);
+  --green-dk: var(--lf-brand-primary-deep-ochre, #6E4E07);
+  --amber: var(--lf-color-warn);                     /* #FFD24A */
+  --red: var(--lf-color-error);                      /* #FF8578 */
+  --shard: var(--lf-color-success);                  /* #A3E060 — health gem fill (still shape-coded) */
+
+  /* Type */
+  --mono: var(--lf-font-mono, ui-monospace, monospace);
+}
+
+/* -------------------------------------------------------------------------
+   2) R1 fix — text over the live world / translucent strip.
+   HUD values, chat, debug and the hotbar label render on top of the 3D
+   scene (no reliable bg). Force the HUD pair fg + a void-ink outline so the
+   text carries >=4.5:1 over ANY world pixel.
+   ------------------------------------------------------------------------- */
+.dbg-k, .dbg-v, .dbg-title,
+.chat-line, .chat-name,
+.hotbar-label, .hb-num {
+  color: var(--lf-pair-dark-hud-fg, #F7F2E4);
+  text-shadow:
+    0 0 1px var(--lf-brand-void),
+    0 1px 1px var(--lf-brand-void),
+    1px 0 1px var(--lf-brand-void),
+    0 -1px 1px var(--lf-brand-void),
+    -1px 0 1px var(--lf-brand-void);
+}
+
+/* System / faded chat lines keep their semantic hue but retain the outline
+   so they stay legible over the world. */
+.chat-line--system { color: var(--lf-color-info, #A9CBF0); }
+.chat-line--faded  { color: var(--lf-color-text-dim, #B4AAC9); }
+
+/* Debug key column stays dim-but-legible; value column is full HUD fg. */
+.dbg-k { color: var(--lf-color-text-dim, #B4AAC9); }
+
+/* -------------------------------------------------------------------------
+   3) Primary CTA contrast — void-ink label on Everthread gold.
+   The builder's .vx-btn--primary otherwise inherits --text (light) on the
+   gold accent, which fails. Pin it to the WCAG-verified primary pair.
+   ------------------------------------------------------------------------- */
+.vx-btn--primary {
+  background: var(--lf-pair-dark-button-primary-bg, #F2C14E);
+  color: var(--lf-pair-dark-button-primary-fg, #1B1528);
+  border-color: var(--lf-brand-primary-deep-ochre, #6E4E07);
+}
+.vx-btn--primary:hover {
+  background: var(--lf-pair-dark-button-primary-hover-bg, #FFDE8A);
+  color: var(--lf-pair-dark-button-primary-hover-fg, #14101F);
+}
+
+/* Focus ring — brand gold, visible on the void root (non-text >=3:1). */
+.vx-btn:focus-visible,
+.vx-input:focus-visible,
+.vx-select:focus-visible,
+.vx-range:focus-visible {
+  outline: 2px solid var(--lf-color-focus-ring, #FFD24A);
+  outline-offset: 2px;
+}
+
+/* -------------------------------------------------------------------------
+   4) Brand display face for headings + the wordmark.
+   ------------------------------------------------------------------------- */
+.menu-h2,
+.dbg-title,
+.game-title {
+  font-family: var(--lf-font-display, var(--lf-font-ui, inherit));
+}
+
+/* Wordmark #game-title.game-title — brand gold-on-void with the void keyline.
+   A gradient (Everthread gold -> Unbleached Muslin highlight) rendered as
+   clipped text, with a void-ink text-stroke keyline so it holds the >=0.15
+   luminance edge on any backdrop (mirrors the wordmark-dark.svg treatment). */
+.game-title {
+  color: var(--lf-brand-primary, #F2C14E);
+  background-image: linear-gradient(
+    180deg,
+    var(--lf-brand-muslin, #EDE7DA) 0%,
+    var(--lf-brand-primary-glow, #FFDE8A) 38%,
+    var(--lf-brand-primary, #F2C14E) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  -webkit-text-stroke: 1px var(--lf-brand-void, #14101F);
+  text-shadow: 0 2px 0 var(--lf-brand-void, #14101F);
+  letter-spacing: 0.04em;
+}

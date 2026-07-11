@@ -486,6 +486,9 @@ input[type="range"].vx-range {
 .game-wordmark {
   display: block;
   width: min(460px, 86vw);
+  /* Explicit: ui-kit base.css's :where(img){max-width:100%} reset would
+     otherwise shrink the mark inside the shrink-to-fit flex title. */
+  max-width: none;
   height: auto;
 }
 
@@ -1416,4 +1419,23 @@ input[type="range"].vx-range {
   margin: 10px 0;
   overflow-x: auto;
   white-space: pre;
+}
+
+/* --- Settings: volume-widget dock + checkbox rows (HudKit/audio phase) --- */
+/* The shadow-DOM <volume-settings> widget spans the input+value columns. */
+.set-volume-host {
+  grid-column: 2 / 4;
+}
+.set-volume-host volume-settings {
+  display: block;
+  width: 100%;
+}
+/* Boolean settings rows (e.g. Sound Captions) use a native checkbox for
+   keyboard/ARIA behavior; sized to sit comfortably in the input column. */
+input[type="checkbox"].vx-check {
+  width: 20px;
+  height: 20px;
+  justify-self: start;
+  accent-color: var(--green);
+  cursor: pointer;
 }

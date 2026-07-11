@@ -347,3 +347,37 @@ rendering/progressive breaking yet — natural next-stage candidates).
   identical). The F3 `Tris` counter reports post-cull submitted triangles.
 - Node suites cover the culling math: `tests/dircull.test.mjs` (including a
   brute-force check that every front-facing face is always drawn).
+
+## HUD theming, captions & volume (HudKit + AudioStack adoption)
+
+- **Tier-1 theme** — `main.js` boots `HudKit.init(...)` (`public/ui-integrate/
+  integrate.js`) and calls `applyTheme()`: it injects 4 `<link data-hudkit>`
+  stylesheets (`ui-kit/tokens.css`, `ui-kit/base.css`,
+  `ui-integrate/brand-theme.css`, `ui-integrate/settings-shell-fix.css`) after
+  `css/style.css` and sets `html[data-theme=dark]`. Zero markup change — the
+  bespoke widgets re-skin via their own `--bg0/--panel/--green/...` vars, which
+  the brand overlay remaps to `--lf-*` tokens. Revert = `hudKit.removeTheme()`.
+- **Caption bridge** — `new AudioStack().attach(audio)` (`public/audio-integrate/
+  integrate.js`) wraps GameAudio + its engine so **every** sound also dispatches
+  window `lf-audio-event` `{name, direction, volume, loop, ended, category}`
+  with real positional direction (from the wrapped `setListener`). Revert =
+  `audioStack.detach()`.
+- **Captions overlay** — the `Sound Captions` settings toggle (persisted as
+  `loomfall.settings.captions`, default **off**) mounts/unmounts
+  `<lf-captions>` (`public/ux/captions/`) into `#hud`. Caption table:
+  `public/ux/captions/captions.json` (break/place/step marked `directional`
+  for this game — sounds are positional). Caption lines render as
+  `lf-captions .lf-captions__line` with `.lf-captions__text` and chevron
+  `.lf-captions__dir` spans (`data-direction` attr).
+- **Volume widget** — the settings screen docks the shadow-DOM
+  `<volume-settings>` element (`public/audio/volume-settings.js`) in place of
+  the three bespoke volume sliders. It binds `audio.engine`, persists to
+  localStorage **`audio.volumes`**; legacy `loomfall.settings` volume keys are
+  migrated there once at load (`menu.js migrateVolumeSettings`). `main.js`
+  mirrors widget input into `audio.setVolumes` so `audio.state.volumes` (QA
+  surface above) stays truthful.
+- **Gap-fill sounds** — inventory palette pick and mob-loot pickup play `pop`
+  (`audioStack.pickup`); `ui.click` now fires for **any** `button.vx-btn`
+  click (menus, pause, help, achievements, death screen) via document-level
+  delegation. Door/chest/eat/drink registry keys remain unwired — the game has
+  no such features today.
