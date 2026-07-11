@@ -10,6 +10,10 @@ Contents:
 - **[Backend load & robustness harness](#backend-load--robustness-harness)** —
   `load-test.mjs`, `chaos-test.mjs`, `mock-server.mjs`, and the `lib/*.mjs`
   transport / protocol / util modules.
+- **[Server-authority audit](#server-authority-audit)** — `authority-test.mjs`
+  (15-check authority audit / regression suite) and `authority-ref-server.mjs`
+  (strict reference authoritative server). Latest results:
+  [`docs/SECURITY_FINDINGS.md`](../docs/SECURITY_FINDINGS.md).
 - **[scripts/verify-audio.mjs](#scriptsverify-audiomjs)** — headless-Chromium
   audio engine verification.
 - **[scripts/validate-content.mjs](#scriptsvalidate-contentmjs)** — game content
@@ -18,7 +22,7 @@ Contents:
 ## CI: what runs and when
 
 The workflow triggers on **push to `master`** and on **all pull requests**. It
-defines **four** independent jobs. Each **skips gracefully (stays green)** when
+defines **five** independent jobs. Each **skips gracefully (stays green)** when
 its target does not exist yet on the branch being built — so this repo is green
 before the content, audio, game, and server branches land:
 
@@ -28,8 +32,9 @@ before the content, audio, game, and server branches land:
 | `audio-verification` | `audio/` directory | A `Check for audio/` step sets `present=false`; the install and verify steps are `if:`-gated off it | Installs `playwright` + Chromium into `$RUNNER_TEMP/pw` (outside the repo), then `PW_DIR="$RUNNER_TEMP/pw" node scripts/verify-audio.mjs` |
 | `game-tests` | root `package.json` with a `test` script | `exit 0` with "no package.json — skipping" (or "no test script — skipping") | `npm ci` if `package-lock.json` exists, else `npm install`; then `npm test`. A real `npm test` failure fails the job — only a *missing* test script skips |
 | `backend-load` | *(always runs the mock self-test)*; the full suite needs a real server entrypoint | Runs the harness self-test against the bundled reference mock only | Self-test: `load-test.mjs --spawn` + `chaos-test.mjs --spawn`. When a real server is detected, additionally runs the full suite against it via `--server-cmd`. See [How CI runs the harness](#how-ci-runs-the-harness) |
+| `authority-audit` | *(always runs the reference self-test)*; the gate needs a real server entrypoint | Runs the 15-check authority suite against the bundled **strict reference** server only (all 15 must PASS → exit 0) | Self-test: `authority-test.mjs --spawn`. When a real server is detected, additionally **gates** it — the full audit runs against it and **any VULN fails the job**. See [How CI runs the authority audit](#how-ci-runs-the-authority-audit) |
 
-Timeouts: 5 min for `content-validation`, 15 min for the other three. The audio
+Timeouts: 5 min for `content-validation`, 15 min for the other four. The audio
 job's Playwright install is:
 
 ```bash
@@ -378,6 +383,169 @@ hardware and load):
   `bad_edit` where it validates); a slow reader grew RSS by only **~0.1 MB** over
   3 s (WS backpressure); the server log shows no exceptions.
 
+## Server-authority audit
+
+A second dependency-free harness (Node builtins only, Node 20 CI / Node 22 local)
+that plays a **hostile client** against the Voxelheim multiplayer server and asks,
+for fifteen distinct authority rules, one question: does the server **enforce** the
+rule (server is authoritative → **PASS**) or does it **trust the client** (→
+**VULN**)? A server that merely relays client-asserted state — position, block
+edits, identity — is exploitable; a correct server treats every client message as
+an *intent* it validates, applies, then rebroadcasts.
+
+Two files:
+
+| File | Role |
+|---|---|
+| `authority-test.mjs` | The 15-check audit / regression suite. See [below](#scriptsauthority-testmjs) |
+| `authority-ref-server.mjs` | Strict, fully-authoritative reference server — the CI self-test target *and* a worked reference of correct enforcement. See [below](#scriptsauthority-ref-servermjs--the-reference-of-correct-behavior) |
+
+It **reuses the verified harness modules**: `lib/ws-transport.mjs` (the RFC6455
+client + its `sendRawFrame` chaos hook), `lib/protocol.mjs` (the only
+protocol-specific adapter — encoders / `decode()` / `CAPS`), and `lib/util.mjs`
+(`parseArgs` / `writeJsonReport` / `nowMs`). The reference server is built on the
+same transport's `wsCreateServer`. So, as with the load/chaos harness, retargeting
+to a new wire format is a change to `lib/protocol.mjs` alone.
+
+**The latest audit results against the real server live in
+[`docs/SECURITY_FINDINGS.md`](../docs/SECURITY_FINDINGS.md)** — read that for the
+current PASS/VULN verdicts, severities, and fixes. This README documents the
+*tools*; that doc records what they *found*.
+
+### scripts/authority-test.mjs
+
+Pointed at a target, each check runs as an **attacker client A + observer client
+B** joined to the **same `worldId` + `dim`**, performs a hostile action, and
+asserts whether the server enforced the rule. Two modes in one script:
+
+- **Regression self-test** — `--spawn` boots the strict reference
+  (`authority-ref-server.mjs`); **every check must PASS (0 VULNs)**, proving both
+  the suite and the reference are correct.
+- **Real-server audit** — `--url` / `--server-cmd` points it at the real server;
+  **each VULN is a finding** that gates CI once the server is on `master`.
+
+**The 15 checks** (severity is the guarded S0..S3 grade; *expect PASS* / *expect
+VULN* marks the checks whose *correct* verdict against the real server is already
+known — the rest should PASS on a correct server):
+
+| # | Check | Sev | Probe |
+|---|---|---|---|
+| 1 | teleport / speed-hack | S1 | move +1000 blocks in one message |
+| 2 | edit reach (`EDIT_REACH=6`) | S1 | edit at player+(100,0,0) (+ in-reach positive control) |
+| 3 | edit XZ bounds | S1 | edit at x=1e12 |
+| 4 | bedrock / protected floor | S2 | break at y==0 |
+| 5 | cross-dimension edit | S1 | overworld client writes `dim="nether"` |
+| 6 | block-id validity *(expect PASS)* | S2 | edit `block=9999` and `block=-1` |
+| 7 | edit rate (`20/s` cap) | S1 | 100 edits within reach in <1 s |
+| 8 | id / authorship spoof *(expect PASS)* | S1 | raw `{t:move,…,id:"p999",name:"evil"}` |
+| 9 | name spoof / length / charset / dedup | S2 | 100-char name w/ control chars + `<script>`; duplicate name |
+| 10 | chat sanitization + sink scan | S2 | chat `<img … onerror=…>` + static `public/src` innerHTML-sink scan |
+| 11 | chat rate (`3/2000ms` cap) | S2 | 20 chats in <1 s |
+| 12 | non-finite state integrity *(expect PASS)* | S1 | raw move x=`null` / `"NaN"` / `"Infinity"` / non-number |
+| 13 | concurrent consistency | S1 | A & B edit the SAME cell → single LWW value |
+| 14 | unauth REST write *(expect VULN)* | S1 | `PUT /api/worlds/:id` with no auth token |
+| 15 | DoS re-verify | S0 | 8 MB WS frame + ~50k-message flood |
+
+Each check → `{ id, name, verdict:PASS｜VULN｜SKIP, severity, note, repro, fix }`.
+**Checks 13 and 14 need the REST surface** (`GET` / `PUT /api/worlds/:id`) and
+**SKIP** when REST is unreachable; checks 2–6 additionally *confirm* their
+broadcast-level verdict against REST persistence when it is reachable. A thrown
+error in any check becomes a **SKIP**, never a false PASS — the suite never
+crashes.
+
+**Target selection** (precedence, highest first):
+
+| Flag | Env | Meaning |
+|---|---|---|
+| `--spawn` | — | spawn + audit the strict reference (`authority-ref-server.mjs`) — the self-test |
+| `--server-cmd "<cmd>"` | `SERVER_CMD` | spawn the real server via shell, wait for its port, then audit |
+| `--server-cwd <dir>` | `SERVER_CWD` | working directory for `--server-cmd` |
+| `--url <ws://…/ws>` | `GAME_URL` | audit an already-running server |
+| `--rest <http://host:port>` | `REST_URL` | REST base (default derived from the ws url) |
+| `--report <file.json>` | `AUTHORITY_REPORT` | write the machine-readable report |
+| `--help` | — | usage |
+
+**Output.** A per-check line as it runs, then a **PASS/VULN table** (`# check
+verdict sev note`) and a `SUMMARY  PASS=… VULN=… SKIP=…` line; each VULN is
+reprinted with its `fix`. `--report` also writes the full JSON (`target`,
+`summary`, per-check `checks[]`).
+
+**Exit codes.** `0` iff **zero VULNs**; `1` on **any VULN** (so the real-server
+audit gates CI); `2` on a **fatal setup error** — target unreachable or the
+preflight join failed — so a broken server still fails the gate.
+
+```bash
+node scripts/authority-test.mjs --spawn                              # self-test: all 15 must PASS
+node scripts/authority-test.mjs --url ws://127.0.0.1:3000/ws         # audit a running server
+node scripts/authority-test.mjs --url ws://127.0.0.1:3000/ws --report /tmp/authority.json
+node scripts/authority-test.mjs --server-cmd "node server/index.js" --server-cwd /path/to/voxelheim
+```
+
+### scripts/authority-ref-server.mjs — the reference of correct behavior
+
+The **strict, fully-authoritative** Voxelheim server. It speaks the **exact** real
+wire protocol (`docs/PROTOCOL.md` v1, via `lib/protocol.mjs`) but — unlike the real
+server — **enforces every authority rule the audit checks for**. It serves two
+purposes at once:
+
+- **The CI self-test target.** `authority-test.mjs --spawn` boots it and all 15
+  checks must PASS, so the job stays green with no real server checked out.
+- **A worked reference for the builder.** Each enforcement is small, isolated, and
+  commented next to the rule it satisfies — a correct-answer key the real
+  `server/index.js` can be brought in line with.
+
+**REST on the same port.** It attaches a tiny `node:http` surface (`GET` /
+`PUT /api/worlds/:id`, `GET /api/health`) to the *same* http server that carries
+the WS upgrade, so a client at `ws://host:PORT/ws` finds REST at
+`http://host:PORT` — exactly what checks 13/14 need.
+
+**What it enforces** (the authoritative spec, mirrored by the 15 checks):
+
+| Domain | Rule |
+|---|---|
+| **move** | track each player's last authoritative `(pos,time)`; reject a move whose horizontal speed exceeds the fly cap (`SPEED_FLY≈10.89`, tolerance ~16 b/s) — a +1000 teleport is dropped and the prior pos kept; non-finite `x/y/z` never propagate |
+| **edit** | reach ≤ 6 (Euclidean from authoritative pos); `0≤y<128`; `y==0` bedrock (rejected); `\|x\|,\|z\| ≤ 30 000 000`; `dim` forced to the player's current dim (client override ignored); `block` integer `0..40`; rate ≤ 20/s/connection |
+| **chat** | length ≤ 256; HTML-escaped (`& < > " '`) before broadcast; rate 3 / 2000 ms/connection |
+| **name** | length ≤ 32; control chars and `< >` stripped; de-duplicated within a room |
+| **id** | broadcasts always carry the **server-minted** id/name; client `id`/`name` fields ignored |
+| **transport** | `maxPayload` 65536 (oversized frames closed **1009**); per-connection message-rate strike closes a flooder **1008** |
+| **REST** | `PUT` requires an `x-auth-token` header — unauthenticated writes → **403** |
+| **state** | concurrent same-cell edits resolve last-writer-wins deterministically; `GET` reflects the converged value |
+
+**Config (env):** `PORT` / `GAME_PORT` (default `3000`; `GAME_PORT` wins so the
+harness can pin an ephemeral port), `GAME_WS_PATH` (default `/ws`), `AUTH_TOKEN`
+(the token `PUT` must present; default `voxel-ref-secret`). On listen it prints
+exactly one line the harness keys on (the audit also derives the REST base from
+it):
+
+```
+AUTH-REF-SERVER READY port=<port> path=/ws
+```
+
+Importing the file is side-effect-free — it only boots when run as the main
+module, and exports its `escapeHtml` / `sanitizeName` / `dedupName` /
+`applyBulkEdits` helpers and authority tunables for reuse.
+
+### How CI runs the authority audit
+
+The `authority-audit` job (Node 20, 15-min timeout, builtins only — no browser, no
+Playwright, never creates a root `package.json`) mirrors the `backend-load`
+two-phase shape:
+
+1. **Reference self-test — always runs, always green.** `node
+   scripts/authority-test.mjs --spawn` boots the strict reference and asserts all
+   15 checks PASS (exit 0). This proves the suite + reference stay correct on every
+   push and PR, with no real server present.
+2. **Gate the real server — only when one is detected.** A *Detect real server
+   entrypoint* step sets `real=true` when a root `package.json` exposes a `start`
+   script. It then installs deps, launches Voxelheim in the background on
+   `PORT=8124`, waits for `ws://127.0.0.1:8124/ws` to accept a handshake (using the
+   harness's own dependency-free client), then runs `authority-test.mjs --url
+   ws://127.0.0.1:8124/ws` as a **gate** — **any VULN exits non-zero and fails the
+   job**, catching an authority regression — and always kills the server on the way
+   out. This lights up automatically once the server branch lands; no workflow edit
+   needed.
+
 ## scripts/verify-audio.mjs
 
 Headless-Chromium verification suite for the procedural audio engine
@@ -507,9 +675,11 @@ creates a root `package.json`:
 - The backend harness (`load-test.mjs`, `chaos-test.mjs`, `mock-server.mjs`, and
   `lib/*.mjs`) uses only Node builtins — the WebSocket transport is hand-rolled,
   so there is no `ws` dependency and no `package.json` to install.
+- The authority audit (`authority-test.mjs`, `authority-ref-server.mjs`) reuses
+  those same builtin-only `lib/*.mjs` modules — no deps, no `package.json`.
 - `verify-audio.mjs` uses Node builtins plus a Playwright resolved from an
   *external* directory (`PW_DIR` / `/tmp/pw`); CI installs it under
   `$RUNNER_TEMP/pw`, outside the checkout.
-- The `game-tests` and `backend-load` jobs only *consume* a root `package.json`
-  if another branch lands one — they never create it, and both skip / self-test
-  cleanly until then.
+- The `game-tests`, `backend-load`, and `authority-audit` jobs only *consume* a
+  root `package.json` if another branch lands one — they never create it, and all
+  skip / self-test cleanly until then.

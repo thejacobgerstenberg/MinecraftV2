@@ -187,3 +187,90 @@ jobs:
 
           GAME_PORT=8123 node scripts/load-test.mjs --players 30 --duration-sec 12
           GAME_PORT=8123 node scripts/chaos-test.mjs --url ws://127.0.0.1:8123/ws
+
+  # ---------------------------------------------------------------------------
+  # Server-authority security audit. The real multiplayer server is owned by
+  # another branch and may not exist here yet, so this job ALWAYS runs a fast
+  # SELF-TEST of the authority suite against the bundled STRICT reference server
+  # (scripts/authority-ref-server.mjs, spawned via --spawn) — every one of the 15
+  # authority checks must PASS (0 VULNs → exit 0), proving the suite and the
+  # reference are correct and keeping the job green with no real server. When the
+  # real Voxelheim entrypoint lands (a root package.json with a `start` script —
+  # npm start == `node server/index.js`), it ADDITIONALLY installs the server's
+  # deps, launches it in the background on an explicit port (PORT=8124, WS path
+  # /ws), waits for that endpoint to accept a WebSocket connection, and runs the
+  # full authority audit against it as a GATE — any VULN exits non-zero and fails
+  # the job (a regression is caught). Pure Node builtins only — no browser, no
+  # Playwright — and this job never creates a root package.json (that file is
+  # owned by another branch). Self-tests until the server is on master, then
+  # gates it.
+  # ---------------------------------------------------------------------------
+  authority-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Always-on: prove the authority suite is correct by running it against the
+      # strict reference server. --spawn boots scripts/authority-ref-server.mjs
+      # (every authority rule enforced); all 15 checks must PASS → exit 0.
+      - name: Authority self-test (reference server)
+        run: node scripts/authority-test.mjs --spawn
+
+      # Feature-detect the real Voxelheim entrypoint: a root package.json exposing
+      # a `start` script (npm start == `node server/index.js`). Emits real=<bool>;
+      # anything else leaves the reference self-test as the only coverage.
+      - name: Detect real server entrypoint
+        id: server
+        run: |
+          if [ -f package.json ] && node -e "const s=require('./package.json').scripts||{}; process.exit(s.start?0:1)"; then
+            echo "detected root package.json start script (Voxelheim entrypoint)"
+            echo "real=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no root package.json start script — reference self-test only"
+            echo "real=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Only when the real server exists: install its deps (never creating a root
+      # package.json), launch Voxelheim in the background on an explicit port, wait
+      # for its WS endpoint at /ws to accept a connection, run the full authority
+      # audit against it as a GATE, and ALWAYS kill the server on the way out. Any
+      # VULN makes authority-test exit non-zero and fails the job (regression).
+      - name: Full authority audit (real server)
+        if: steps.server.outputs.real == 'true'
+        run: |
+          npm ci || npm install
+
+          # Launch Voxelheim in the background on an explicit port. Prefer the
+          # documented single-process entrypoint (directly killable); fall back to
+          # `npm start` otherwise.
+          if [ -f server/index.js ]; then
+            PORT=8124 node server/index.js >"$RUNNER_TEMP/voxelheim.log" 2>&1 &
+          else
+            PORT=8124 npm start >"$RUNNER_TEMP/voxelheim.log" 2>&1 &
+          fi
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+
+          # Wait until ws://127.0.0.1:8124/ws completes a WebSocket handshake, using
+          # the harness's own dependency-free client (the same one the checks use).
+          up=false
+          for i in $(seq 1 60); do
+            if node -e "const t=setTimeout(()=>process.exit(1),2000);import('./scripts/lib/ws-transport.mjs').then(async m=>{const c=await m.wsConnect('ws://127.0.0.1:8124/ws',{handshakeTimeoutMs:1500});clearTimeout(t);try{c.close();}catch{}process.exit(0);}).catch(()=>{clearTimeout(t);process.exit(1);});" 2>/dev/null; then
+              up=true; break
+            fi
+            sleep 1
+          done
+          if [ "$up" != true ]; then
+            echo "server did not accept a WS connection on ws://127.0.0.1:8124/ws"
+            cat "$RUNNER_TEMP/voxelheim.log" 2>/dev/null || true
+            exit 1
+          fi
+
+          # GATE: any VULN exits non-zero and fails the job. The harness derives the
+          # REST base (http://127.0.0.1:8124) from the ws url for GET/PUT checks.
+          node scripts/authority-test.mjs --url ws://127.0.0.1:8124/ws
