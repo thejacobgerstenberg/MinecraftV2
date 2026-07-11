@@ -6,8 +6,8 @@
   <!-- GAME TITLE — also set in the main-menu <h1 id="game-title"> below.
        Rename the game by editing exactly those two lines. -->
   <title>Loomfall</title>
-  <!-- Inline SVG favicon (a green voxel) — avoids a /favicon.ico request. -->
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230a0d13'/%3E%3Crect x='3' y='3' width='10' height='10' fill='%235ecb6a'/%3E%3Crect x='3' y='3' width='10' height='3' fill='%238af095'/%3E%3C/svg%3E" />
+  <!-- Brand favicon (loom-eye + Everthread; see public/assets/brand/). -->
+  <link rel="icon" type="image/svg+xml" href="./assets/brand/favicon.svg" />
   <link rel="stylesheet" href="./css/style.css" />
   <!-- Vendored Three.js resolved as bare specifier `three`. No bundler, no build step. -->
   <script type="importmap">
@@ -40,13 +40,18 @@
   <div id="inventory"></div>
 
   <div id="menu-root">
-    <!-- GAME TITLE — adopted into the main menu by ui/menu.js. -->
-    <h1 id="game-title" class="game-title" hidden>LOOMFALL</h1>
+    <!-- GAME TITLE — adopted into the main menu by ui/menu.js.
+         Brand wordmark image; the img alt text is the fallback if the SVG
+         fails to load. -->
+    <h1 id="game-title" class="game-title game-title--mark" hidden aria-label="Loomfall">
+      <img class="game-wordmark" src="./assets/brand/wordmark-dark.svg" alt="LOOMFALL" />
+    </h1>
   </div>
 
   <!-- Loading splash: visible pre-boot; main.js / ui/menu.js manage it. -->
   <div id="loading" class="overlay loading visible">
     <div class="loading-inner">
+      <img class="loading-wordmark" src="./assets/brand/wordmark-dark.svg" alt="LOOMFALL" />
       <div class="loading-cube"><i></i><i></i><i></i></div>
       <div class="loading-text">Loading…</div>
     </div>
