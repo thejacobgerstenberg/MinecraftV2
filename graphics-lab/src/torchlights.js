@@ -46,9 +46,13 @@ import * as THREE from 'three';
 export const QUALITY_LIGHTS = { low: 2, medium: 6, high: 10, ultra: 14 };
 
 const LIGHT_COLOR = 0xffa64d;    // warm torch orange
-const LIGHT_DISTANCE = 9;        // world units of falloff
-const LIGHT_DECAY = 2;           // physically-plausible inverse-square
-const BASE_INTENSITY = 1.1;      // flicker oscillates around this
+const LIGHT_DISTANCE = 14;       // world units of falloff (was 9 — barely lit
+                                 // the adjacent block; 14 paints a readable
+                                 // warm pool over nearby terrain)
+const LIGHT_DECAY = 1.8;         // slightly sub-inverse-square so the ground
+                                 // bounce reaches a couple of blocks out
+const BASE_INTENSITY = 3.0;      // flicker oscillates around this (was 1.1 —
+                                 // torches read as dim specks in night shots)
 const FADE_TIME = 0.25;          // seconds to fade in/out on reassignment
 const JITTER = 0.03;             // +- position wobble, world units
 

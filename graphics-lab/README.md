@@ -23,7 +23,7 @@ python3 -m http.server 8099        # or: npm run serve
 `setWeather('clear'|'rain'|'snow')`, `setUnderwater(bool)`,
 `setQuality('low'|'medium'|'high'|'ultra')`,
 `toggle(name, bool)` for `ao|sky|shadows|water|post|particles|fog`, plus
-`setView('hero'|'sunrise'|'closeup')`), and `window.__demoReady === true` after
+`setView('hero'|'sunrise'|'closeup'|'firstperson'|'portal'|'torches')`), and `window.__demoReady === true` after
 the first rendered frame. `window.__gui.hide()/show()` toggles the panel from
 automation scripts. `verify.mjs` is the headless Playwright harness that
 produced the screenshots below.

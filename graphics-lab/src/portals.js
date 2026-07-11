@@ -72,6 +72,8 @@ export const PALETTES = {
 
 const FADE_DURATION = 0.6;   // seconds — palette crossfade
 const BURST_DURATION = 0.8;  // seconds — activate() ring + flash
+const MOTES = 70;            // drifting energy particles emitted by the surface
+const TWO_PI = Math.PI * 2;
 
 // Deterministic tiny hash for per-instance frame shade variation (no
 // Math.random — keeps the frame stable frame-to-frame and run-to-run).
@@ -82,12 +84,87 @@ function hash01(i) {
   return (h & 0xffff) / 0xffff;
 }
 
+// 2-D smoothed value noise on the integer lattice (deterministic).
+function vnoise2(seed, x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y);
+  const xf = x - xi, yf = y - yi;
+  const u = xf * xf * (3 - 2 * xf);
+  const v = yf * yf * (3 - 2 * yf);
+  const h = (ix, iy) => hash01(seed ^ (ix * 374761393 + iy * 668265263));
+  const a = h(xi, yi), b = h(xi + 1, yi), c = h(xi, yi + 1), d = h(xi + 1, yi + 1);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+
+// Procedural OBSIDIAN texture for the frame blocks: near-black violet base
+// with conchoidal mottling, lighter lavender veins and a few glassy flecks
+// that catch the portal light's specular. 64x64, NearestFilter — reads as
+// chunky voxel texture, not a smooth gradient. Returns null without a DOM
+// (node-side parse/lint runs) — never hit in the browser.
+function makeObsidianTexture(seed = 0xb51d) {
+  if (typeof document === 'undefined') return null;
+  const S = 64;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const g = cv.getContext('2d');
+  const img = g.createImageData(S, S);
+  const d = img.data;
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const n =
+        0.55 * vnoise2(seed, x / 9.3, y / 9.3) +
+        0.30 * vnoise2(seed ^ 0x1234, x / 4.4, y / 4.4) +
+        0.15 * vnoise2(seed ^ 0x777, x / 2.1, y / 2.1);
+      // Violet-black ramp with a slight banding snap (blocky facets).
+      const q = Math.floor(n * 6) / 6;
+      let r = 16 + q * 34;
+      let gr = 11 + q * 22;
+      let b = 30 + q * 62;
+      // Lighter lavender vein where the mid-frequency noise crests.
+      const vein = vnoise2(seed ^ 0xbeef, x / 6.2, y / 6.2);
+      if (vein > 0.78) { r += 46; gr += 34; b += 64; }
+      // Rare bright glassy fleck.
+      if (hash01(seed ^ (x * 731 + y * 197)) > 0.988) { r += 90; gr += 78; b += 110; }
+      const k = (y * S + x) * 4;
+      d[k] = Math.min(255, r);
+      d[k + 1] = Math.min(255, gr);
+      d[k + 2] = Math.min(255, b);
+      d[k + 3] = 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.generateMipmaps = false;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// Soft round dot for the mote particles (additive glow points).
+function makeMoteTexture() {
+  if (typeof document === 'undefined') return null;
+  const S = 32;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const g = cv.getContext('2d');
+  const grad = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.4, 'rgba(255,255,255,0.55)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, S, S);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 // ---------------------------------------------------------------------------
 // Portal surface shaders
 // ---------------------------------------------------------------------------
 const PORTAL_VERT = /* glsl */ `
   uniform float uTime;
   varying vec2 vUv;
+  varying vec3 vVdTs; // tangent-space view vector (for parallax depth layers)
   void main() {
     vUv = uv;
     vec3 p = position;
@@ -98,6 +175,15 @@ const PORTAL_VERT = /* glsl */ `
     p.z += 0.09 * ex * ey
          * sin(uv.x * 9.0 + uTime * 1.9)
          * sin(uv.y * 7.0 - uTime * 1.5);
+    // View vector in the plane's tangent frame: deeper swirl layers are
+    // offset along this in the fragment shader, which is what gives the
+    // portal parallax depth instead of a flat sticker look.
+    vec4 wp = modelMatrix * vec4(p, 1.0);
+    vec3 vd = wp.xyz - cameraPosition;
+    vVdTs = vec3(
+      dot(vd, normalize(modelMatrix[0].xyz)),
+      dot(vd, normalize(modelMatrix[1].xyz)),
+      dot(vd, normalize(modelMatrix[2].xyz)));
     gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
   }
 `;
@@ -115,6 +201,7 @@ const PORTAL_FRAG = /* glsl */ `
   uniform float uBurstRing;     // ring intensity envelope
   uniform float uBurstFlash;    // full-surface flash envelope
   varying vec2 vUv;
+  varying vec3 vVdTs;
 
   float hash21(vec2 p) {
     p = fract(p * vec2(123.34, 345.45));
@@ -144,33 +231,58 @@ const PORTAL_FRAG = /* glsl */ `
 
   void main() {
     // Centred, aspect-corrected polar coordinates.
-    vec2 p = vUv * 2.0 - 1.0;
-    p.x *= uAspect;
-    float r = length(p);
-    float ang = atan(p.y, p.x);
+    vec2 p0 = vUv * 2.0 - 1.0;
+    p0.x *= uAspect;
 
-    // fbm distortion field, drifting over time.
-    float n = fbm(p * 2.6 + vec2(uTime * 0.17, -uTime * 0.12));
+    // Parallax direction: deeper layers slide against the view direction, so
+    // the swirl reads as a volume behind the frame, not a flat decal.
+    vec2 vdir = vVdTs.xy / max(abs(vVdTs.z), 0.35);
+    vdir = clamp(vdir, vec2(-1.5), vec2(1.5));
 
-    // Rotating spiral: arms twist with radius, spin with time, warped by fbm.
-    float spiral = sin(ang * 3.0 + r * 6.5 - uTime * 1.8 + n * 3.6);
-    float sw = 0.5 + 0.5 * spiral;
-    sw = sw * sw * (3.0 - 2.0 * sw);
+    vec3 col = vec3(0.0);
+    float coreSum = 0.0;
+    float swTop = 0.0;
 
-    vec3 col = mix(uColDeep, uColBright, sw);
+    // Three depth layers: nearest brightest/fastest, deeper dimmer/slower and
+    // parallax-shifted. Each layer is an fbm-warped rotating spiral with soft
+    // wide filaments (the old single layer used razor-crisp streak edges).
+    for (int L = 0; L < 3; L++) {
+      float fl = float(L);
+      vec2 p = p0 + vdir * (fl * 0.17);
+      float r = length(p);
+      float ang = atan(p.y, p.x);
+      float n = fbm(p * 2.6
+                    + vec2(uTime * (0.17 + 0.05 * fl), -uTime * 0.12)
+                    + fl * 3.7);
+      float spiral = sin(ang * 3.0 + r * 6.5
+                         - uTime * (1.8 - 0.35 * fl) + n * 3.6 + fl * 2.1);
+      float sw = 0.5 + 0.5 * spiral;
+      sw = sw * sw * (3.0 - 2.0 * sw);
+      if (L == 0) swTop = sw;
 
-    // Thin counter-rotating filaments / veins (mixed, not added, so dark
-    // smoke veins work as well as bright teal filaments).
-    float fil = sin(ang * 7.0 - r * 12.0 + uTime * 2.4 + n * 5.0);
-    fil = smoothstep(0.82, 0.98, fil);
-    col = mix(col, uColFilament, fil * (0.35 + 0.45 * n));
+      float w = 1.0 - 0.30 * fl;                    // deeper = dimmer
+      vec3 lcol = mix(uColDeep, uColBright, sw) * w;
 
-    // Additive-ish glow core (feeds bloom), gently pulsing.
-    float core = exp(-r * r * 3.2);
-    col += uColGlow * core * (0.9 + 0.25 * sin(uTime * 2.1) + 0.35 * n);
+      // Soft, wide filaments tinted toward the glow colour: volumetric
+      // energy wisps instead of crisp vector streaks.
+      float fil = sin(ang * 7.0 - r * 12.0 + uTime * 2.4 + n * 5.0 + fl * 1.3);
+      fil = smoothstep(0.45, 0.95, fil);
+      lcol = mix(lcol, mix(uColFilament, uColGlow, 0.4) * w,
+                 fil * (0.25 + 0.30 * n));
+
+      col += lcol * (L == 0 ? 0.62 : 0.19);
+      coreSum += exp(-r * r * 2.6) * w * 0.42; // ~0.9 max across all layers
+    }
+
+    float r0 = length(p0);
+    float n0 = fbm(p0 * 2.2 - vec2(0.0, uTime * 0.21));
+
+    // Centre-weighted emissive core (feeds bloom), gently pulsing. Kept
+    // below ~0.6*glow so the centre blooms without clipping to a white blob.
+    col += uColGlow * coreSum * (0.38 + 0.08 * sin(uTime * 2.1) + 0.12 * n0);
 
     // Burst: expanding bright ring + flash.
-    float dr = (r - uBurstRadius) * 6.0;
+    float dr = (r0 - uBurstRadius) * 6.0;
     float ring = exp(-dr * dr);
     col += (uColGlow + vec3(0.55)) * ring * uBurstRing;
     col += (uColGlow * 0.7 + vec3(0.45)) * uBurstFlash;
@@ -180,7 +292,7 @@ const PORTAL_FRAG = /* glsl */ `
     float ey = smoothstep(0.0, 0.12, vUv.y) * smoothstep(1.0, 0.88, vUv.y);
     float edge = ex * ey;
 
-    float alpha = edge * (0.72 + 0.28 * sw + core * 0.25);
+    float alpha = edge * (0.72 + 0.28 * swTop + coreSum * 0.12);
     alpha += edge * (ring * uBurstRing + uBurstFlash) * 0.5;
     gl_FragColor = vec4(col, clamp(alpha, 0.0, 1.0));
   }
@@ -213,12 +325,14 @@ export class PortalGate {
     const count = 2 * (h + 2) + 2 * w;
 
     this._frameGeo = new THREE.BoxGeometry(1, 1, 1);
+    this._frameTex = makeObsidianTexture();
     this._frameMat = new THREE.MeshStandardMaterial({
       color: 0xffffff,        // shaded via per-instance colour below
-      roughness: 0.82,
-      metalness: 0.18,
-      emissive: 0x0b0514,     // faint violet inner sheen
-      emissiveIntensity: 0.5,
+      map: this._frameTex,    // mottled obsidian: veins + glassy flecks
+      roughness: 0.38,        // glassy — catches the portal light's specular
+      metalness: 0.22,
+      emissive: 0x14092a,     // faint violet inner sheen
+      emissiveIntensity: 0.55,
     });
     const frame = new THREE.InstancedMesh(this._frameGeo, this._frameMat, count);
     frame.name = 'portalFrame';
@@ -232,13 +346,14 @@ export class PortalGate {
     const place = (x, y) => {
       m.makeTranslation(x, y, 0);
       frame.setMatrixAt(idx, m);
-      // Near-black purple, deterministic shade variation per block so the
-      // frame reads as individual obsidian-style voxels.
+      // Per-block brightness variation over the obsidian map so the frame
+      // reads as individual voxels (the map itself carries the texture; the
+      // old near-black tints crushed it to a featureless silhouette).
       const t = hash01(idx);
       c.setRGB(
-        0.045 + 0.045 * t,
-        0.026 + 0.024 * t,
-        0.075 + 0.065 * t,
+        0.4 + 0.36 * t,
+        0.38 + 0.32 * t,
+        0.46 + 0.4 * t,
       );
       frame.setColorAt(idx, c);
       idx++;
@@ -287,13 +402,39 @@ export class PortalGate {
     this._surface = surface;
     this.object3d.add(surface);
 
-    // ---- LIGHT: soft palette-tinted point light at the portal centre.
-    this._lightBase = 1.6;
+    // ---- LIGHT: palette-tinted point light at the portal centre. Strong
+    // enough (5.0, decay 1.8) to actually paint the frame, ground and nearby
+    // blocks with the portal colour — the old 1.6/decay-2 light died within
+    // a block and the surroundings stayed pitch black at night.
+    this._lightBase = 5.0;
     this._light = new THREE.PointLight(
-      0xffffff, this._lightBase, Math.max(width, height) * 4.5, 2);
-    this._light.position.set(0, height / 2, 0);
+      0xffffff, this._lightBase, Math.max(width, height) * 6, 1.8);
+    this._light.position.set(0, height / 2, 1.1); // nudged out the front face
     this._light.castShadow = false;       // deliberate — perf
     this.object3d.add(this._light);
+
+    // ---- MOTES: additive glow particles drifting out of the surface.
+    this._moteTex = makeMoteTexture();
+    this._moteGeo = new THREE.BufferGeometry();
+    this._motePos = new Float32Array(MOTES * 3);
+    this._moteGeo.setAttribute(
+      'position', new THREE.BufferAttribute(this._motePos, 3));
+    this._moteMat = new THREE.PointsMaterial({
+      color: 0xffffff,                    // tinted to the live glow palette
+      size: 0.2,
+      sizeAttenuation: true,
+      map: this._moteTex,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      opacity: 0.8,
+    });
+    this._motes = new THREE.Points(this._moteGeo, this._moteMat);
+    this._motes.name = 'portalMotes';
+    this._motes.renderOrder = 3;          // after the portal surface
+    this._motes.frustumCulled = false;
+    this._motes.userData.noShadow = true;
+    this.object3d.add(this._motes);
 
     // ---- Palette crossfade state (all scratch objects prebuilt).
     this._fromDeep = new THREE.Color();
@@ -413,7 +554,30 @@ export class PortalGate {
     const t = this._time;
     this._light.intensity = this._lightBase
       * (0.86 + 0.09 * Math.sin(t * 5.3) + 0.05 * Math.sin(t * 13.7 + 1.7))
-      + burstRing * 2.4;
+      + burstRing * 4.0;
+
+    // Motes: deterministic per-index orbits. Each mote loops a life cycle
+    // that carries it through the plane (z -0.9 -> +0.9) while slowly
+    // orbiting the portal centre; tinted to the live glow colour.
+    this._moteMat.color.copy(u.uColGlow.value);
+    const w2 = this._width * 0.42;
+    const h2 = this._height * 0.42;
+    const cy = this._height / 2;
+    const pos = this._motePos;
+    for (let i = 0; i < MOTES; i++) {
+      const s0 = hash01(i * 3 + 1);
+      const s1 = hash01(i * 5 + 2);
+      const s2 = hash01(i * 7 + 3);
+      const speed = 0.08 + 0.14 * s2;
+      const cyc = (t * speed + s0 * 7.31) % 1;
+      const ang = s1 * TWO_PI + t * (0.22 + 0.3 * s2) * (s0 > 0.5 ? 1 : -1);
+      const rad = 0.2 + 0.8 * s0 * (0.6 + 0.4 * cyc);
+      const j = i * 3;
+      pos[j] = Math.cos(ang) * rad * w2;
+      pos[j + 1] = cy + Math.sin(ang) * rad * h2;
+      pos[j + 2] = (cyc - 0.5) * 1.8 * (s1 > 0.5 ? 1 : -1);
+    }
+    this._moteGeo.attributes.position.needsUpdate = true;
   }
 
   setEnabled(on) {
@@ -426,8 +590,12 @@ export class PortalGate {
     this._frame.dispose();          // frees instance buffers
     this._frameGeo.dispose();
     this._frameMat.dispose();
+    if (this._frameTex) this._frameTex.dispose();
     this._surfGeo.dispose();
     this._surfMat.dispose();
+    this._moteGeo.dispose();
+    this._moteMat.dispose();
+    if (this._moteTex) this._moteTex.dispose();
     this._light.dispose();
     this.object3d.clear();
   }

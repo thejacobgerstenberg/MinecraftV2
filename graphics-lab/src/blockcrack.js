@@ -65,9 +65,12 @@ function walkPath(rng, x, y, ang, steps) {
     pts.push({
       x: Math.round(x),
       y: Math.round(y),
-      shade: (20 + rng() * 45) | 0, // dark grey 20..65
+      shade: (26 + rng() * 44) | 0, // dark grey 26..70
     });
-    ang += (rng() - 0.5) * 0.9;
+    // Small angular jitter only (was +-0.45 rad, which made the walks loop
+    // back on themselves — the decal read as a corrupted black scribble
+    // instead of cracks radiating from the impact point).
+    ang += (rng() - 0.5) * 0.34;
     x += Math.cos(ang);
     y += Math.sin(ang);
     if (x < -0.5 || y < -0.5 || x > TEX_SIZE - 0.5 || y > TEX_SIZE - 0.5) break;

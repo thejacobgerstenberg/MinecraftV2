@@ -115,6 +115,17 @@ function init() {
     hero:    { pos: [-14, 26, 62], target: [26, 18, 20], maxPolar: 0.495 },
     sunrise: { pos: [-26, WATER_LEVEL + 6, 47], target: [54, WATER_LEVEL + 4, 63], maxPolar: 0.55 },
     closeup: { pos: [38, 25, 27], target: [29.5, 20.5, 16.5], maxPolar: 0.52 },
+    // Feature-shot framings (phase-2 fix round):
+    // 'firstperson'  closeup variant panned right so the portal frame is not
+    //                clipped at the left edge behind the held-item viewmodel.
+    // 'portal'       ground-level, square on the portal gate so the swirl,
+    //                obsidian frame and the light it throws fill the frame.
+    // 'torches'      ground-level inside the scatter-torch cluster east of
+    //                the cabin: warm falloff pools on the terraces are the
+    //                subject.
+    firstperson: { pos: [38.5, 24.5, 28.5], target: [31.5, 20.5, 14.5], maxPolar: 0.52 },
+    portal:      { pos: [20, 18.5, 37], target: [22, 18.6, 25.5], maxPolar: 0.55 },
+    torches:     { pos: [27.5, 18.5, 22.5], target: [33.5, 16.5, 27.5], maxPolar: 0.55 },
   };
   // Underwater framing: FULLY submerged inside the lake bowl (centre (13,34),
   // r=10, floor ~5, surface at WATER_LEVEL=10 with ~0.6u waves — so the camera
@@ -601,9 +612,12 @@ function init() {
     }
 
     // Auto crack-break near the cabin every ~6 s (view-model swing included)
-    // so screenshots can catch the full crack -> debris sequence.
+    // so screenshots can catch the full crack -> debris sequence. Gated on
+    // the crack toggle: with cracks disabled the whole break demo pauses
+    // (no invisible decals, and no surprise view-model swings that can yank
+    // the held item out of frame mid-capture).
     breakTimer += dt;
-    if (breakTimer >= 6) triggerBreakImpl();
+    if (breakTimer >= 6 && state.effects.crack) triggerBreakImpl();
 
     // Final render (PostFX self-bypasses to a plain render when disabled).
     post.render(dt);

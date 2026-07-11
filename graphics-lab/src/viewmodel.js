@@ -36,15 +36,25 @@
 // Contract: update(dt, ctx), setEnabled(bool), get enabled, dispose(),
 // .object3d (the rig — already added to the camera by the constructor).
 // ctx = { camera, renderer, scene, elapsed, timeOfDay, sunDir, weather,
-// underwater }; only ctx.sunDir is read (night fill boost) and it is optional.
+// underwater }; only ctx.sunDir is read (daylight-scaled fill) — optional.
 // Zero per-frame allocations: update() only mutates existing transforms.
 
 import * as THREE from 'three';
 import { BLOCKS, faceColor, getBlock } from './blocks.js';
 
 // Rig anchor in camera space (lower-right, comfortably past the near plane).
-const ANCHOR_POS = { x: 0.55, y: -0.45, z: -1.1 };
-const ANCHOR_SCALE = 0.35;
+// Raised off the frame edge so the held block floats clear of the screen
+// bottom (it used to sit ON the edge and read as world geometry) and the
+// blocky arm below-right of it stays visible.
+const ANCHOR_POS = { x: 0.48, y: -0.38, z: -1.1 };
+const ANCHOR_SCALE = 0.3;
+
+// Blocky first-person arm (Steve-style): skin tone + darker sleeve band.
+// Deliberately dark-ish albedo: the rig is unshadowed, so mid tones here
+// render about right under full sun + hemi (a "true" light skin tone washed
+// out to cream-white in day shots).
+const ARM_SKIN = [0.34, 0.22, 0.13];
+const ARM_SLEEVE = [0.07, 0.22, 0.2];
 
 // Render after all normal scene content so depthTest:false overlays cleanly.
 const BASE_RENDER_ORDER = 950;
@@ -152,10 +162,17 @@ export class FirstPersonViewModel {
     this._holder.name = 'fp-viewmodel-holder';
     this._swingPivot.add(this._holder);
 
-    // Short-range warm fill so the item survives moonless nights. Distance is
-    // world-space (~item is <0.5u from the light), so the falloff keeps it
-    // from meaningfully lighting the scene beyond arm's reach.
-    this._fill = new THREE.PointLight(0xfff1da, 0.18, 2.0, 2);
+    // Blocky first-person ARM reaching in from the lower-right screen corner
+    // to the held item, so the shot reads as first-person at a glance. Swings
+    // with the item (child of the swing pivot).
+    this._arm = this._buildArm();
+    this._swingPivot.add(this._arm);
+
+    // Very short-range warm fill so the item never goes 100% black in a cave.
+    // Deliberately faint — the item is lit by the SCENE (sun/moon + hemi +
+    // torch lights), and update() scales this fill DOWN with the sun so the
+    // held block never reads as an emissive lantern at night.
+    this._fill = new THREE.PointLight(0xfff1da, 0.09, 2.0, 2);
     this._fill.position.set(0, 0.5, 0.9); // rig-local: above + camera-side
     this._fill.castShadow = false;
     this._fillBase = this._fill.intensity;
@@ -235,8 +252,11 @@ export class FirstPersonViewModel {
         typeof this._atlas.tileUV === 'function' &&
         typeof this._atlas.faceTile === 'function' &&
         this._remapBoxUVs(geo, id)) {
-      // Textured path: one material, per-face atlas UVs.
-      mesh = new THREE.Mesh(geo, makeLambert([1, 1, 1], {
+      // Textured path: one material, per-face atlas UVs. Tint slightly below
+      // white: world voxels carry baked AO the unshadowed rig lacks, so a
+      // full-white tint rendered noticeably paler than the same block in the
+      // terrain.
+      mesh = new THREE.Mesh(geo, makeLambert([0.82, 0.82, 0.82], {
         map: this._atlasTexture,
         emissive: block.emissive || null,
         emissiveScale: 0.06,
@@ -280,6 +300,43 @@ export class FirstPersonViewModel {
     }
     uv.needsUpdate = true;
     return true;
+  }
+
+  // Blocky forearm: a long box aimed from the lower-right screen corner up to
+  // the held item, with a darker sleeve band at the shoulder end. Rig-local;
+  // rendered as part of the overlay (same depthTest:false + renderOrder rules,
+  // drawn just UNDER the item so the block sits in the palm).
+  _buildArm() {
+    const group = new THREE.Group();
+    group.name = 'fp-viewmodel-arm';
+
+    // Runs from the "hand" at the block's lower-right corner out through the
+    // bottom-right screen corner (far end off-frame, like a real FPS arm).
+    // The shallow screen-space slope keeps the forearm band visible above
+    // the frame edge instead of dipping straight below it.
+    const hand = new THREE.Vector3(0.32, -0.28, 0.15);
+    const dir = new THREE.Vector3(1.74, -0.35, 0.35).normalize();
+    const q = new THREE.Quaternion()
+      .setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
+
+    const skin = makeLambert(ARM_SKIN, { emissiveScale: 0.04 });
+    const sleeve = makeLambert(ARM_SLEEVE, { emissiveScale: 0.04 });
+
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 2.0), skin);
+    arm.position.copy(dir).multiplyScalar(0.95).add(hand);
+    arm.quaternion.copy(q);
+    markOverlay(arm, -2);
+    group.add(arm);
+
+    // Sleeve band across the mid-forearm (on-screen, so the strip clearly
+    // reads as an arm rather than a wedge of terrain).
+    const band = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.56, 0.42), sleeve);
+    band.position.copy(dir).multiplyScalar(0.55).add(hand);
+    band.quaternion.copy(q);
+    markOverlay(band, -1);
+    group.add(band);
+
+    return group;
   }
 
   _buildPickaxe() {
@@ -388,10 +445,13 @@ export class FirstPersonViewModel {
       pivot.position.y = 0;
     }
 
-    // Night fill boost: keep the item readable when the sun is down.
+    // Scene-matched fill: the faint warm fill follows the SUN, so the held
+    // item is lit like the world around it. At night it drops to near zero
+    // (the moon/hemi rig takes over) instead of boosting — the old night
+    // boost made the block glow like a lantern in night screenshots.
     if (ctx && ctx.sunDir) {
-      const night = Math.min(Math.max(-ctx.sunDir.y * 2, 0), 1); // 0 day .. 1 night
-      this._fill.intensity = this._fillBase * (1 + night);
+      const day = Math.min(Math.max(ctx.sunDir.y * 3 + 0.25, 0.05), 1);
+      this._fill.intensity = this._fillBase * day;
     }
   }
 
@@ -432,6 +492,15 @@ export class FirstPersonViewModel {
     this._cache.clear();
     this._currentItem = null;
     this._currentSpec = null;
+    if (this._arm) {
+      this._arm.traverse((node) => {
+        if (node.isMesh) {
+          node.geometry.dispose();
+          node.material.dispose();
+        }
+      });
+      this._arm = null;
+    }
     if (this._fill.dispose) this._fill.dispose();
   }
 }

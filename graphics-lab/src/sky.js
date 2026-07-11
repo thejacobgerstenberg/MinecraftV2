@@ -13,7 +13,7 @@
 //   - soft drifting fbm CLOUDS on a large horizontal plane, tinted by the sun
 //     colour (white day / pink-orange twilight / faintly lit night),
 //   - a key DirectionalLight (this.sun) + HemisphereLight fill (this.hemi).
-//     Night is NEVER pitch black: cool blue moonlight (~0.14-0.20) plus a hemi
+//     Night is NEVER pitch black: cool blue moonlight (~0.21-0.28) plus a hemi
 //     floor keep terrain faintly readable.
 //
 // Robustness: all sky visuals are camera-centred and FAR-PLANE PROOF. The
@@ -132,16 +132,18 @@ function makeMoonTexture() {
   const cv = document.createElement('canvas');
   cv.width = cv.height = s;
   const ctx = cv.getContext('2d');
-  // soft outer glow so the moon reads even against a lightening sky
-  const glow = ctx.createRadialGradient(s / 2, s / 2, s * 0.24, s / 2, s / 2, s / 2);
-  glow.addColorStop(0.0, 'rgba(214,226,248,0.40)');
-  glow.addColorStop(0.55, 'rgba(210,222,245,0.12)');
+  // Faint, tight outer glow only — the old broad 0.40-alpha gradient fed the
+  // bloom pass a huge halo that swallowed the square disc (it read as a
+  // rounded blob). The crisp square quad below is the moon.
+  const glow = ctx.createRadialGradient(s / 2, s / 2, s * 0.26, s / 2, s / 2, s * 0.44);
+  glow.addColorStop(0.0, 'rgba(214,226,248,0.14)');
+  glow.addColorStop(0.6, 'rgba(210,222,245,0.04)');
   glow.addColorStop(1.0, 'rgba(210,222,245,0.0)');
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, s, s);
   // Square pale moon quad with a few darker pixel-block "maria".
   const half = s / 2;
-  const q = Math.round(s * 0.17); // half-side (~22px)
+  const q = Math.round(s * 0.21); // half-side (~27px) — bigger crisp square
   ctx.fillStyle = 'rgba(228,236,250,1.0)';
   ctx.fillRect(half - q, half - q, q * 2, q * 2);
   ctx.fillStyle = 'rgba(198,210,234,1.0)';
@@ -214,7 +216,8 @@ export class DynamicSky {
     this._domeRadius = domeRadius;
     this._spriteR = spriteR;
     this._sunScaleBase = domeRadius * 0.13;
-    this._moonScaleBase = domeRadius * 0.10;
+    this._moonScaleBase = domeRadius * 0.085; // slightly tighter than the sun
+    // (the old 0.10 sprite + broad baked glow bloomed into an oversized halo)
     this._lightDist = 120;
     this._lastFar = -1;
 
@@ -628,7 +631,7 @@ export class DynamicSky {
     // ---- Moon glow (dome).
     const nightF = 1 - dayAmt;
     const moonUp = smoothstep(this.moonDir.y, -0.05, 0.2);
-    this._domeMat.uniforms.uMoonGlow.value = nightF * moonUp * 0.9;
+    this._domeMat.uniforms.uMoonGlow.value = nightF * moonUp * 0.55;
 
     // ---- Star opacity: full 1.0 once the sun is well below the horizon so
     // 2.5-4px stars survive bloom averaging + ACES at 1600x900.
@@ -673,7 +676,9 @@ export class DynamicSky {
     } else {
       this._keyDir.copy(this.moonDir);
       this.sun.color.copy(MOON_LIGHT);
-      this.sun.intensity = 0.14 + 0.06 * clamp(this.moonDir.y, 0, 1);
+      // Slightly stronger moonlight (was 0.14 base): night terrain and tree
+      // canopies keep readable form instead of crushing to pure black.
+      this.sun.intensity = 0.21 + 0.07 * clamp(this.moonDir.y, 0, 1);
     }
     this.sun.position.copy(this._keyDir).multiplyScalar(this._lightDist);
 
@@ -683,8 +688,10 @@ export class DynamicSky {
     this._scratchColor.copy(this._horizonColor).lerp(this._zenithColor, 0.35);
     this.hemi.color.copy(HEMI_NIGHT_SKY).lerp(this._scratchColor, dayAmt);
     // The +tw golden-hour lift keeps sunrise/sunset terrain readable instead
-    // of a pure backlit silhouette.
-    this.hemi.intensity = 0.25 + 0.6 * dayAmt + 0.8 * tw;
+    // of a pure backlit silhouette. Night floor raised 0.25 -> 0.33 (foliage
+    // and foreground terrain used to crush to pure black); day total ~0.85
+    // unchanged.
+    this.hemi.intensity = 0.33 + 0.52 * dayAmt + 0.8 * tw;
 
     // ---- Overcast weather grade (rain full, snow lighter). Applied LAST so
     // it re-grades the clear-sky values above; every value is recomputed from
