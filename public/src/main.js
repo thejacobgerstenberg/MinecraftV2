@@ -32,7 +32,7 @@ import { DistanceFog } from '../graphics/src/fog.js';
 import { Particles } from '../graphics/src/particles.js';
 import WeatherSystem from '../weather/weather.js';
 import { GameAudio } from './audio/GameAudio.js';
-import { tileForFace } from './blocks/blocks.js';
+import { tileForFace, CREATIVE_BLOCKS } from './blocks/blocks.js';
 import { makeIconFactory } from './ui/icons.js';
 import { initMenus } from './ui/menu.js';
 import { initHUD } from './ui/hud.js';
@@ -40,6 +40,18 @@ import { initHotbar } from './ui/hotbar.js';
 import { initChat } from './ui/chat.js';
 import { initInventory } from './ui/inventory.js';
 import { initDebug } from './ui/debug.js';
+// Mobs + content integration (this stage).
+import MobManager from '../mobs/MobManager.js';
+import { CANONICAL_ID } from '../mobs/spawnRules.js';
+import { LOOT_TABLES } from '../mobs/lootTables.js';
+import { gameEvents } from './systems/events.js';
+import { initAchievements } from './systems/achievements.js';
+import {
+  loadNaming, blockDisplayName, biomeDisplayName, canonBlockIdFor, CANON_BLOCK_ID,
+} from './systems/naming.js';
+import { loadDeathMessages, deathMessageFor } from './systems/deathmessages.js';
+import { initDeathScreen } from './ui/deathscreen.js';
+import { initHelp } from './ui/help.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -58,6 +70,31 @@ const DRY_SPAWN_RADIUS = 24; // spiral scan radius for a dry (non-liquid) spawn
 const STEP_DISTANCE = 2.2; // blocks of ground travel between footstep sounds
 const WEATHER_ROLL_S = DAY_LENGTH_S / 12; // weather machine rolls every ~2 game hours
 const SNOW_BIOMES = new Set(['Snowfield', 'Snowcap']); // biomeAt() display names
+
+// Combat (mobs stage).
+const ATTACK_REACH = 4; // player melee reach vs mob hitboxes (blocks)
+const ATTACK_DAMAGE = 4; // hp per left-click hit
+const MOB_HIT_PAD = 0.12; // hitbox forgiveness padding (blocks)
+const VOICE_RADIUS = 16; // idle mob barks only within this range of the player
+const VOICE_MIN_S = 5; // idle-bark throttle window
+const VOICE_JITTER_S = 6;
+const DAYLIGHT_DAY_THRESHOLD = 0.35; // sky.daylight above this counts as "day"
+
+// The audio engine ships voices for the five base archetype families; the
+// newer archetypes reuse their AI-family voice (unknown keys would no-op).
+const VOICE_FAMILY = {
+  grazer: 'grazer', bobbindeer: 'grazer',
+  trader: 'trader', scaldwarden: 'trader',
+  groaner: 'groaner', frayedhound: 'groaner', emberspinner: 'groaner',
+  unpicked: 'groaner', needlejack: 'groaner', raveler: 'groaner',
+  lastneedle: 'groaner',
+  exploder: 'exploder',
+  screecher: 'screecher',
+};
+
+// Engine dimension id -> canonical Loomfall dimension key (achievements'
+// enter_dimension triggers are keyed by the canonical names).
+const CANON_DIM = { overworld: 'warpwold', nether: 'cinderloom', end: 'nevermend' };
 
 // Scratch colors for the per-frame sky/fog/weather grading (no allocation).
 const _grey = new THREE.Color();
@@ -126,6 +163,31 @@ function facingFromYaw(yaw) {
   return ['N', 'W', 'S', 'E'][idx];
 }
 
+/**
+ * Ray vs axis-aligned box (slab method). Returns the entry distance along
+ * the (normalized-enough) direction, 0 when the origin starts inside, or
+ * null on a miss. Used for the player-melee raycast against mob hitboxes.
+ */
+function rayAabbEntry(origin, dir, min, max) {
+  let tMin = 0;
+  let tMax = Infinity;
+  for (const axis of ['x', 'y', 'z']) {
+    const o = origin[axis];
+    const d = dir[axis];
+    if (Math.abs(d) < 1e-9) {
+      if (o < min[axis] || o > max[axis]) return null;
+    } else {
+      let t1 = (min[axis] - o) / d;
+      let t2 = (max[axis] - o) / d;
+      if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+      tMin = Math.max(tMin, t1);
+      tMax = Math.min(tMax, t2);
+      if (tMin > tMax) return null;
+    }
+  }
+  return tMin;
+}
+
 /** Apply an edits bucket ({"x,y,z": id}) to a World via setBlock. */
 function applyEdits(world, bucket) {
   if (!bucket) return;
@@ -184,6 +246,59 @@ window.addEventListener('pointerdown', () => audio.resume(), { once: true });
 window.addEventListener('keydown', () => audio.resume(), { once: true });
 
 // ---------------------------------------------------------------------------
+// Content + achievements (page lifetime)
+// ---------------------------------------------------------------------------
+
+/** Canon naming + death-message tables (both degrade gracefully offline). */
+const contentReady = Promise.all([loadNaming(), loadDeathMessages()])
+  .catch(() => {});
+
+/** "How to Play" panel — renders content/GAME_GUIDE.md. */
+const help = initHelp();
+
+/** Achievements engine. Capability sets tell it which canonical triggers can
+ *  actually fire in this build (it wires ONLY those — no stub triggers):
+ *  killable entities come from the mob roster, obtainable item ids from mob
+ *  loot tables + the engine-block -> canon-block mapping (breaking a mapped
+ *  block "collects" its canonical material in this creative build), and
+ *  placeable canon ids from the creative palette. */
+const achievements = initAchievements({
+  bus: gameEvents,
+  audio,
+  caps: {
+    killableEntityIds: new Set(Object.values(CANONICAL_ID)),
+    obtainableItemIds: new Set([
+      ...Object.values(CANON_BLOCK_ID),
+      ...Object.values(LOOT_TABLES).flat().map((e) => e.itemId),
+    ]),
+    placeableCanonIds: new Set(
+      CREATIVE_BLOCKS.map((id) => canonBlockIdFor(getBlockDef(id).name)).filter(Boolean),
+    ),
+    enterableDimensions: new Set(Object.values(CANON_DIM)),
+  },
+});
+achievements.load();
+
+/** Death ("unpicked") screen — Respawn routes into the live session. */
+const deathScreen = initDeathScreen({
+  onRespawn: () => { G?.respawnFromDeath?.(); },
+});
+
+/** Full-screen red damage flash. */
+const hurtFlashEl = document.createElement('div');
+hurtFlashEl.className = 'hurt-flash';
+document.body.appendChild(hurtFlashEl);
+
+function flashHurt(strength = 0.85) {
+  hurtFlashEl.style.transition = 'none';
+  hurtFlashEl.style.opacity = String(Math.max(0, Math.min(1, strength)));
+  requestAnimationFrame(() => {
+    hurtFlashEl.style.transition = '';
+    hurtFlashEl.style.opacity = '0';
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Travel overlays (fade-to-black + portal charge vignette) — page lifetime
 // ---------------------------------------------------------------------------
 
@@ -231,6 +346,7 @@ ui.menus = initMenus({
   onCreateWorld: async ({ name, seed }) => {
     try {
       const world = await apiCreateWorld({ name, seed });
+      gameEvents.emit('world:created', { id: world.id, name: world.name });
       startGame(world);
     } catch (err) {
       console.warn('[loomfall] world creation failed:', err);
@@ -238,6 +354,8 @@ ui.menus = initMenus({
       ui.menus.showWorldSelect();
     }
   },
+  onHowToPlay: () => { help.open(); },
+  onAchievements: () => { achievements.openScreen(); },
   onSettingsChange: (s) => applySettings(s),
   onResume: () => resumeGame(),
   onQuitToTitle: () => quitToTitle(),
@@ -258,7 +376,12 @@ Object.assign(settings, ui.menus.getSettings());
 
 ui.hud = initHUD();
 ui.hotbar = initHotbar({ iconFor: (id) => (G ? G.iconFor(id) : null) });
-ui.chat = initChat({ onSend: (text) => { G?.net.sendChat(text); } });
+ui.chat = initChat({
+  onSend: (text) => {
+    G?.net.sendChat(text);
+    gameEvents.emit('chat:sent', { length: text.length });
+  },
+});
 ui.inventoryUI = initInventory({
   iconFor: (id) => (G ? G.iconFor(id) : null),
   onPick: (id) => {
@@ -318,8 +441,15 @@ window.addEventListener('resize', () => {
 // Live settings
 // ---------------------------------------------------------------------------
 
+let lastPackSeen = null; // pack:switched event edge detector
+
 function applySettings(next) {
+  const prevPack = lastPackSeen ?? settings.texturePack;
   Object.assign(settings, next);
+  if (settings.texturePack !== prevPack) {
+    gameEvents.emit('pack:switched', { packId: settings.texturePack, from: prevPack });
+  }
+  lastPackSeen = settings.texturePack;
   audio.setVolumes(settings);
   if (!G) return;
   G.camera.fov = settings.fov;
@@ -390,6 +520,11 @@ function startGame(worldMeta) {
 
 async function bootSession(worldMeta) {
   const dim = 'overworld';
+
+  // Canon naming/death-message data — awaited so first-render tooltips and
+  // the death screen use canonical names (resolves instantly once cached;
+  // resolves anyway on fetch failure with engine-name fallbacks).
+  await contentReady;
 
   // --- Rendering core --------------------------------------------------------
   const atlas = buildAtlas(settings.texturePack);
@@ -502,6 +637,30 @@ async function bootSession(worldMeta) {
   const iconFor = makeIconFactory(atlas);
   const peers = new PeerAvatars(scene);
 
+  // --- Mobs (public/mobs/ package) --------------------------------------------
+  // Per-world achievement bucket keys off the server world id.
+  achievements.setWorld(welcome.world.id);
+  // The manager's world reference is fixed at construction, but our world
+  // object is REPLACED on dimension travel — hand it a live proxy instead.
+  // The proxy also floors coordinates: mob AI samples with FLOAT positions
+  // (the package's StubWorld floored internally) while World.getBlock
+  // expects integer block coords.
+  const mobWorld = {
+    getBlock: (x, y, z) =>
+      S.world.getBlock(Math.floor(x), Math.floor(y), Math.floor(z)),
+  };
+  const mobs = new MobManager(scene, mobWorld, {
+    getPlayerPos: () => ({
+      x: S.player.position.x + S.player.size.x / 2,
+      y: S.player.position.y,
+      z: S.player.position.z + S.player.size.z / 2,
+    }),
+    getBlockDef, // OUR block registry (public/src/blocks/blocks.js)
+    isDay: () => S.isDay,
+    dimension: dim, // engine ids are normalized internally
+    onEvent: (name, detail) => onMobEvent(name, detail),
+  });
+
   // Physical portals: frame detection, fill/collapse, dwell-to-travel.
   const portals = new PortalSystem({
     getWorld: () => S.world,
@@ -561,6 +720,13 @@ async function bootSession(worldMeta) {
       inSnowBiome: false,
       biomeCheckAt: 0,
     },
+    mobs,
+    dead: false, // death screen up; player sim + damage suspended
+    isDay: true, // fed to the mob manager (spawn tables) each frame
+    wasDay: true, // dawn edge detector for night:survived
+    nightSeen: false, // an overworld night was witnessed since last death
+    voiceTimer: 4 + Math.random() * VOICE_JITTER_S, // idle mob bark throttle
+    respawnFromDeath: null, // assigned below (deathScreen Respawn routes here)
     stepAcc: 0, // ground distance since the last footstep sound
     lastFeetX: 0,
     lastFeetZ: 0,
@@ -676,10 +842,23 @@ async function bootSession(worldMeta) {
   applyDimensionEnvironment(S.dim);
   publishHooks();
 
+  // Falling past the kill plane routes through the death flow (canon cause:
+  // the void picks you apart) instead of the old silent respawn.
+  player.onKillPlane = () => {
+    if (S.dead) return;
+    S.player.health = 0;
+    ui.hud.setHealth(0);
+    killPlayer('void_unravel');
+  };
+  S.respawnFromDeath = respawnFromDeath;
+
+  gameEvents.emit('dimension:entered', { dim: S.dim, canonDim: CANON_DIM[S.dim] });
+
   // --- Session helpers (close over S) -------------------------------------------
 
   function gameplayActive() {
-    return !!G && !S.paused && !ui.chat.isOpen() && !ui.inventoryUI.isOpen();
+    return !!G && !S.paused && !S.dead
+      && !ui.chat.isOpen() && !ui.inventoryUI.isOpen();
   }
 
   function clearMovementInput() {
@@ -700,8 +879,143 @@ async function bootSession(worldMeta) {
     return raycastVoxel(S.world, eye, { x: dir.x, y: dir.y, z: dir.z }, REACH);
   }
 
+  // --- Combat / death / mob events ---------------------------------------------
+
+  /** Nearest live mob under the crosshair within `reach`, or null. A solid
+   *  block strictly closer than the mob occludes it (walls block swings). */
+  function pickMobTarget(reach) {
+    const dir = S.camera.getWorldDirection(S.tmpDir);
+    const eye = S.player.eyePosition;
+    let best = null;
+    for (const mob of S.mobs.mobs) {
+      if (mob.dead) continue;
+      const hw = (mob.halfWidth ?? 0.35) + MOB_HIT_PAD;
+      const h = (mob.height ?? 1) + MOB_HIT_PAD;
+      const t = rayAabbEntry(eye, dir,
+        { x: mob.position.x - hw, y: mob.position.y - MOB_HIT_PAD, z: mob.position.z - hw },
+        { x: mob.position.x + hw, y: mob.position.y + h, z: mob.position.z + hw });
+      if (t != null && t <= reach && (best == null || t < best.t)) best = { mob, t };
+    }
+    if (!best) return null;
+    const blocked = raycastVoxel(
+      S.world, eye, { x: dir.x, y: dir.y, z: dir.z }, best.t).hit;
+    return blocked ? null : best;
+  }
+
+  /** Player melee (left-click): mob hitboxes take priority over blocks. */
+  function tryAttackMob() {
+    const hit = pickMobTarget(ATTACK_REACH);
+    if (!hit) return false;
+    hit.mob.hurt(ATTACK_DAMAGE); // -> mobHurt (+ mobDeath / bossDefeated) events
+    return true;
+  }
+
+  /** Every MobManager event lands here (audio, particles, damage, bus). */
+  function onMobEvent(name, detail) {
+    if (G !== S || !detail) return;
+    const pos = detail.position || detail.pos || null;
+    const family = VOICE_FAMILY[detail.archetype] || 'groaner';
+    switch (name) {
+      case 'mobHurt':
+        audio.play(`mob.${family}.hurt`, pos ? { pos, volume: 0.85 } : undefined);
+        break;
+      case 'mobDeath':
+        audio.play(`mob.${family}.death`, pos ? { pos, volume: 0.95 } : undefined);
+        if (pos) {
+          // Small unravel poof: reuse the debris particles at chest height.
+          S.fx.particles.spawnBlockBreak(
+            { x: pos.x, y: pos.y + ((detail.mob && detail.mob.height) || 1) * 0.5, z: pos.z },
+            [0.82, 0.78, 0.72]);
+        }
+        gameEvents.emit('mob:killed', {
+          canonicalId: detail.canonicalId, archetype: detail.archetype,
+        });
+        break;
+      case 'mobDrop':
+        gameEvents.emit('mob:drop', { itemId: detail.itemId, count: detail.count });
+        gameEvents.emit('item:collected', { itemId: detail.itemId, count: detail.count });
+        break;
+      case 'mobAttack':
+        if (detail.explosion) {
+          audio.play('explosion', pos ? { pos } : undefined);
+          if (pos) S.fx.particles.spawnBlockBreak(pos, [1.0, 0.6, 0.25]);
+          if (detail.hitPlayer) damagePlayer(detail.dmg, `mob:${detail.canonicalId}`);
+        } else {
+          damagePlayer(detail.dmg, `mob:${detail.canonicalId}`);
+        }
+        break;
+      case 'bossDefeated':
+        audio.levelup();
+        if (pos) S.fx.particles.spawnBlockBreak(pos, [0.85, 0.8, 1.0]);
+        ui.chat.addMessage({
+          system: true,
+          text: 'The Last Needle is bound. For a while, it will mend.',
+        });
+        gameEvents.emit('boss:defeated', {
+          canonicalId: detail.canonicalId,
+          achievement: detail.achievement,
+          victoryTrigger: detail.victoryTrigger,
+        });
+        break;
+      default:
+        break; // mobSpawn / mobDespawn: quiet
+    }
+  }
+
+  /** Apply damage to the player: HUD, hurt grunt, red flash, death at 0. */
+  function damagePlayer(dmg, cause) {
+    if (G !== S || S.dead || S.travelInFlight) return;
+    const amount = Math.max(0, Math.round(Number(dmg) || 0));
+    if (amount <= 0) return;
+    S.player.health = Math.max(0, S.player.health - amount);
+    ui.hud.setHealth(S.player.health);
+    audio.hurt();
+    flashHurt(0.55 + Math.min(0.35, amount * 0.05));
+    if (S.player.health <= 0) killPlayer(cause);
+  }
+
+  /** Health hit 0: death screen with a templated canon death message. */
+  function killPlayer(cause) {
+    if (S.dead) return;
+    S.dead = true;
+    S.nightSeen = false; // dying mid-night forfeits survive_first_night
+    clearMovementInput();
+    const message = deathMessageFor(cause || 'void_unravel', getPlayerName());
+    gameEvents.emit('player:died', { cause: cause || 'unknown', message });
+    ui.chat.addMessage({ system: true, text: message });
+    if (document.pointerLockElement) S.suppressPause++;
+    safeUnlock();
+    deathScreen.show(message);
+  }
+
+  /** Death-screen Respawn: re-stitch at the knot (spawn), reset health. */
+  function respawnFromDeath() {
+    if (G !== S || !S.dead) return;
+    S.dead = false;
+    S.player.respawn(); // resets position, velocity, and health
+    ui.hud.setHealth(S.player.health);
+    gameEvents.emit('player:respawned', {});
+    safeLock();
+  }
+
+  /** Throttled idle mob barks by proximity (one voice per window). */
+  function mobVoiceTick(dt) {
+    S.voiceTimer -= dt;
+    if (S.voiceTimer > 0) return;
+    S.voiceTimer = VOICE_MIN_S + Math.random() * VOICE_JITTER_S;
+    const eye = S.player.eyePosition;
+    const near = S.mobs.mobs.filter((m) => !m.dead
+      && Math.hypot(m.position.x - eye.x, m.position.z - eye.z) <= VOICE_RADIUS);
+    if (near.length === 0) return;
+    const mob = near[Math.floor(Math.random() * near.length)];
+    const family = VOICE_FAMILY[mob.archetype] || 'groaner';
+    audio.play(`mob.${family}.idle`, { pos: { ...mob.position }, volume: 0.5 });
+  }
+
   function onBreak() {
     if (!gameplayActive()) return;
+    // Mob hitboxes take priority over blocks (reach 4 vs block reach 6).
+    if (tryAttackMob()) return;
     const t = computeTarget();
     if (!t.hit) return;
     const id = S.world.getBlock(t.x, t.y, t.z);
@@ -724,6 +1038,15 @@ async function bootSession(worldMeta) {
     // Debris burst tinted with the broken block's atlas tile + break sound.
     S.fx.particles.spawnBlockBreak(center, blockDebrisColor(S, id));
     audio.blockBreak(id, center);
+    // Achievements/events: breaking a canon-mapped block "collects" its
+    // canonical material in this creative build (see systems/achievements.js).
+    {
+      const canonId = canonBlockIdFor(def.name);
+      gameEvents.emit('block:broken', {
+        blockId: id, name: def.name, canonId, dim: S.dim,
+      });
+      if (canonId) gameEvents.emit('item:collected', { itemId: canonId, count: 1 });
+    }
     // Breaking a frame block (obsidian/end stone) collapses adjacent fills.
     if (id in FRAME_TARGETS) S.portals.handleFrameBreak(t.x, t.y, t.z);
     // Instant break for now: brief full-bar flash.
@@ -743,7 +1066,9 @@ async function bootSession(worldMeta) {
     // frame they light the whole interior, anywhere else they do nothing
     // but hint (see gameplay/portals.js).
     if (id === PORTAL_BLOCK) {
-      S.portals.handlePortalPlacement(nx, ny, nz);
+      if (S.portals.handlePortalPlacement(nx, ny, nz)) {
+        gameEvents.emit('portal:lit', { dim: S.dim });
+      }
       return;
     }
     // Only into air or liquid.
@@ -761,6 +1086,12 @@ async function bootSession(worldMeta) {
     recordEdit(S.dim, nx, ny, nz, id);
     S.net.sendEdit(nx, ny, nz, id);
     audio.blockPlace(id, { x: nx + 0.5, y: ny + 0.5, z: nz + 0.5 });
+    {
+      const def = getBlockDef(id);
+      gameEvents.emit('block:placed', {
+        blockId: id, name: def.name, canonId: canonBlockIdFor(def.name), dim: S.dim,
+      });
+    }
   }
 
   /** One __qa.recordTicks sample (see docs/DEV.md — "__qa adapter"). */
@@ -804,10 +1135,14 @@ async function bootSession(worldMeta) {
     quality.update(rawDt);
 
     // Simulation (frozen while paused or with the inventory screen open;
-    // chat leaves physics running but movement keys are cleared/guarded).
-    if (!S.paused && !ui.inventoryUI.isOpen()) {
-      S.player.update(dt, S.controls.input, S.controls.yaw);
-      S.portals.update(dt); // dwell-to-travel charging + cooldown
+    // chat leaves physics running but movement keys are cleared/guarded;
+    // the death screen freezes the player but leaves the world alive).
+    const simActive = !S.paused && !ui.inventoryUI.isOpen();
+    if (simActive) {
+      if (!S.dead) {
+        S.player.update(dt, S.controls.input, S.controls.yaw);
+        S.portals.update(dt); // dwell-to-travel charging + cooldown
+      }
       // __qa sim ticks (50 ms cadence; recorders sample at tick resolution).
       S.tickAcc += dt;
       while (S.tickAcc >= QA_TICK_S) {
@@ -826,9 +1161,30 @@ async function bootSession(worldMeta) {
     const timeOfDay = (START_TIME_OF_DAY + S.elapsed / DAY_LENGTH_S) % 1;
     if (S.dim === 'overworld') sky.update(timeOfDay, S.player.eyePosition);
 
-    // Weather: machine rolls + presentation, then the effect systems.
-    weatherMachineTick(S);
-    S.weather.update(dt);
+    // Mobs: day/night flag feeds the spawn tables (Cinderloom/Nevermend
+    // ignore it); the whole system freezes with the sim while paused.
+    S.isDay = S.dim !== 'overworld' || (S.sky.daylight ?? 1) > DAYLIGHT_DAY_THRESHOLD;
+    if (simActive) {
+      S.mobs.setDay(S.isDay);
+      S.mobs.update(dt);
+      mobVoiceTick(dt);
+      // survive_first_night: a full overworld night witnessed, then dawn.
+      if (S.dim === 'overworld') {
+        if (!S.isDay && !S.dead) S.nightSeen = true;
+        if (S.isDay && !S.wasDay && S.nightSeen && !S.dead) {
+          S.nightSeen = false;
+          gameEvents.emit('night:survived', {});
+        }
+        S.wasDay = S.isDay;
+      }
+    }
+
+    // Weather: machine rolls + presentation, then the effect systems
+    // (frozen with the sim while paused — no weather/particle work).
+    if (simActive) {
+      weatherMachineTick(S);
+      S.weather.update(dt);
+    }
     const wxState = S.weather.getState();
     const flash = S.dim === 'overworld' ? (S.weather.lightning.getFlash() || 0) : 0;
 
@@ -873,7 +1229,7 @@ async function bootSession(worldMeta) {
     S.fxCtx.weather = (S.wx.presented === 'rain' || S.wx.presented === 'storm')
       ? 'rain' : S.wx.presented === 'snow' ? 'snow' : 'clear';
     S.fx.fog.update(dt, S.fxCtx);
-    S.fx.particles.update(dt, S.particlesCtx);
+    if (simActive) S.fx.particles.update(dt, S.particlesCtx);
 
     // Crosshair target outline.
     const target = computeTarget();
@@ -943,12 +1299,18 @@ async function bootSession(worldMeta) {
           cz: Math.floor(S.player.position.z / CHUNK_SZ),
         },
         dim: DIMENSIONS[S.dim].name,
-        // Real biome in the overworld (same noise the generator used);
+        // Real biome in the overworld (same noise the generator used),
+        // shown under its canonical Loomfall name (naming.json analog);
         // nether/end terrain has no biome field — show the dimension name.
         biome: S.dim === 'overworld'
-          ? S.generator.biomeAt(px, pz)
+          ? biomeDisplayName(S.generator.biomeAt(px, pz))
           : DIMENSIONS[S.dim].name,
         facing: facingFromYaw(S.controls.yaw),
+        // Targeted block under its canonical display name (naming.json).
+        target: target.hit
+          ? blockDisplayName(getBlockDef(S.world.getBlock(target.x, target.y, target.z)).name)
+          : null,
+        mobs: S.mobs.mobs.length,
         tris: renderer.info.render.triangles,
         calls: renderer.info.render.calls,
         chunks: S.chunkRenderer.stats.chunksLoaded,
@@ -1002,6 +1364,7 @@ function teardownSession() {
   S.controls.dispose();
   S.peers.dispose();
   S.chunkRenderer.dispose();
+  S.mobs.dispose();
 
   audio.stopAll(); // music, ambience beds, rain loop, live voices
   S.weather.dispose();
@@ -1022,6 +1385,10 @@ function teardownSession() {
   ui.hud.showCrosshair(false);
   ui.hud.setBreakProgress(null);
   ui.menus.setLoading(null);
+  deathScreen.hide();
+  achievements.closeScreen();
+  achievements.clearWorld();
+  help.close();
   safeUnlock();
 
   // Travel overlays + pending __qa recorders die with the session.
@@ -1237,6 +1604,11 @@ async function switchDimension(dimId, opts = {}) {
   applyDimensionEnvironment(dimId);
   S.net.setDimension(dimId);
   S.peers.setDimension(dimId);
+  // Mobs: despawn everyone, switch to the destination's spawn tables (the
+  // manager normalizes engine ids internally; its world proxy already
+  // points at the rebuilt world).
+  S.mobs.setDimension(dimId);
+  gameEvents.emit('dimension:entered', { dim: dimId, canonDim: CANON_DIM[dimId] });
   publishHooks(); // world/chunkRenderer references changed
   ui.chat.addMessage({ system: true, text: `Now entering: ${DIMENSIONS[dimId].name}` });
 }
@@ -1390,6 +1762,16 @@ function publishHooks() {
     },
     audio, // GameAudio wrapper — audio.state is the QA stub-check surface
     fx: G.fx, // { post: PostFX, fog: DistanceFog, particles: Particles }
+    // Mobs (public/mobs/ MobManager): mobs.mobs snapshot, spawn(archetype,
+    // pos), spawnBoss(pos), setDimension, setDay — see public/mobs/README.md.
+    mobs: G.mobs,
+    // Achievements engine (systems/achievements.js): openScreen/closeScreen,
+    // isUnlocked(id), unlockedIds(), stats() -> {total, wired}, wiredIds().
+    achievements,
+    // Game event bus (systems/events.js) — event names in docs/DEV.md.
+    events: gameEvents,
+    deathScreen, // { show(message), hide(), isShowing() }
+    help, // How to Play panel: { open(), close(), isOpen() }
     setDimension: switchDimension,
     travelTo: travelToDimension,
     getDimension: () => (G ? G.dim : null),

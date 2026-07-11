@@ -15,15 +15,11 @@
 //                     the block name above the hotbar.
 
 import { getBlockDef } from '../blocks/blocks.js';
+// Canonical Loomfall display names (content/naming.json) — falls back to
+// prettified engine names until naming data loads (see systems/naming.js).
+import { blockDisplayName } from '../systems/naming.js';
 
 const SLOT_COUNT = 9;
-
-/** "snow_grass" -> "Snow Grass" */
-function prettyName(name) {
-  return String(name)
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-}
 
 /** Deterministic hue (0-359) from a block name. */
 function hashHue(str) {
@@ -115,7 +111,7 @@ export function initHotbar({ container, iconFor } = {}) {
     const el = iconElement(iconFor ? iconFor(id) : null) || fallbackSwatch(def.name);
     el.classList.add('hb-icon-img');
     icon.appendChild(el);
-    slot.title = prettyName(def.name);
+    slot.title = blockDisplayName(def.name);
   }
 
   function setSlots(newIds) {
@@ -137,7 +133,7 @@ export function initHotbar({ container, iconFor } = {}) {
     // Show the block name briefly above the hotbar.
     const id = ids[selected];
     if (id) {
-      label.textContent = prettyName(getBlockDef(id).name);
+      label.textContent = blockDisplayName(getBlockDef(id).name);
       label.classList.add('hotbar-label--show');
       if (labelTimer) clearTimeout(labelTimer);
       labelTimer = setTimeout(() => label.classList.remove('hotbar-label--show'), 2600);

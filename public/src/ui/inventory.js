@@ -13,13 +13,9 @@
 //   colored swatch derived from the block name).
 
 import { getBlockDef } from '../blocks/blocks.js';
-
-/** "snow_grass" -> "Snow Grass" */
-function prettyName(name) {
-  return String(name)
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-}
+// Canonical Loomfall display names (content/naming.json) — falls back to
+// prettified engine names until naming data loads (see systems/naming.js).
+import { blockDisplayName } from '../systems/naming.js';
 
 function hashHue(str) {
   let h = 0;
@@ -97,7 +93,7 @@ export function initInventory({ onPick, iconFor } = {}) {
       const slot = document.createElement('button');
       slot.type = 'button';
       slot.className = 'inv-slot';
-      slot.dataset.name = prettyName(def.name);
+      slot.dataset.name = blockDisplayName(def.name);
       slot.dataset.blockId = String(id);
       slot.setAttribute('aria-label', slot.dataset.name);
       const el = iconElement(iconFor ? iconFor(id) : null) || fallbackSwatch(def.name);

@@ -58,6 +58,11 @@ object — there are no test doubles.** The same lifecycle applies to
 | `__game.weather` | weather API | `setWeather('clear'\|'rain'\|'storm'\|'snow')` forces the logical machine state; `getState()` -> `{machine, presented, weather, intensity}` (`presented` is what the `WeatherSystem` shows: snow biomes present precip as snow, non-overworld dims force clear); `strike(opts?)` -> Promise resolving `{far}` at the flash peak; `setIntensity(v, ramp?)`; `on(type, handler)`; `system` is the raw `WeatherSystem` (public/weather/) |
 | `__game.audio` | `GameAudio` | crash-proof wrapper over the procedural engine (public/audio/). `audio.state` is the QA stub-check surface: `{resumed, contextState, plays, lastSound, music, rain, volumes}` — `plays` counts every attempted `play()` even while the AudioContext is suspended (autoplay policy). `audio.engine` is the raw `AudioEngine` |
 | `__game.fx` | object | `{ post: PostFX, fog: DistanceFog, particles: Particles }` from public/graphics/src/ — `post.enabled`/`post.quality`, `fog.fog` is the live `THREE.Fog` installed on the scene, `particles.spawnBlockBreak(pos, [r,g,b])` |
+| `__game.mobs` | `MobManager` | public/mobs/ package (see its README): `mobs` (live array snapshot), `spawn(archetype, pos)`, `spawnBoss(pos)`, `setDimension(id)`, `setDay(bool)`, `dimension` (canonical key `warpwold`/`cinderloom`/`nevermend`), `addEventListener('mobSpawn'\|'mobHurt'\|'mobDeath'\|'mobAttack'\|'mobDrop'\|'mobDespawn'\|'bossDefeated', h)`. Frozen while paused. Every mob carries `canonicalId`, `halfWidth`, `height`, `hurt(dmg)` |
+| `__game.achievements` | achievements engine | `openScreen()/closeScreen()/isOpen()`, `isUnlocked(id)`, `unlockedIds()`, `stats()` -> `{total, wired}`, `wiredIds()`, `_debugUnlock(id)` (full toast/persist path). Per-world persistence — see "Achievements" below |
+| `__game.events` | event bus | the page-lifetime game event bus (`on(name, fn)` -> unsubscribe, `emit(name, detail)`) — event names below |
+| `__game.deathScreen` | death screen API | `show(message)/hide()/isShowing()` — production path is health reaching 0 |
+| `__game.help` | How to Play panel | `open()/close()/isOpen()` — renders /content/GAME_GUIDE.md |
 | `__game.ui.menus` | menus API | `showMain/showWorldSelect/showSettings/showPause/hideAll/setLoading/getSettings` |
 | `__game.ui.chat` | chat API | `open/close/isOpen/addMessage({name,text,system})` |
 | `__game.ui.hud` | HUD API | `showCrosshair(b)/setHealth(0..20)/setBreakProgress(p\|null)` |
@@ -167,6 +172,94 @@ whole build is a dev build; deviation from the spec's gating note).
 
 Spec items **not implemented** (the engine has no equivalent): screens/`getScreen`, poses, game modes, block states/light levels, entities/item drops, health/hunger records, net-stats/TPS mirrors, `setSetting`/`tp`/`give`/`setBlock` mutators (use `__game.world.setBlock` + `__game.net.sendEdit` directly, or `__game.player.position` for teleports), atlas hashes, audio probes.
 
+## Mobs + combat + death (mobs stage)
+
+The creature package lives at `public/mobs/` (13 species + The Last Needle
+boss — see `public/mobs/README.md` for the roster, spawn tables, loot, and
+events). Integration points (`public/src/main.js`):
+
+- **Spawning** is ambient and per-dimension/day-night (the package's
+  `spawnRules.js`; caps: Warpwold 14 / Cinderloom 12 / Nevermend 10). The
+  manager gets OUR `getBlockDef` and a live world proxy that floors
+  coordinates (mob AI samples float positions; `World.getBlock` wants ints)
+  and follows dimension travel. `setDay` is fed from `sky.daylight > 0.35`;
+  `setDimension` is called on every travel. Mob updates, idle voices,
+  weather, and particles are all **skipped while paused**.
+- **Combat**: left-click raycasts mob hitboxes FIRST (reach 4, slab test
+  against each mob's `halfWidth`/`height` AABB, occluded by closer blocks),
+  then falls through to block breaking (reach 6). A hit calls `mob.hurt(4)`.
+  Mob voices: `mob.<family>.hurt/death/idle` (new archetypes reuse their
+  AI-family voice: bobbindeer->grazer, scaldwarden->trader, needlejack/
+  frayedhound/emberspinner/unpicked/raveler/lastneedle->groaner). Mob death
+  emits a debris-particle poof; Waxling detonations play `explosion`.
+- **Player damage**: `mobAttack` events decrement `player.health`
+  (explosions only when `hitPlayer`), update the HUD shards, play `hurt`,
+  and flash the screen red (`.hurt-flash`). At 0 health the death screen
+  shows a message from `/content/deathmessages.json` templated by cause
+  (`mob:<canonicalId>`, `void_unravel` for the kill plane) — Respawn
+  re-stitches at the spawn column and resets health. While dead the player
+  sim is frozen but the world keeps running.
+- **Boss**: `__game.mobs.spawnBoss(pos)` — 3 phases (60%/15% hp), summons
+  Raveler adds, and on 0 hp emits `bossDefeated` (bound, no loot) which
+  grants the `taught_to_mend` achievement.
+
+## Game event bus (`__game.events`, `public/src/systems/events.js`)
+
+`main.js` emits; the achievements engine (and future systems) listen:
+
+| Event | Detail | When |
+| --- | --- | --- |
+| `block:broken` | `{blockId, name, canonId, dim}` | production break path (not portal collapse) |
+| `block:placed` | `{blockId, name, canonId, dim}` | production place path |
+| `item:collected` | `{itemId, count}` | mob loot drop lands, or a canon-mapped block is broken (creative "collect") |
+| `mob:killed` | `{canonicalId, archetype}` | non-boss mob death |
+| `mob:drop` | `{itemId, count}` | each loot stack |
+| `boss:defeated` | `{canonicalId, achievement, victoryTrigger}` | The Last Needle bound |
+| `player:died` | `{cause, message}` | health reached 0 (cause e.g. `mob:waxling`, `void_unravel`) |
+| `player:respawned` | `{}` | death-screen Respawn |
+| `dimension:entered` | `{dim, canonDim}` | session start + every travel (canonDim: `warpwold`/`cinderloom`/`nevermend`) |
+| `night:survived` | `{}` | dawn after a full overworld night without dying |
+| `portal:lit` | `{dim}` | a portal frame was successfully lit |
+| `chat:sent` | `{length}` | chat message sent |
+| `pack:switched` | `{packId, from}` | texture pack changed in settings |
+| `world:created` | `{id, name}` | world created from the menu |
+
+`canonId`/`itemId` use the canonical naming.json ids via the curated
+engine-block -> canon-block mapping in `public/src/systems/naming.js`
+(grass->warpsod, stone->threadstone, obsidian->cinderglass, ...).
+
+## Achievements (`public/src/systems/achievements.js`)
+
+Loads `/content/achievements.json` (60 achievements). Only triggers whose
+events exist in this build are wired — **26 of 60**: `first_block_broken`,
+`player_unpicked`, `survive_first_night`, `enter_dimension:cinderloom/
+nevermend`, `kill_entity:*` for implemented mobs (needlejack, emberspinner,
+waxling, scaldwarden, unpicked, raveler, last_needle), `collect_count:*` /
+`place_block:*` for canon ids obtainable via loot or the block mapping.
+NOT wired (no engine system yet — no stub triggers): crafting, trading,
+biome entry (engine biomes don't map onto the canon trigger biomes),
+anchors/binding, smelting, taming, depth, thrum, frays, ending choices.
+Unlocks persist per world in localStorage, raise a top-right slide-in toast
++ the `achievement` fanfare, and are listed (locked/unlocked, hidden ones
+masked) in the pause-menu **Achievements** screen.
+
+## Content wiring
+
+- `/content/splashes.json` — main-menu splash pool (fetched at runtime;
+  inlined fallback list in `ui/menu.js` on fetch failure).
+- `/content/tips.json` — loading overlay shows a random canon tip, rotating
+  every 6 s while chunks stream.
+- `/content/naming.json` — canonical display names for blocks (hotbar
+  tooltips + selection label, inventory hover, F3 `Target` row) and biomes
+  (F3 `Biome` row analog mapping); engine ids stay internal. `lava` always
+  displays as "Molten Skein" (canon mandate), `portal` as "Loom-Gate".
+- `/content/deathmessages.json` — death screen + chat broadcast lines.
+- `/content/GAME_GUIDE.md` — "How to Play" (main menu + pause), rendered by
+  a small sanitizing markdown pass (headings/bold/lists; code + tables as
+  monospace blocks).
+- F3 additions: `Target` (looked-at block display name), `Mobs` (live mob
+  count).
+
 ## Audio / visual integration (graphics + audio + weather packages)
 
 Three support packages live under `public/` (each README documents its full
@@ -199,8 +292,9 @@ fast-lighting mode, into `ChunkRenderer.setLightLevel`).
   entering liquid, portal whoosh on travel, `ui.click` on menu buttons,
   per-dimension music (`calm`/`nether`/`mysterious`) + ambience beds
   (overworld wind, Cinderloom cave), rain loop with live intensity, thunder
-  near/far. `hurt`, `levelup`, `achievement` are wired in GameAudio but not
-  yet triggered by gameplay (combat lands next stage).
+  near/far. `hurt` fires on player damage, `achievement` on unlocks,
+  `levelup` on the boss binding; mob voices (`mob.<family>.*`) and
+  `explosion` are driven by the mob events (see "Mobs + combat + death").
 - **Autoplay policy**: the AudioContext is created lazily and `resume()`d on
   the first pointerdown/keydown/menu click. Before that, every `play()` is
   harmless (suspended context) and still counted in `__game.audio.state`.
@@ -220,6 +314,8 @@ rendering/progressive breaking yet — natural next-stage candidates).
   volumeMusic}`.
 - `loomfall.name` — multiplayer display name (default `Wanderer` + 3 digits,
   generated and persisted on first join).
+- `loomfall.achievements.<worldId>` — per-world achievements state:
+  `{unlocked: {id: isoTimestamp}, counters: {"collect:<itemId>"|"place:<canonId>": n}}`.
 
 ### Notes for test authors
 

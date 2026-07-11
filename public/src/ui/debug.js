@@ -5,7 +5,8 @@
 //
 // API:
 //   initDebug() -> { toggle(), setVisible(b), setData(partial) }
-//     setData({fps, pos, chunk, dim, biome, facing, tris, calls, chunks})
+//     setData({fps, pos, chunk, dim, biome, facing, target, mobs, tris,
+//              calls, chunks})
 //       — merges the given fields into the current data and re-renders.
 //         pos accepts {x,y,z} or [x,y,z]; chunk accepts {cx,cz}, {x,z} or
 //         [cx,cz]; facing accepts a string or a yaw number (degrees).
@@ -18,6 +19,8 @@ const ROWS = [
   ['dim', 'Dim'],
   ['biome', 'Biome'],
   ['facing', 'Facing'],
+  ['target', 'Target'],
+  ['mobs', 'Mobs'],
   ['tris', 'Tris'],
   ['calls', 'Calls'],
   ['chunks', 'Chunks'],
@@ -59,6 +62,8 @@ const FORMATTERS = {
   chunk: fmtChunk,
   dim: (v) => (v == null ? '—' : String(v)),
   biome: (v) => (v == null ? '—' : String(v)),
+  target: (v) => (v == null ? '—' : String(v)),
+  mobs: (v) => (v == null ? '—' : fmtInt(v)),
   facing: fmtFacing,
   tris: (v) => (v == null ? '—' : fmtInt(v)),
   calls: (v) => (v == null ? '—' : fmtInt(v)),

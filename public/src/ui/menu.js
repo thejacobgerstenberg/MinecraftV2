@@ -42,8 +42,9 @@
 
 const SETTINGS_KEY = 'loomfall.settings';
 
-// Splash lines shown under the title (random pick per visit). Sourced from
-// the story-content branch (content/splashes.json) — original text.
+// Splash lines shown under the title (random pick per visit). The full pool
+// is fetched from /content/splashes.json at runtime; this inlined subset is
+// the fallback when that fetch fails (offline dev harness, etc.).
 const SPLASHES = [
   'The Loom is not currently accepting feedback.',
   'No hand has been on the shuttle for some time.',
@@ -68,6 +69,36 @@ const SPLASHES = [
   'Mildly haunted, aggressively cozy!',
   'The Cinderloom regrets nothing and remembers everything.',
 ];
+
+// Runtime content (fetched once per page; every consumer falls back
+// gracefully if /content is unreachable).
+let splashPool = SPLASHES;
+const splashesReady = (typeof fetch === 'function'
+  ? fetch('/content/splashes.json')
+    .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+    .then((data) => {
+      if (Array.isArray(data.splashes) && data.splashes.length > 0) {
+        splashPool = data.splashes.filter((s) => typeof s === 'string' && s.trim());
+      }
+      return splashPool;
+    })
+  : Promise.resolve(splashPool))
+  .catch(() => splashPool);
+
+let tipsPool = null; // [{text}] once loaded; null = unavailable
+const tipsReady = (typeof fetch === 'function'
+  ? fetch('/content/tips.json')
+    .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+    .then((data) => {
+      if (Array.isArray(data.tips) && data.tips.length > 0) {
+        tipsPool = data.tips.filter((t) => t && typeof t.text === 'string');
+      }
+      return tipsPool;
+    })
+  : Promise.resolve(null))
+  .catch(() => null);
+
+const TIP_ROTATE_MS = 6000;
 
 const SETTINGS_SPEC = {
   renderDistance: { min: 2, max: 12, def: 6 },
@@ -128,6 +159,8 @@ export function initMenus(opts = {}) {
     onResume,
     onQuitToTitle,
     onTravel,
+    onHowToPlay,
+    onAchievements,
     getWorlds,
     packsList = [],
     travelDims = [],
@@ -230,13 +263,23 @@ export function initMenus(opts = {}) {
     const wrap = el('div', 'menu-main-wrap', screens.main);
     const titleWrap = el('div', 'menu-title-wrap', wrap);
     titleWrap.appendChild(titleEl);
-    if (SPLASHES.length > 0) {
-      el('div', 'menu-splash', titleWrap,
+    {
+      const splashEl = el('div', 'menu-splash', titleWrap,
         SPLASHES[Math.floor(Math.random() * SPLASHES.length)]);
+      // Re-roll from the full runtime pool once it arrives (silent fallback
+      // to the inlined line already shown when the fetch fails).
+      splashesReady.then((pool) => {
+        if (Array.isArray(pool) && pool.length > 0) {
+          splashEl.textContent = pool[Math.floor(Math.random() * pool.length)];
+        }
+      });
     }
     el('p', 'menu-tagline', wrap, 'An open-world voxel sandbox');
     const buttons = el('div', 'menu-buttons', wrap);
     button('Play', 'vx-btn vx-btn--primary vx-btn--big', buttons, () => show('worlds'));
+    if (typeof onHowToPlay === 'function') {
+      button('How to Play', 'vx-btn vx-btn--big', buttons, () => onHowToPlay());
+    }
     button('Settings', 'vx-btn vx-btn--big', buttons, () => {
       settingsReturn = 'main';
       show('settings');
@@ -448,6 +491,12 @@ export function initMenus(opts = {}) {
       settingsReturn = 'pause';
       show('settings');
     });
+    if (typeof onAchievements === 'function') {
+      button('Achievements', 'vx-btn', buttons, () => onAchievements());
+    }
+    if (typeof onHowToPlay === 'function') {
+      button('How to Play', 'vx-btn', buttons, () => onHowToPlay());
+    }
     // Travel row (creative convenience — the physical route is portals).
     if (travelDims.length > 0) {
       const travelWrap = el('div', 'pause-travel', buttons);
@@ -493,12 +542,50 @@ export function initMenus(opts = {}) {
     loadingText = el('div', 'loading-text', loadingEl);
   }
 
+  // Rotating canon tip (content/tips.json) shown while the overlay is up.
+  const loadingInner = loadingEl.querySelector('.loading-inner') || loadingEl;
+  const tipEl = el('div', 'loading-tip', loadingInner);
+  let tipTimer = null;
+  let tipsActive = false;
+
+  function showRandomTip() {
+    if (!tipsPool || tipsPool.length === 0) return;
+    const tip = tipsPool[Math.floor(Math.random() * tipsPool.length)];
+    tipEl.classList.remove('loading-tip--show');
+    setTimeout(() => {
+      if (!tipsActive) return;
+      tipEl.textContent = tip.text;
+      tipEl.classList.add('loading-tip--show');
+    }, 120);
+  }
+
+  function startTips() {
+    if (tipsActive) return;
+    tipsActive = true;
+    tipsReady.then(() => {
+      if (!tipsActive) return;
+      showRandomTip();
+      tipTimer = setInterval(showRandomTip, TIP_ROTATE_MS);
+    });
+  }
+
+  function stopTips() {
+    tipsActive = false;
+    if (tipTimer) {
+      clearInterval(tipTimer);
+      tipTimer = null;
+    }
+    tipEl.classList.remove('loading-tip--show');
+  }
+
   function setLoading(textOrNull) {
     if (textOrNull == null) {
       loadingEl.classList.remove('visible');
+      stopTips();
     } else {
       loadingText.textContent = String(textOrNull);
       loadingEl.classList.add('visible');
+      startTips();
     }
   }
 

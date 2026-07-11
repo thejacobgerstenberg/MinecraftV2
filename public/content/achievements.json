@@ -1,0 +1,604 @@
+{
+  "achievements": [
+    {
+      "id": "a_thread_comes_loose",
+      "name": "A Thread Comes Loose",
+      "description": "You broke your first clod of warpsod and felt the ground give like cloth. Something in you knows now that it is cloth. There is no un-knowing it.",
+      "trigger": "first_block_broken",
+      "tree": "First Threads",
+      "tier": 1,
+      "parent": "",
+      "hidden": false
+    },
+    {
+      "id": "the_first_stitch",
+      "name": "The First Stitch",
+      "description": "You set up a handloom and learned that a loose thread can be gathered, spun, and made to hold a shape you chose. The smallest defiance, and the whole of your craft, entire.",
+      "trigger": "craft_item:handloom",
+      "tree": "First Threads",
+      "tier": 2,
+      "parent": "a_thread_comes_loose",
+      "hidden": false
+    },
+    {
+      "id": "something_to_spin",
+      "name": "Something to Spin",
+      "description": "You sheared a skeinling and it trusted you the whole while. Raw skein in your hands, and a small warm guilt you will learn to carry lightly.",
+      "trigger": "collect_count:raw_skein:1",
+      "tree": "First Threads",
+      "tier": 2,
+      "parent": "a_thread_comes_loose",
+      "hidden": false
+    },
+    {
+      "id": "one_warmth_kept",
+      "name": "One Warmth the Loom Lets You Keep",
+      "description": "You knotted a captured thread of light and set it burning. Where its glow ends, the dark begins to move. Stay inside it a while.",
+      "trigger": "place_block:knotlight",
+      "tree": "First Threads",
+      "tier": 3,
+      "parent": "the_first_stitch",
+      "hidden": false
+    },
+    {
+      "id": "threadbare_tools",
+      "name": "Threadbare Tools",
+      "description": "Old thread pressed hard into stone, and stone shaped into a first rough pick. Not much. Enough to open the ground and ask it what it hides.",
+      "trigger": "craft_item:threadstone_pickaxe",
+      "tree": "First Threads",
+      "tier": 3,
+      "parent": "the_first_stitch",
+      "hidden": false
+    },
+    {
+      "id": "a_knot_of_your_own",
+      "name": "A Knot of Your Own",
+      "description": "You tied your thread to this place, so that when you are pulled from the pattern you will be re-stitched here and not lost. A home is only a knot you keep coming back to.",
+      "trigger": "set_anchor",
+      "tree": "First Threads",
+      "tier": 4,
+      "parent": "one_warmth_kept",
+      "hidden": false
+    },
+    {
+      "id": "the_long_first_dark",
+      "name": "The Long First Dark",
+      "description": "You outlasted the first night with the Thrum in your ears and the needlejacks unbending in the black. Dawn bled through the cloth. You are still knotted.",
+      "trigger": "survive_first_night",
+      "tree": "First Threads",
+      "tier": 3,
+      "parent": "one_warmth_kept",
+      "hidden": false
+    },
+    {
+      "id": "courtesy_of_the_woven",
+      "name": "Courtesy of the Woven",
+      "description": "A Wickerkin traded with you, kind and hollow and certain it was alive. It did not thank you for the truth. You did not offer it.",
+      "trigger": "trade_with:wickerkin",
+      "tree": "First Threads",
+      "tier": 3,
+      "parent": "something_to_spin",
+      "hidden": false
+    },
+    {
+      "id": "the_night_unbends",
+      "name": "The Night Unbends",
+      "description": "You unmade a needlejack before it could stitch you into the tangle of itself. A thing the Loom wove crooked, laid straight at last. Do not mistake it for a victory.",
+      "trigger": "kill_entity:needlejack",
+      "tree": "First Threads",
+      "tier": 4,
+      "parent": "the_long_first_dark",
+      "hidden": false
+    },
+    {
+      "id": "re_stitched",
+      "name": "Re-Stitched",
+      "description": "You were unpicked, and woke at your knot with a little of your gathered thread gone in the tearing. A weaving with its ending unstitched cannot yet be allowed to stop. Neither, it seems, can you.",
+      "trigger": "player_unpicked",
+      "tree": "First Threads",
+      "tier": 5,
+      "parent": "a_knot_of_your_own",
+      "hidden": true
+    },
+    {
+      "id": "under_the_skin",
+      "name": "Under the Skin",
+      "description": "You dug past the green dreamdye into the dark weft below. The world is deeper than its surface pretends, and none of it was ever finished.",
+      "trigger": "collect_count:loamweft:1",
+      "tree": "The Gathered Weave",
+      "tier": 1,
+      "parent": "",
+      "hidden": false
+    },
+    {
+      "id": "grey_and_striated",
+      "name": "The Bones of Warpwold",
+      "description": "Threadstone by the armful, ancient thread crushed to rock, still showing the way its old weave once ran. The bones of the world, and the walls of your first true keep.",
+      "trigger": "collect_count:threadstone:16",
+      "tree": "The Gathered Weave",
+      "tier": 2,
+      "parent": "under_the_skin",
+      "hidden": false
+    },
+    {
+      "id": "how_deep_the_weft_goes",
+      "name": "Where the Cloth Forgets You",
+      "description": "You sank far enough that the surface forgot you. Down here the cloth is older and the quiet has a weight to it. Keep a knotlight burning and do not sit down.",
+      "trigger": "depth_reached:-40",
+      "tree": "The Gathered Weave",
+      "tier": 3,
+      "parent": "grey_and_striated",
+      "hidden": false
+    },
+    {
+      "id": "the_cold_workhorse",
+      "name": "The Cold Workhorse",
+      "description": "Needle-Iron, named for the great needles the woven folk once used to mend themselves, back when they still knew they could tear. Reliable, grey, and yours.",
+      "trigger": "collect_count:needle_iron:1",
+      "tree": "The Gathered Weave",
+      "tier": 3,
+      "parent": "grey_and_striated",
+      "hidden": false
+    },
+    {
+      "id": "window_on_the_loom",
+      "name": "A Window on the Loom",
+      "description": "You fused dyewater sand into loomglass and set a pane in your wall, and in the dim you caught faint threads drifting behind it. A view of the loom that dreams you.",
+      "trigger": "place_block:loomglass",
+      "tree": "The Gathered Weave",
+      "tier": 3,
+      "parent": "grey_and_striated",
+      "hidden": false
+    },
+    {
+      "id": "a_pale_cold_glow",
+      "name": "A Pale, Cold Glow",
+      "description": "You pressed the shed dust of silence-moths into brick and lit your halls with a light that never flickers and never quite feels awake. Beautiful. Just a little wrong.",
+      "trigger": "place_block:mothdust_brick",
+      "tree": "The Gathered Weave",
+      "tier": 4,
+      "parent": "window_on_the_loom",
+      "hidden": false
+    },
+    {
+      "id": "soft_and_gleaming",
+      "name": "Too Soft to Last",
+      "description": "Giltspool, too soft to hold an edge and prized anyway. To gild a thing is to adorn it as if sure it will one day be seen. The most hopeful thing your hands can do with so little cause.",
+      "trigger": "collect_count:giltspool:1",
+      "tree": "The Gathered Weave",
+      "tier": 4,
+      "parent": "the_cold_workhorse",
+      "hidden": false
+    },
+    {
+      "id": "first_light_of_a_weaving",
+      "name": "The First Light of a Weaving",
+      "description": "Dawnthread, pulled from the frayed peaks where the cloth of the mountains tore open. It is faintly warm to hold, and it remembers a morning older than the world.",
+      "trigger": "collect_count:dawnthread:1",
+      "tree": "The Gathered Weave",
+      "tier": 4,
+      "parent": "how_deep_the_weft_goes",
+      "hidden": false
+    },
+    {
+      "id": "the_doubled_country",
+      "name": "The Doubled Country",
+      "description": "You crossed the Understitch Downs, where a river runs both where it is and where it used to be, and orchards fruit in two places at once. The world remembering shapes it used to hold.",
+      "trigger": "enter_biome:understitch_downs",
+      "tree": "The Gathered Weave",
+      "tier": 2,
+      "parent": "under_the_skin",
+      "hidden": false
+    },
+    {
+      "id": "a_hand_in_the_warp",
+      "name": "A Hand in the Warp",
+      "description": "You gathered understitch loam thick with unpicked patterns, its broken clods showing the reversed ghosts of things the Weaver drew and undrew. Everything you plant here grows out of memory.",
+      "trigger": "collect_count:understitch_loam:16",
+      "tree": "The Gathered Weave",
+      "tier": 3,
+      "parent": "the_doubled_country",
+      "hidden": false
+    },
+    {
+      "id": "the_present_tense_of_the_loom",
+      "name": "The Present Tense of the Loom",
+      "description": "You have walked every corner of Warpwold, from the satin ripple of the Sennmeadows to the bleached and forgotten waste. The only realm that takes the weave for the truth. You know better, and you stayed anyway.",
+      "trigger": "visit_all_biomes:warpwold",
+      "tree": "The Gathered Weave",
+      "tier": 3,
+      "parent": "the_doubled_country",
+      "hidden": false
+    },
+    {
+      "id": "the_first_thrum_heard",
+      "name": "The Sound of an Empty Frame",
+      "description": "You stood still in the Thrumwood until you heard it: the low, patient hum of the Loom, still turning with no hand on the shuttle. Most folk never hear it. You are not most folk anymore.",
+      "trigger": "hear_thrum",
+      "tree": "The Gathered Weave",
+      "tier": 2,
+      "parent": "under_the_skin",
+      "hidden": false
+    },
+    {
+      "id": "down_past_the_warp_roots",
+      "name": "Down Past the Warp-Roots",
+      "description": "You descended until the cloth grew hot, then bright, then molten, and arrived where the weaving still happens and was never allowed to finish. No one built this to punish you. It is only the world, still burning.",
+      "trigger": "enter_dimension:cinderloom",
+      "tree": "The Cinderloom",
+      "tier": 1,
+      "parent": "",
+      "hidden": false
+    },
+    {
+      "id": "the_bright_floor",
+      "name": "The Floor That Never Cools",
+      "description": "Cinderthread, glowing and never cool, the ground of the furnace-realm. Every warmth that ever reached the surface was paid for down here in fire. Mind your boots.",
+      "trigger": "collect_count:cinderthread:1",
+      "tree": "The Cinderloom",
+      "tier": 2,
+      "parent": "down_past_the_warp_roots",
+      "hidden": false
+    },
+    {
+      "id": "it_burns_its_own_fuel",
+      "name": "It Burns Its Own Fuel",
+      "description": "Emberskein ore, molten-cored and threaded with running fire, feeding a furnace in a place that would otherwise melt it. Carry it carefully; it does not wait to be asked.",
+      "trigger": "smelt_with:emberskein_ore",
+      "tree": "The Cinderloom",
+      "tier": 2,
+      "parent": "down_past_the_warp_roots",
+      "hidden": false
+    },
+    {
+      "id": "the_only_cool_shadow",
+      "name": "The Only Cool Shadow",
+      "description": "You reached the Tallow Vaults, the sole cool dark in all the Cinderloom, and therefore the most crowded with things that resent the chill of Warpwold still on your skin.",
+      "trigger": "enter_biome:tallow_vaults",
+      "tree": "The Cinderloom",
+      "tier": 2,
+      "parent": "down_past_the_warp_roots",
+      "hidden": false
+    },
+    {
+      "id": "the_loose_sparks",
+      "name": "The Loose Sparks",
+      "description": "You put down an emberspinner, one of the furnace's own sparks given the intent to hunt. Fast, fragile, and endlessly replaced. The fire does not miss it.",
+      "trigger": "kill_entity:emberspinner",
+      "tree": "The Cinderloom",
+      "tier": 3,
+      "parent": "the_bright_floor",
+      "hidden": false
+    },
+    {
+      "id": "quench_and_keep",
+      "name": "Quench and Keep",
+      "description": "You caught an emberspinner's burning silk and cooled it in your hands before it could cool you. Scorched, salvaged, and turned to a braver use than the fire intended.",
+      "trigger": "collect_count:scorched_silk:1",
+      "tree": "The Cinderloom",
+      "tier": 4,
+      "parent": "the_loose_sparks",
+      "hidden": false
+    },
+    {
+      "id": "carved_from_warmth",
+      "name": "Carved From Warmth",
+      "description": "Tallowstone, forever melting and re-forming, softly translucent, always a little unfinished. You carved your walls from something that has not yet decided to be finished either.",
+      "trigger": "collect_count:tallowstone:16",
+      "tree": "The Cinderloom",
+      "tier": 3,
+      "parent": "the_only_cool_shadow",
+      "hidden": false
+    },
+    {
+      "id": "the_footing_slicked",
+      "name": "The Footing Slicked",
+      "description": "You outlasted the waxlings, weak alone and drowning in numbers, and did not slip on the hot tallow they leave behind. That slick floor has ended more descents than the open fire ever did.",
+      "trigger": "kill_entity:waxling",
+      "tree": "The Cinderloom",
+      "tier": 3,
+      "parent": "the_only_cool_shadow",
+      "hidden": false
+    },
+    {
+      "id": "the_frame_that_endures",
+      "name": "The Frame That Endures",
+      "description": "You cut and set cinderglass, black and glassy, its edges holding the last red memory of the fire that made it. The frame-stone of the gates between realms, and of anything meant to last.",
+      "trigger": "place_block:cinderglass",
+      "tree": "The Cinderloom",
+      "tier": 3,
+      "parent": "it_burns_its_own_fuel",
+      "hidden": false
+    },
+    {
+      "id": "red_deep_wax",
+      "name": "A Drop at a Time",
+      "description": "You rendered bindwax and worked it cool, a slow red drop gathered against long odds. To bind a thing in wax is to finish it for good, past the reach of hound or Raveler or the Ravelling itself. Hope, in the world, comes no cheaper than this.",
+      "trigger": "collect_count:bindwax:1",
+      "tree": "The Cinderloom",
+      "tier": 4,
+      "parent": "carved_from_warmth",
+      "hidden": false
+    },
+    {
+      "id": "the_heart_of_making",
+      "name": "The Heart of Making",
+      "description": "You stood in the Cinderspindle Forges, where colossal ember-spindles turn in white fire and draw raw thread up out of nothing. Creation caught in the act, and kept turning by no one.",
+      "trigger": "enter_biome:cinderspindle_forges",
+      "tree": "The Cinderloom",
+      "tier": 4,
+      "parent": "the_frame_that_endures",
+      "hidden": false
+    },
+    {
+      "id": "an_order_none_cancelled",
+      "name": "An Order No One Cancelled",
+      "description": "You felled a Scaldwarden that only ever tended the making of the world, obedient still to a Weaver who never came back to release it. It did not hate you. It simply would not let you take the warmth. Grant it its sorrow.",
+      "trigger": "kill_entity:scaldwarden",
+      "tree": "The Cinderloom",
+      "tier": 5,
+      "parent": "the_heart_of_making",
+      "hidden": true
+    },
+    {
+      "id": "faithful_to_the_end",
+      "name": "Faithful, and Alone",
+      "description": "You stilled Molthkin, the First Bobbin, turning alone at the deepest forge until its duty curdled into madness, certain that enough new thread would bring the Weaver back to weave again. It does not feel like triumph. It feels like switching off something that only wanted to finish.",
+      "trigger": "kill_entity:molthkin",
+      "tree": "The Cinderloom",
+      "tier": 5,
+      "parent": "the_heart_of_making",
+      "hidden": true
+    },
+    {
+      "id": "what_the_fire_remembers",
+      "name": "What the Fire Remembers",
+      "description": "From the stilled forge you drew a coil of Everthread, the First Thread itself, made in an unfinished world and so unable to be undone by a finished one. It remembers being new. Nothing else down here ever will again.",
+      "trigger": "collect_count:everthread:1",
+      "tree": "The Cinderloom",
+      "tier": 6,
+      "parent": "faithful_to_the_end",
+      "hidden": false
+    },
+    {
+      "id": "down_the_fray",
+      "name": "Down the Fray",
+      "description": "You followed a rip in the weave out past the last selvage into Nevermend, the world seen at its final moment, cloth remembering how to be nothing. Distance and gravity are only suggestions here.",
+      "trigger": "enter_dimension:nevermend",
+      "tree": "Nevermend",
+      "tier": 1,
+      "parent": "",
+      "hidden": false
+    },
+    {
+      "id": "the_first_fray_sealed",
+      "name": "One Tear, Closed",
+      "description": "You mended a fray shut, stitching a small rip in the weave back to whole before it could widen. The world will open it again by morning. You closed it anyway. That is the whole of the work.",
+      "trigger": "seal_fray",
+      "tree": "Nevermend",
+      "tier": 2,
+      "parent": "down_the_fray",
+      "hidden": false
+    },
+    {
+      "id": "the_weather_of_undoing",
+      "name": "The Weather of Undoing",
+      "description": "You crossed the Fraying, where islands of half-unravelled tapestry still show the ghost of a meadow or a wall or a face before the pattern loosens and lets go. Here the Ravelling is not a threat. It is only the weather.",
+      "trigger": "enter_biome:the_fraying",
+      "tree": "Nevermend",
+      "tier": 2,
+      "parent": "down_the_fray",
+      "hidden": false
+    },
+    {
+      "id": "a_knot_that_holds",
+      "name": "A Knot That Holds",
+      "description": "Voidknot, the one truly stable thing native to the drift, a dark tangle that simply refuses to come loose. Build with it, because nothing else out here will stay where you put it.",
+      "trigger": "collect_count:voidknot:1",
+      "tree": "Nevermend",
+      "tier": 2,
+      "parent": "down_the_fray",
+      "hidden": false
+    },
+    {
+      "id": "the_gap_the_world_forgets",
+      "name": "The Gap the World Forgets",
+      "description": "You unmade one of the Unpicked, a woven soul whose threads finally loosened and who wandered here rather than be mended. What it reached for, it reached for from grief. There is no corpse now, only a gap the pattern forgets was ever filled.",
+      "trigger": "kill_entity:unpicked",
+      "tree": "Nevermend",
+      "tier": 3,
+      "parent": "the_weather_of_undoing",
+      "hidden": false
+    },
+    {
+      "id": "undone_stitch_by_stitch",
+      "name": "Undone Stitch by Stitch",
+      "description": "You drove off a Raveler before it could finish pulling your work apart and drift away with the pieces. It steals from the record and not just the moment. Guard your builds. Guard your hands.",
+      "trigger": "kill_entity:raveler",
+      "tree": "Nevermend",
+      "tier": 3,
+      "parent": "a_knot_that_holds",
+      "hidden": false
+    },
+    {
+      "id": "a_path_from_what_you_carry",
+      "name": "A Path From What You Carry",
+      "description": "You crossed the Loosened Dark, genuine unspun nothing, laying your own way one stitch at a time while the void quietly picked at your seams. Everything you have out here, you brought.",
+      "trigger": "enter_biome:loosened_dark",
+      "tree": "Nevermend",
+      "tier": 3,
+      "parent": "a_knot_that_holds",
+      "hidden": false
+    },
+    {
+      "id": "the_shining_rim",
+      "name": "The Shining Rim",
+      "description": "You reached the Last Selvage, the outermost self-bound edge of all reality, calm and cold and final, beyond which there is no more cloth at all. The farthest a Mender can ever wend.",
+      "trigger": "enter_biome:last_selvage",
+      "tree": "Nevermend",
+      "tier": 4,
+      "parent": "a_path_from_what_you_carry",
+      "hidden": false
+    },
+    {
+      "id": "trophy_of_the_void",
+      "name": "The Void's Keepsake",
+      "description": "Hemstone, finished selvage-edge turned rigid and pale, gathered at the end of everything. Extremely durable, cleanly grained. The slate a Mender who reaches this far may carve a memorial upon.",
+      "trigger": "collect_count:hemstone:16",
+      "tree": "Nevermend",
+      "tier": 5,
+      "parent": "the_shining_rim",
+      "hidden": false
+    },
+    {
+      "id": "argue_past_certainty",
+      "name": "To Argue Past Certainty",
+      "description": "You passed a Selvage Warden, wound from finished hem-thread, mending its own wounds as fast as you could open them. To beat one is to argue your way past something that had already decided how the argument ends.",
+      "trigger": "kill_entity:selvage_warden",
+      "tree": "Nevermend",
+      "tier": 5,
+      "parent": "the_shining_rim",
+      "hidden": true
+    },
+    {
+      "id": "taught_to_mend",
+      "name": "Taught, For a While, to Mend",
+      "description": "You stood before the Last Needle, the Ravelling given form, long as a horizon, and it could not be killed, only bound and turned and taught for a while to stitch instead of tear. It never hated what the Weaver made. It only could not bear that it was left unfinished.",
+      "trigger": "kill_entity:last_needle",
+      "tree": "Nevermend",
+      "tier": 6,
+      "parent": "argue_past_certainty",
+      "hidden": true
+    },
+    {
+      "id": "to_finish_the_weaving",
+      "name": "To Finish the Weaving",
+      "description": "You chose to draw the thread on, to mend against the void by momentum of your own, and hold the long beloved cloth open a while longer. Not because the Loom asked. Because you did. The Weaver left the choice unstitched, and you made it.",
+      "trigger": "choice:finish_the_weaving",
+      "tree": "Nevermend",
+      "tier": 7,
+      "parent": "taught_to_mend",
+      "hidden": true
+    },
+    {
+      "id": "let_it_come_to_rest",
+      "name": "Let It Come, At Last and Gently, to Rest",
+      "description": "You chose to draw the last thread through and let the tired, unminded, lovely cloth come finally to rest. Not despair. Mercy. A caretaker's last kindness to a house of the dead. It was always yours to decide, and you were gentle.",
+      "trigger": "choice:still_the_loom",
+      "tree": "Nevermend",
+      "tier": 7,
+      "parent": "taught_to_mend",
+      "hidden": true
+    },
+    {
+      "id": "spin_the_loose_into_line",
+      "name": "Spin the Loose Into Line",
+      "description": "You gathered loose thread and spun it into woven cloth, and understood the whole of your craft in a single motion. A weaving left to itself only frays. You are the hands that do otherwise.",
+      "trigger": "craft_item:woven_cloth",
+      "tree": "The Menderwork",
+      "tier": 1,
+      "parent": "",
+      "hidden": false
+    },
+    {
+      "id": "dressed_against_the_dark",
+      "name": "Dressed Against the Dark",
+      "description": "A full suit of Needle-Iron, cold and reliable and yours, closed over you like a promise you made to keep going. The reliable middle of a Mender's long road.",
+      "trigger": "craft_full_set:needle_iron_armor",
+      "tree": "The Menderwork",
+      "tier": 2,
+      "parent": "spin_the_loose_into_line",
+      "hidden": false
+    },
+    {
+      "id": "gem_edged",
+      "name": "Edged in First Light",
+      "description": "You worked dawnthread into a tool that holds the first light of a weaving in its edge, brilliant and hard and faintly warm. The finest the surface will ever give you. Below and beyond, there is finer still.",
+      "trigger": "craft_item:dawnthread_pickaxe",
+      "tree": "The Menderwork",
+      "tier": 3,
+      "parent": "dressed_against_the_dark",
+      "hidden": false
+    },
+    {
+      "id": "as_if_sure_it_will_be_seen",
+      "name": "As If Sure It Will Be Seen",
+      "description": "You bound a thing in bindwax and finished it for good. No hound frays it now, no Raveler unpicks it, no slow Ravelling loosens it. You have made one true thing that will hold, and declared a small part of the weaving complete.",
+      "trigger": "bind_block",
+      "tree": "The Menderwork",
+      "tier": 2,
+      "parent": "spin_the_loose_into_line",
+      "hidden": false
+    },
+    {
+      "id": "nothing_can_fray_it",
+      "name": "Nothing Can Fray It",
+      "description": "You bound enough of your work that a whole shape of it will outlast you, unravel-proof and quietly permanent. Somewhere far ahead, when the rest has come apart, this will still be standing. You will not see it. Bind it anyway.",
+      "trigger": "bind_count:16",
+      "tree": "The Menderwork",
+      "tier": 3,
+      "parent": "as_if_sure_it_will_be_seen",
+      "hidden": false
+    },
+    {
+      "id": "a_thread_you_can_ride",
+      "name": "A Thread You Can Ride",
+      "description": "A wild spoolmare of loose living thread let you close, and then let you up. It unspools a fading trail behind it as it runs, as if to remind you that even the things that carry you are coming undone.",
+      "trigger": "tame_entity:spoolmare",
+      "tree": "The Menderwork",
+      "tier": 2,
+      "parent": "spin_the_loose_into_line",
+      "hidden": false
+    },
+    {
+      "id": "stitch_ground_beneath_hooves",
+      "name": "Ground Beneath Its Own Hooves",
+      "description": "You rode your bonded spoolmare across a fray in Nevermend, and it stitched a path beneath itself with every stride before coming undone. A gallop over nothing, carried by a thing brave enough to unravel for you.",
+      "trigger": "ride_spoolmare_in:nevermend",
+      "tree": "The Menderwork",
+      "tier": 3,
+      "parent": "a_thread_you_can_ride",
+      "hidden": false
+    },
+    {
+      "id": "the_woven_folk_remember",
+      "name": "The Woven Folk Remember",
+      "description": "You traded with the Wickerkin long enough to gather the half-remembered lore they keep. They were woven to expect a story whose next chapter never came, and they wait for it with unfailing courtesy. Some of that waiting is yours now to answer.",
+      "trigger": "trade_count:wickerkin:20",
+      "tree": "The Menderwork",
+      "tier": 2,
+      "parent": "spin_the_loose_into_line",
+      "hidden": false
+    },
+    {
+      "id": "a_vigil_in_the_dark",
+      "name": "A Vigil in the Dark",
+      "description": "You set knotlight after knotlight until a whole reach of the dark held still. A Mender's torch and waypoint and vigil-fire, all one. You are keeping watch over a house whose maker has gone. Keep it well.",
+      "trigger": "place_count:knotlight:16",
+      "tree": "The Menderwork",
+      "tier": 3,
+      "parent": "the_woven_folk_remember",
+      "hidden": false
+    },
+    {
+      "id": "rethreaded_to_endure",
+      "name": "Rethreaded to Endure",
+      "description": "You rethreaded a tool with Everthread won from the deepest forge, and it barely wears and shrugs off the Ravelling. Made in an unfinished world, it cannot be undone by a finished one. Neither, for now, can what you make with it.",
+      "trigger": "craft_item:everthread_pickaxe",
+      "tree": "The Menderwork",
+      "tier": 4,
+      "parent": "gem_edged",
+      "hidden": false
+    },
+    {
+      "id": "it_remembers_being_new",
+      "name": "It Remembers Being New",
+      "description": "A full suit of Everthread, forged before there was anything to draw it through, tempered in the void, closed over you at last. The oldest thing in all three realms, and it remembers being new. Wear it to the edge of everything.",
+      "trigger": "craft_full_set:everthread_armor",
+      "tree": "The Menderwork",
+      "tier": 5,
+      "parent": "rethreaded_to_endure",
+      "hidden": false
+    }
+  ]
+}
