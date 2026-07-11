@@ -12,11 +12,12 @@ import * as THREE from 'three';
 // Silhouette goals: a slender, ELEGANT EQUINE — a long, S-curved three-bone
 // neck, tapered head, tapered five-segment torso (chest -> rump), and four
 // long legs, ~1.5 units tall. NOT a Minecraft horse: no boxy uniform torso,
-// no boxy head. Mane + tail are dense chains of thin dangling thread-strand
-// boxes that stream in the wind. A wound-thread medallion (concentric
-// cylinder/torus rings around a dark hub) on each flank suggests a wound
-// spool. Passive, rideable — exposes a rideAnchor object at the saddle
-// point on its back.
+// no boxy head. Mane is 12 independent thin dangling thread-strand boxes
+// cascading down the neck's crest; tail is 7 independent two-segment
+// thread-strands fanned out behind the rump, both swaying/streaming in the
+// wind. A protruding 3D wound-thread BOBBIN (two flanges + a banded barrel,
+// not a flat medallion) on each flank suggests a wound spool. Passive,
+// rideable — exposes a rideAnchor object at the saddle point on its back.
 // ---------------------------------------------------------------------------
 
 // Canonical Spoolmare bestiary palette.
@@ -149,12 +150,13 @@ export function build() {
   parts.torsoPivot = torsoPivot;
 
   // -------------------------------------------------------------------
-  // WOVEN-SPOOL FLANK MOTIF — a small wound-thread MEDALLION on each
-  // flank: a flat mane-colored backing disc with concentric alternating
-  // rings (like thread wound round and round a bobbin) and a small dark
-  // axle-hub at the center, marking where the birth-thread was never
-  // fully unwound. Built from cylinders/tori (not flat bars) so it
-  // actually reads as a coiled spool rather than plain stripes.
+  // WOVEN-SPOOL FLANK MOTIF — a small wound-thread BOBBIN protruding from
+  // each flank: two wide mane-colored flanges (the flat ends of a real
+  // thread spool) joined by a narrower barrel wrapped in 2-3 alternating
+  // winding-thread bands, capped with a small dark axle nub, marking where
+  // the birth-thread was never fully unwound. Built with real depth along
+  // local X (not a flush flat disc) so it reads as an actual 3D spool
+  // rather than a coin/medallion glyph even at a distance.
   // -------------------------------------------------------------------
   function ringMesh(geo, material) {
     const mesh = new THREE.Mesh(geo, material);
@@ -175,31 +177,45 @@ export function build() {
     const AXIS_OUT_CYL = Math.PI / 2; // Y -> X
     const AXIS_OUT_TORUS = Math.PI / 2; // Z -> X
 
-    // Backing disc, flush against the coat, flat face visible from the side.
-    const disc = ringMesh(new THREE.CylinderGeometry(0.085, 0.085, 0.018, 16), mat.mane);
-    disc.rotation.z = AXIS_OUT_CYL;
-    disc.position.x = xSide * 0.006;
-    group.add(disc);
+    // A genuine 3D BOBBIN, not a flat medallion: two wide flanges (the flat
+    // ends of a real thread spool) joined by a narrower barrel, with 2-3
+    // winding-thread bands wrapped around the barrel between them. The
+    // whole stack protrudes out from the flank along local X so, unlike a
+    // flush disc, it reads with real depth/silhouette from a 3/4 angle
+    // instead of misreading as a flat coin/glyph at a distance.
+    const innerFlange = ringMesh(new THREE.CylinderGeometry(0.072, 0.072, 0.015, 16), mat.mane);
+    innerFlange.rotation.z = AXIS_OUT_CYL;
+    innerFlange.position.x = xSide * 0.012;
+    group.add(innerFlange);
 
-    // Concentric wound-thread rings, alternating light/dark, nested from
-    // the outer rim in toward the hub, each sitting slightly proud of the
-    // disc so the coiled-thread layering actually reads in relief.
-    const ringDefs = [
-      { r: 0.07, tube: 0.011, mat: mat.blaze },
-      { r: 0.05, tube: 0.011, mat: mat.shadow },
-      { r: 0.03, tube: 0.011, mat: mat.blaze },
+    const barrel = ringMesh(new THREE.CylinderGeometry(0.044, 0.044, 0.075, 14), mat.shadow);
+    barrel.rotation.z = AXIS_OUT_CYL;
+    barrel.position.x = xSide * 0.05;
+    group.add(barrel);
+
+    const outerFlange = ringMesh(new THREE.CylinderGeometry(0.072, 0.072, 0.015, 16), mat.mane);
+    outerFlange.rotation.z = AXIS_OUT_CYL;
+    outerFlange.position.x = xSide * 0.088;
+    group.add(outerFlange);
+
+    // Winding-thread bands, alternating light/dark, wrapped around the
+    // barrel between the two flanges like coiled yarn on a real bobbin.
+    const bandDefs = [
+      { x: 0.03, mat: mat.blaze },
+      { x: 0.05, mat: mat.dark },
+      { x: 0.07, mat: mat.blaze },
     ];
-    ringDefs.forEach(({ r, tube, mat: ringMat }) => {
-      const ring = ringMesh(new THREE.TorusGeometry(r, tube, 6, 18), ringMat);
-      ring.rotation.y = AXIS_OUT_TORUS;
-      ring.position.x = xSide * 0.013;
-      group.add(ring);
+    bandDefs.forEach(({ x, mat: bandMat }) => {
+      const band = ringMesh(new THREE.TorusGeometry(0.046, 0.009, 6, 16), bandMat);
+      band.rotation.y = AXIS_OUT_TORUS;
+      band.position.x = xSide * x;
+      group.add(band);
     });
 
-    // Small protruding axle hub at the very center.
-    const hub = ringMesh(new THREE.CylinderGeometry(0.014, 0.014, 0.05, 8), mat.dark);
+    // Small protruding axle nub past the outer flange, capping the spool.
+    const hub = ringMesh(new THREE.CylinderGeometry(0.012, 0.012, 0.03, 8), mat.dark);
     hub.rotation.z = AXIS_OUT_CYL;
-    hub.position.x = xSide * 0.02;
+    hub.position.x = xSide * 0.105;
     group.add(hub);
 
     return group;
@@ -360,65 +376,54 @@ export function build() {
   parts.mane = mane;
 
   // -------------------------------------------------------------------
-  // TAIL — a chain of loose violet thread-strands off the rear, longer
-  // and fuller than the mane, streaming behind and below the croup.
+  // TAIL — SEVEN independent, two-segment loose violet thread-strands
+  // fanned out off the rear, each rooted directly at the tail base and
+  // swaying on its own phase, so the tail reads unmistakably as a bundle
+  // of several separate trailing threads rather than one solid ribbon.
   // -------------------------------------------------------------------
   // Rooted well clear of the rump's back face (rump spans to z ~ -0.385)
   // and tipped back at a steeper angle so the tail visibly trails behind
-  // the body's silhouette instead of hugging it, and is thickened
-  // considerably at every segment so it reads clearly even from a
-  // rear 3/4 angle instead of vanishing into a hair-thin sliver.
+  // the body's silhouette instead of hugging it.
   const tailPivot = new THREE.Group();
   tailPivot.position.set(0, 0.29, -0.44);
   tailPivot.rotation.x = 0.48;
   torsoPivot.add(tailPivot);
 
-  const tailBase = hangingBox(0.10, 0.27, 0.10, mat.mane);
-  tailPivot.add(tailBase);
+  // Each strand: a root pivot fanned out from center, an upper segment,
+  // a knee pivot, and a tapered lower segment -- built the same way as a
+  // leg, but hanging loose off the tail root instead of reaching the
+  // ground, so every strand can independently sway/stream in animate().
+  function buildTailStrand({ x, z, upperLen, lowerLen, upperW, lowerW }) {
+    const rootPivot = new THREE.Group();
+    rootPivot.position.set(x, -0.02, z);
+    tailPivot.add(rootPivot);
 
-  const tailMid = new THREE.Group();
-  tailMid.position.set(0, -0.26, -0.03);
-  tailPivot.add(tailMid);
-  const tailMidSeg = hangingBox(0.075, 0.24, 0.075, mat.mane);
-  tailMid.add(tailMidSeg);
+    const upperSeg = hangingBox(upperW, upperLen, upperW, mat.mane);
+    rootPivot.add(upperSeg);
 
-  const tailTip = new THREE.Group();
-  tailTip.position.set(0, -0.23, -0.03);
-  tailMid.add(tailTip);
-  const tailTipSeg = hangingBox(0.055, 0.21, 0.055, mat.mane);
-  tailTip.add(tailTipSeg);
+    const kneePivot = new THREE.Group();
+    kneePivot.position.set(0, -upperLen, 0);
+    rootPivot.add(kneePivot);
 
-  const tailWisp = new THREE.Group();
-  tailWisp.position.set(0, -0.20, -0.02);
-  tailTip.add(tailWisp);
-  const tailWispSeg = hangingBox(0.03, 0.15, 0.03, mat.mane);
-  tailWisp.add(tailWispSeg);
+    const lowerSeg = hangingBox(lowerW, lowerLen, lowerW, mat.mane);
+    kneePivot.add(lowerSeg);
 
-  // A fuller fan of extra loose stray strands for a windswept streaming
-  // read, varied in length/width so the whole tail reads as a bundle of
-  // flowing thread rather than a single rigid rod.
-  const tailStrayL = new THREE.Group();
-  tailStrayL.position.set(-0.055, -0.03, -0.015);
-  tailPivot.add(tailStrayL);
-  tailStrayL.add(hangingBox(0.028, 0.42, 0.028, mat.mane));
+    return { rootPivot, kneePivot };
+  }
 
-  const tailStrayR = new THREE.Group();
-  tailStrayR.position.set(0.055, -0.03, -0.015);
-  tailPivot.add(tailStrayR);
-  tailStrayR.add(hangingBox(0.028, 0.39, 0.028, mat.mane));
-
-  const tailStrayC = new THREE.Group();
-  tailStrayC.position.set(0, -0.05, -0.03);
-  tailPivot.add(tailStrayC);
-  tailStrayC.add(hangingBox(0.024, 0.46, 0.024, mat.mane));
+  const tailStrandDefs = [
+    { x: 0, z: 0, upperLen: 0.27, lowerLen: 0.24, upperW: 0.05, lowerW: 0.036 },
+    { x: -0.03, z: -0.01, upperLen: 0.25, lowerLen: 0.23, upperW: 0.04, lowerW: 0.03 },
+    { x: 0.03, z: -0.01, upperLen: 0.25, lowerLen: 0.23, upperW: 0.04, lowerW: 0.03 },
+    { x: -0.055, z: -0.02, upperLen: 0.21, lowerLen: 0.20, upperW: 0.032, lowerW: 0.024 },
+    { x: 0.055, z: -0.02, upperLen: 0.21, lowerLen: 0.20, upperW: 0.032, lowerW: 0.024 },
+    { x: -0.075, z: -0.035, upperLen: 0.16, lowerLen: 0.16, upperW: 0.026, lowerW: 0.02 },
+    { x: 0.075, z: -0.035, upperLen: 0.16, lowerLen: 0.16, upperW: 0.026, lowerW: 0.02 },
+  ];
+  const tailStrands = tailStrandDefs.map(buildTailStrand);
 
   parts.tailPivot = tailPivot;
-  parts.tailMid = tailMid;
-  parts.tailTip = tailTip;
-  parts.tailWisp = tailWisp;
-  parts.tailStrayL = tailStrayL;
-  parts.tailStrayR = tailStrayR;
-  parts.tailStrayC = tailStrayC;
+  parts.tailStrands = tailStrands;
 
   // -------------------------------------------------------------------
   // LEGS — four long, slender legs built from hip/shoulder + knee
@@ -545,12 +550,11 @@ export function build() {
         strand.rotation.z = Math.sin(stride * 0.7 + i * 0.8) * 0.15;
       });
       tailPivot.rotation.x = 0.2 + Math.sin(stride * 0.6) * 0.1;
-      tailMid.rotation.z = Math.sin(stride * 0.8 + 0.6) * 0.3;
-      tailTip.rotation.z = Math.sin(stride * 0.8 + 1.2) * 0.4;
-      tailWisp.rotation.z = Math.sin(stride * 0.8 + 1.7) * 0.45;
-      tailStrayL.rotation.z = Math.sin(stride * 0.9 + 0.3) * 0.3;
-      tailStrayR.rotation.z = Math.sin(stride * 0.9 - 0.3) * 0.3;
-      tailStrayC.rotation.z = Math.sin(stride * 0.85) * 0.25;
+      tailStrands.forEach(({ rootPivot, kneePivot }, i) => {
+        rootPivot.rotation.z = Math.sin(stride * 0.85 + i * 0.7) * 0.3;
+        rootPivot.rotation.x = Math.sin(stride * 0.7 + i * 0.5) * 0.12;
+        kneePivot.rotation.z = Math.sin(stride * 0.8 + i * 0.7 + 0.9) * 0.4;
+      });
 
       earPivotL.rotation.x = -0.2;
       earPivotR.rotation.x = -0.2;
@@ -584,12 +588,10 @@ export function build() {
         flick = Math.sin((flickCycle / 0.5) * Math.PI) * 0.5;
       }
       tailPivot.rotation.x = 0.48 + Math.sin(idle * 0.5) * 0.04;
-      tailMid.rotation.z = Math.sin(idle * 0.5 + 0.5) * 0.1 + flick * 0.3;
-      tailTip.rotation.z = Math.sin(idle * 0.5 + 1.0) * 0.15 + flick * 0.5;
-      tailWisp.rotation.z = Math.sin(idle * 0.5 + 1.4) * 0.18 + flick * 0.6;
-      tailStrayL.rotation.z = Math.sin(idle * 0.5 + 0.3) * 0.12;
-      tailStrayR.rotation.z = Math.sin(idle * 0.5 - 0.3) * 0.12;
-      tailStrayC.rotation.z = Math.sin(idle * 0.5) * 0.1;
+      tailStrands.forEach(({ rootPivot, kneePivot }, i) => {
+        rootPivot.rotation.z = Math.sin(idle * 0.5 + i * 0.6) * 0.12 + flick * (0.2 + i * 0.03);
+        kneePivot.rotation.z = Math.sin(idle * 0.5 + i * 0.6 + 0.9) * 0.16 + flick * (0.3 + i * 0.04);
+      });
 
       // Ears swivel gently, tracking idle attentiveness.
       earPivotL.rotation.x = Math.sin(idle * 0.9) * 0.1;
