@@ -1,0 +1,1341 @@
+<!doctype html>
+<title>Loomfall Mobs Demo</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js" } }
+</script>
+<style>
+  :root {
+    color-scheme: dark;
+  }
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: #0c0e14;
+    overflow: hidden;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  }
+  #canvasHost {
+    position: fixed;
+    inset: 0;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  #hud {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    z-index: 10;
+    background: rgba(12, 14, 20, 0.72);
+    border: 1px solid rgba(180, 160, 230, 0.35);
+    border-radius: 8px;
+    padding: 10px 14px;
+    color: #ece7f5;
+    font-size: 13px;
+    min-width: 230px;
+    backdrop-filter: blur(4px);
+    pointer-events: auto;
+  }
+  #hud h1 {
+    font-size: 13px;
+    margin: 0 0 6px 0;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #c9b6ff;
+  }
+  #hud .row {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    margin: 2px 0;
+  }
+  #hud .row span.k { color: #9891ab; }
+  #hud button {
+    margin-top: 8px;
+    width: 100%;
+    background: #362b52;
+    color: #ece7f5;
+    border: 1px solid #6a4fb0;
+    border-radius: 5px;
+    padding: 5px 8px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  #hud button:hover { background: #47376b; }
+  #hud button:disabled { opacity: 0.5; cursor: default; }
+  #hud button.boss {
+    background: #4a1f2a;
+    border-color: #b0504f;
+  }
+  #hud button.boss:hover { background: #632733; }
+  #log {
+    position: fixed;
+    bottom: 10px;
+    left: 10px;
+    z-index: 10;
+    width: 480px;
+    max-height: 220px;
+    overflow-y: auto;
+    background: rgba(12, 14, 20, 0.72);
+    border: 1px solid rgba(180, 160, 230, 0.35);
+    border-radius: 8px;
+    padding: 8px 10px;
+    color: #cfc9e0;
+    font-size: 11px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    backdrop-filter: blur(4px);
+  }
+  #log .entry { white-space: pre-wrap; word-break: break-word; margin: 1px 0; }
+  #log .mobSpawn { color: #8fd8a0; }
+  #log .mobHurt { color: #f0c674; }
+  #log .mobDeath { color: #f07070; }
+  #log .mobAttack { color: #f0a0e0; }
+  #log .mobDrop { color: #b7e08a; }
+  #log .mobDespawn { color: #7a7a8c; }
+  #log .bossDefeated { color: #ff5a5a; font-weight: 700; }
+  #log .mobMount { color: #7fd0ff; }
+  #log .mobDismount { color: #7fa8ff; }
+  #log .mobBreed { color: #ffcf7f; }
+  #hud button.mount {
+    background: #1f3a4a;
+    border-color: #4f9db0;
+  }
+  #hud button.mount:hover { background: #274a5f; }
+  #hud button.vfx {
+    background: #24361c;
+    border-color: #6fa347;
+  }
+  #hud button.vfx:hover { background: #2e4522; }
+  #labels {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 5;
+  }
+  .mobLabel {
+    position: absolute;
+    transform: translate(-50%, -100%);
+    color: #f2ecff;
+    font-size: 12px;
+    text-shadow: 0 1px 3px #000, 0 0 6px #000;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  #errBox {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    background: rgba(30, 0, 0, 0.92);
+    color: #ffb4b4;
+    padding: 24px;
+    font-family: ui-monospace, monospace;
+    font-size: 13px;
+    white-space: pre-wrap;
+    overflow: auto;
+  }
+  /* ISOLATE MODE (?mob=<archetype>): the debug HUD + event log exist purely
+     for the showcase/sim harness and have nothing meaningful to show for a
+     single static creature -- worse, their fixed on-screen position
+     overlapped/occluded the rendered model in isolate screenshots. Hide
+     them entirely (display:none, not just visually collapsed) so nothing
+     can paint over the model; runIsolateMode() also reframes the camera
+     around the creature's actual bounding box so it's centered with clear
+     headroom now that the HUD isn't stealing screen space. A small
+     unobtrusive species-name label (#labels .mobLabel) is kept.
+     Showcase mode is untouched -- body never gets this class there. */
+  body.isolate-mode #hud,
+  body.isolate-mode #log {
+    display: none;
+  }
+</style>
+
+<div id="canvasHost"></div>
+<div id="labels"></div>
+
+<div id="hud">
+  <h1>Loomfall &mdash; Mobs Harness</h1>
+  <div class="row"><span class="k">mode</span><span id="hudMode">showcase+sim</span></div>
+  <div class="row"><span class="k">dimension</span><span id="hudDimension">warpwold</span></div>
+  <div class="row"><span class="k">day/night</span><span id="hudDay">day</span></div>
+  <div class="row"><span class="k">mob count</span><span id="hudCount">0</span></div>
+  <div class="row"><span class="k">boss phase</span><span id="hudBossPhase">&ndash;</span></div>
+  <div class="row"><span class="k">boss hp</span><span id="hudBossHp">&ndash;</span></div>
+  <div class="row"><span class="k">molthkin phase</span><span id="hudMolthkinPhase">&ndash;</span></div>
+  <div class="row"><span class="k">molthkin hp</span><span id="hudMolthkinHp">&ndash;</span></div>
+  <div class="row"><span class="k">mounted</span><span id="hudMounted">no</span></div>
+  <div class="row"><span class="k">scaldwarden</span><span id="hudScaldProvoked">&ndash;</span></div>
+  <button id="toggleDay">Toggle day/night</button>
+  <button id="forceSpawn">Force-spawn all</button>
+  <button id="runBossSim" class="boss">Run Boss Sim (The Last Needle)</button>
+  <button id="runMolthkinSim" class="boss">Run Molthkin Sim (Cinderloom)</button>
+  <button id="mountSpoolmare" class="mount">Mount Spoolmare</button>
+  <button id="provokeTest" class="mount">Provoke Test (Scaldwarden)</button>
+  <button id="animShowcase" class="vfx">Anim Showcase (Walk Cycle)</button>
+  <button id="killDemo" class="vfx">Kill (Death VFX)</button>
+</div>
+
+<div id="log"></div>
+
+<pre id="errBox"></pre>
+
+<script type="module">
+  import * as THREE from 'three';
+  import MobManager from './MobManager.js';
+  import StubWorld from './world/StubWorld.js';
+
+  import { build as buildGrazer, meta as metaGrazer } from './creatures/grazer.js';
+  import { build as buildGroaner, meta as metaGroaner } from './creatures/groaner.js';
+  import { build as buildExploder, meta as metaExploder } from './creatures/exploder.js';
+  import { build as buildScreecher, meta as metaScreecher } from './creatures/screecher.js';
+  import { build as buildTrader, meta as metaTrader } from './creatures/trader.js';
+  import { build as buildBobbindeer, meta as metaBobbindeer } from './creatures/bobbindeer.js';
+  import { build as buildFrayedhound, meta as metaFrayedhound } from './creatures/frayedhound.js';
+  import { build as buildEmberspinner, meta as metaEmberspinner } from './creatures/emberspinner.js';
+  import { build as buildUnpicked, meta as metaUnpicked } from './creatures/unpicked.js';
+  import { build as buildLastneedle, meta as metaLastneedle } from './creatures/lastneedle.js';
+  import { build as buildNeedlejack, meta as metaNeedlejack } from './creatures/needlejack.js';
+  import { build as buildScaldwarden, meta as metaScaldwarden } from './creatures/scaldwarden.js';
+  import { build as buildRaveler, meta as metaRaveler } from './creatures/raveler.js';
+  import { build as buildSpoolmare, meta as metaSpoolmare } from './creatures/spoolmare.js';
+  import { build as buildSilencemoth, meta as metaSilencemoth } from './creatures/silencemoth.js';
+  import { build as buildSelvagewarden, meta as metaSelvagewarden } from './creatures/selvagewarden.js';
+  import { build as buildMolthkin, meta as metaMolthkin } from './creatures/molthkin.js';
+
+  // NOTE: order here is display order for the showcase row / isolate mode
+  // dropdown-equivalent (?mob=<archetype>). 'selvagewarden' (Nevermend
+  // mini-boss), 'molthkin' (Cinderloom boss), and 'lastneedle' (Nevermend
+  // boss, last) all appear in the showcase row and isolate mode like any
+  // other creature, but are deliberately EXCLUDED from SPAWN_ARCHETYPES
+  // below -- all three are hand-placed/structure-bound per
+  // spawnRules.SPAWN_TABLES's own header comment ("Boss/structure-bound
+  // archetypes (lastneedle, selvagewarden, molthkin) are intentionally
+  // NEVER listed here"), so force-spawning mirrors that: they're triggered
+  // via their own dedicated sim hooks (__runBossSim/__runMolthkinSim) or a
+  // direct manager.spawn(archetype, pos) call, never ambient- or
+  // force-spawned alongside the regular roster.
+  const CREATURES = {
+    grazer: { build: buildGrazer, meta: metaGrazer },
+    groaner: { build: buildGroaner, meta: metaGroaner },
+    exploder: { build: buildExploder, meta: metaExploder },
+    screecher: { build: buildScreecher, meta: metaScreecher },
+    trader: { build: buildTrader, meta: metaTrader },
+    bobbindeer: { build: buildBobbindeer, meta: metaBobbindeer },
+    frayedhound: { build: buildFrayedhound, meta: metaFrayedhound },
+    emberspinner: { build: buildEmberspinner, meta: metaEmberspinner },
+    unpicked: { build: buildUnpicked, meta: metaUnpicked },
+    needlejack: { build: buildNeedlejack, meta: metaNeedlejack },
+    scaldwarden: { build: buildScaldwarden, meta: metaScaldwarden },
+    raveler: { build: buildRaveler, meta: metaRaveler },
+    spoolmare: { build: buildSpoolmare, meta: metaSpoolmare },
+    silencemoth: { build: buildSilencemoth, meta: metaSilencemoth },
+    selvagewarden: { build: buildSelvagewarden, meta: metaSelvagewarden },
+    molthkin: { build: buildMolthkin, meta: metaMolthkin },
+    lastneedle: { build: buildLastneedle, meta: metaLastneedle },
+  };
+  const ARCHETYPES = Object.keys(CREATURES);
+  const SPAWN_ARCHETYPES = ARCHETYPES.filter(
+    (a) => a !== 'lastneedle' && a !== 'molthkin' && a !== 'selvagewarden'
+  );
+
+  // ------------------------------------------------------------------
+  // Test hooks (set up early so window.__error works even if init blows
+  // up partway through).
+  // ------------------------------------------------------------------
+  window.__ready = false;
+  window.__events = [];
+  window.__error = null;
+  window.__bossState = { phase: 0, hp: 0, maxHp: 0 };
+  window.__bossDefeated = false;
+  window.__molthkinState = { phase: 0, hp: 0, maxHp: 0 };
+  window.__molthkinDefeated = false;
+  window.__molthkinDrops = [];
+  window.__mountState = { mounted: false, riderAnchorPos: null };
+  window.__scaldProvoked = false;
+  window.__runBossSim = function () { return false; }; // overwritten in showcase mode
+  window.__runMolthkinSim = function () { return false; }; // overwritten in showcase mode
+  window.__mountSpoolmare = function () { return false; }; // overwritten in showcase mode
+  window.__provokeTest = function () { return false; }; // overwritten in showcase mode
+  window.__testLoot = function () { return []; }; // overwritten in showcase mode
+  // ---- Phase 4a animation/VFX system: demo hooks -----------------------
+  window.__animT = 0; // seconds elapsed while __animShowcase() is driving its walk cycle
+  window.__lastDeath = { archetype: null, dyingObserved: false }; // set by __killDemo()
+  window.__animShowcase = function () { return false; }; // overwritten in showcase mode
+  window.__killDemo = function () { return false; }; // overwritten in showcase mode
+  window.__setSpin = function () { return false; }; // overwritten once the camera exists (init())
+  Object.defineProperty(window, '__mobCount', {
+    get() { return window.__manager ? window.__manager.mobs.length : 0; },
+  });
+  window.__forceSpawnAll = function () {
+    if (!window.__manager) return [];
+    const pos = window.__getPlayerPos ? window.__getPlayerPos() : { x: 0, y: 1, z: 0 };
+    const spawned = [];
+    SPAWN_ARCHETYPES.forEach((archetype, i) => {
+      const angle = (i / SPAWN_ARCHETYPES.length) * Math.PI * 2;
+      const p = {
+        x: pos.x + Math.cos(angle) * 4,
+        y: pos.y,
+        z: pos.z + Math.sin(angle) * 4,
+      };
+      const mob = window.__manager.spawn(archetype, p);
+      if (mob) spawned.push(mob);
+    });
+    return spawned;
+  };
+  window.__setMob = function (archetype) {
+    const url = new URL(window.location.href);
+    if (archetype) {
+      url.searchParams.set('mob', archetype);
+    } else {
+      url.searchParams.delete('mob');
+    }
+    window.location.href = url.toString();
+  };
+
+  function showFatalError(err) {
+    const msg = (err && err.stack) ? err.stack : String(err);
+    window.__error = msg;
+    const box = document.getElementById('errBox');
+    box.style.display = 'block';
+    box.textContent = 'Loomfall mobs demo error:\n\n' + msg;
+    console.error(err);
+  }
+
+  window.addEventListener('error', (e) => showFatalError(e.error || e.message));
+  window.addEventListener('unhandledrejection', (e) => showFatalError(e.reason));
+
+  // ------------------------------------------------------------------
+  // On-page event log (also mirrors to console + window.__events).
+  // Handles all ten MobManager event shapes, every one of which now
+  // carries both `archetype` (spawn-table slot key) AND `canonicalId`
+  // (snake_case entity id, e.g. 'last_needle'):
+  //   mobSpawn/mobHurt/mobDeath/mobAttack/mobDespawn -- { archetype, canonicalId, species, mob, position, ... }
+  //   bossDefeated                                   -- as above, plus { bound, victoryTrigger?, achievement? }
+  //                                                       (lastneedle: bound:true+both fields; molthkin: bound:false, neither field)
+  //   mobDrop                                        -- { mobId, archetype, canonicalId, itemId, pos:{x,y,z}, count } (real content/items.json / naming.json ids, e.g. 'raw_skein'; NO species/position/mob field)
+  //   mobMount / mobDismount                         -- { archetype, canonicalId, mob } -- NO species/position/dmg
+  //   mobBreed                                       -- { archetype, canonicalId, baby } -- NO species/position/dmg; mob field is called `baby`
+  // ------------------------------------------------------------------
+  const logEl = document.getElementById('log');
+  function fmtPos(p) {
+    if (!p) return '?,?,?';
+    const f = (n) => Number.isFinite(n) ? n.toFixed(1) : '?';
+    return `${f(p.x)},${f(p.y)},${f(p.z)}`;
+  }
+  function logEvent(name, detail) {
+    detail = detail || {};
+    let line;
+    if (name === 'mobDrop') {
+      line = `[event] mobDrop mob#${detail.mobId} (${detail.canonicalId}) item=${detail.itemId} x${detail.count} @ ${fmtPos(detail.pos)}`;
+    } else if (name === 'mobMount' || name === 'mobDismount') {
+      const mobId = detail.mob ? detail.mob.id : '?';
+      line = `[event] ${name} mob#${mobId} ${detail.archetype}/${detail.canonicalId}`;
+    } else if (name === 'mobBreed') {
+      const babyId = detail.baby ? detail.baby.id : '?';
+      line = `[event] mobBreed baby#${babyId} ${detail.archetype}/${detail.canonicalId}`;
+    } else {
+      line = `[event] ${name} ${detail.archetype}/${detail.canonicalId} ${detail.species} @ ${fmtPos(detail.position)}` +
+        (detail.dmg !== undefined ? ` dmg=${detail.dmg}` : '') +
+        (detail.explosion ? ' EXPLOSION' : '') +
+        (detail.hitPlayer !== undefined ? ` hitPlayer=${detail.hitPlayer}` : '') +
+        (detail.bound ? ' BOUND' : '') +
+        (detail.victoryTrigger ? ` victoryTrigger=${detail.victoryTrigger}` : '') +
+        (detail.achievement ? ` achievement=${detail.achievement}` : '');
+    }
+    console.log(line);
+    window.__events.push({
+      name,
+      archetype: detail.archetype,
+      canonicalId: detail.canonicalId,
+      species: detail.species,
+      position: detail.position || detail.pos,
+      dmg: detail.dmg,
+      explosion: !!detail.explosion,
+      itemId: detail.itemId,
+      count: detail.count,
+      mobId: detail.mobId ?? (detail.mob ? detail.mob.id : undefined) ?? (detail.baby ? detail.baby.id : undefined),
+      bound: !!detail.bound,
+      victoryTrigger: detail.victoryTrigger,
+      achievement: detail.achievement,
+      t: performance.now(),
+    });
+    const div = document.createElement('div');
+    div.className = 'entry ' + name;
+    div.textContent = line;
+    logEl.appendChild(div);
+    logEl.scrollTop = logEl.scrollHeight;
+    while (logEl.childElementCount > 200) {
+      logEl.removeChild(logEl.firstChild);
+    }
+    if (name === 'bossDefeated') {
+      if (detail.archetype === 'molthkin') {
+        window.__molthkinDefeated = true;
+      } else {
+        window.__bossDefeated = true;
+      }
+    }
+    if (name === 'mobDrop' && detail.archetype === 'molthkin') {
+      window.__molthkinDrops.push({ itemId: detail.itemId, count: detail.count, pos: detail.pos });
+    }
+  }
+
+  try {
+    init();
+  } catch (err) {
+    showFatalError(err);
+  }
+
+  function init() {
+    const params = new URLSearchParams(window.location.search);
+    const isolateMob = params.get('mob');
+    const mode = isolateMob && CREATURES[isolateMob] ? 'isolate' : 'showcase';
+
+    // Hides #hud/#log via the body.isolate-mode CSS rule above so the debug
+    // panels can never overlap/occlude the rendered creature in isolate
+    // screenshots (showcase mode never gets this class -- panels + sim
+    // stay exactly as before there).
+    if (mode === 'isolate') {
+      document.body.classList.add('isolate-mode');
+    }
+
+    document.getElementById('hudMode').textContent =
+      mode === 'isolate' ? `isolate: ${isolateMob}` : 'showcase+sim';
+
+    // ---- Renderer / scene / camera ----------------------------------
+    const canvasHost = document.getElementById('canvasHost');
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x11131c, 1);
+    canvasHost.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x11131c, 15, 60);
+
+    const camera = new THREE.PerspectiveCamera(
+      55, window.innerWidth / window.innerHeight, 0.05, 200
+    );
+
+    const hemi = new THREE.HemisphereLight(0xbfd4ff, 0x33261c, 0.9);
+    scene.add(hemi);
+    const dirLight = new THREE.DirectionalLight(0xfff2d9, 1.1);
+    dirLight.position.set(6, 10, 4);
+    scene.add(dirLight);
+    scene.add(new THREE.AmbientLight(0x404050, 0.3));
+
+    const groundGeo = new THREE.PlaneGeometry(120, 120);
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0x2c3a2c, roughness: 1 });
+    const ground = new THREE.Mesh(groundGeo, groundMat);
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = 0;
+    scene.add(ground);
+
+    const grid = new THREE.GridHelper(120, 60, 0x445544, 0x293629);
+    grid.position.y = 0.001;
+    scene.add(grid);
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // ---- Hand-rolled slow auto-rotating camera (no OrbitControls) ---
+    let camAngle = 0;
+    let camRadius = 10;
+    let camHeight = 5;
+    let camTarget = new THREE.Vector3(0, 1, 0);
+    // __setSpin(deg): pins the camera azimuth to an EXACT angle (degrees,
+    // 0 = +X axis, increasing counter-clockwise same as camAngle below) for
+    // deterministic multi-angle capture (e.g. 0/90/180/270 screenshots of
+    // an isolated creature). Once set, auto-rotation stops advancing
+    // camAngle and updateCamera() holds exactly at the requested angle
+    // every frame instead -- radius/height (bbox framing, see
+    // runIsolateMode()) and camTarget are untouched, only the azimuth is
+    // pinned. Works in both isolate and showcase mode (whichever is
+    // currently calling updateCamera()); primarily intended for isolate
+    // mode's per-creature screenshot harness. No way back to auto-rotate
+    // short of a page reload -- not needed for the screenshot use case.
+    let manualSpinDeg = null;
+    window.__setSpin = function (deg) {
+      try {
+        const d = Number(deg);
+        manualSpinDeg = Number.isFinite(d) ? d : 0;
+        return true;
+      } catch (err) {
+        showFatalError(err);
+        return false;
+      }
+    };
+    function updateCamera(dt, rotateSpeed) {
+      if (manualSpinDeg !== null) {
+        camAngle = (manualSpinDeg * Math.PI) / 180;
+      } else {
+        camAngle += dt * rotateSpeed;
+      }
+      camera.position.set(
+        camTarget.x + Math.cos(camAngle) * camRadius,
+        camTarget.y + camHeight,
+        camTarget.z + Math.sin(camAngle) * camRadius
+      );
+      camera.lookAt(camTarget);
+    }
+
+    // Phase 4a animation/VFX system: a small shared helper so isolate mode
+    // and the static showcase row can synthesize a believable
+    // windup-then-strike (state.telegraph ramping 0->1 immediately before
+    // state.attack fires 1->0) instead of just an attack pulse alone, using
+    // the exact TELEGRAPH_DURATION-shaped cadence MobManager itself now
+    // drives via _beginTelegraph/_updateTelegraph.
+    function telegraphAttackPulse(elapsed, period, windupDur) {
+      const p = Number.isFinite(period) && period > 0 ? period : 2;
+      const w = Number.isFinite(windupDur) && windupDur > 0 ? windupDur : 0.35;
+      const cyc = ((elapsed % p) + p) % p;
+      const attack = cyc < w ? 1 - (cyc / w) : 0;
+      const preWindupStart = Math.max(0, p - w);
+      const telegraph = cyc >= preWindupStart ? (cyc - preWindupStart) / w : 0;
+      return { telegraph, attack };
+    }
+
+    const labelsRoot = document.getElementById('labels');
+    const labelEls = []; // { el, anchor (THREE.Object3D), text }
+
+    function makeLabel(text) {
+      const el = document.createElement('div');
+      el.className = 'mobLabel';
+      el.textContent = text;
+      labelsRoot.appendChild(el);
+      return el;
+    }
+
+    function updateLabels() {
+      const halfW = window.innerWidth / 2;
+      const halfH = window.innerHeight / 2;
+      const v = new THREE.Vector3();
+      for (const entry of labelEls) {
+        if (!entry.anchor) { entry.el.style.display = 'none'; continue; }
+        entry.anchor.getWorldPosition(v);
+        v.project(camera);
+        if (v.z > 1) { entry.el.style.display = 'none'; continue; }
+        entry.el.style.display = 'block';
+        entry.el.style.left = (v.x * halfW + halfW) + 'px';
+        entry.el.style.top = (-v.y * halfH + halfH) + 'px';
+      }
+    }
+
+    if (mode === 'isolate') {
+      runIsolateMode(isolateMob);
+    } else {
+      runShowcaseMode();
+    }
+
+    // ==================================================================
+    // ISOLATE MODE: one creature, centered, slowly rotating, synthetic
+    // animate() state driven for screenshots.
+    // ==================================================================
+    function runIsolateMode(archetype) {
+      const entry = CREATURES[archetype];
+      const group = entry.build();
+      scene.add(group);
+      group.position.set(0, 0, 0);
+
+      const label = makeLabel(entry.meta.species + ' (' + archetype + ')');
+      labelEls.push({ el: label, anchor: group.userData.headAnchor || group });
+
+      // ---- Frame the camera from the model's ACTUAL bounding box -------
+      // Previously this used hand-tuned per-archetype magic numbers, which
+      // repeatedly under-framed tall/wide creatures (spoolmare, molthkin,
+      // lastneedle, selvagewarden all got reported cropped/clipped by
+      // visual judges). Instead, measure the built group directly and back
+      // out a camera distance that guarantees the whole model fits both
+      // the vertical AND horizontal FOV with headroom -- this scales
+      // correctly for every current and future archetype without needing
+      // a bespoke branch per creature.
+      const bbox = new THREE.Box3().setFromObject(group);
+      const size = new THREE.Vector3();
+      const center = new THREE.Vector3();
+      bbox.getSize(size);
+      bbox.getCenter(center);
+      // Conservative horizontal footprint: the model spins slowly around Y
+      // for the screenshot, so use the XZ bounding diagonal (not just the
+      // wider single axis) as the worst-case width at any rotation angle.
+      const horizExtent = Math.hypot(size.x, size.z) || 1;
+      const vertExtent = size.y || 1;
+
+      const MARGIN = 1.5; // 50% headroom so nothing touches the frame edge
+      const vFov = (camera.fov * Math.PI) / 180;
+      const aspect = window.innerWidth / window.innerHeight;
+      const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect);
+      const distForHeight = (vertExtent * MARGIN) / (2 * Math.tan(vFov / 2));
+      const distForWidth = (horizExtent * MARGIN) / (2 * Math.tan(hFov / 2));
+      const dist = Math.max(distForHeight, distForWidth, 1.5);
+
+      // Fixed gentle elevation angle (matches the look of the old hand-
+      // tuned values) applied to whatever distance the bounding box needs.
+      const elevAngle = (22 * Math.PI) / 180;
+      camTarget = new THREE.Vector3(0, center.y, 0);
+      camRadius = dist * Math.cos(elevAngle);
+      camHeight = dist * Math.sin(elevAngle);
+
+      document.getElementById('hudDimension').textContent = entry.meta.dimensionDefault || '?';
+      document.getElementById('hudCount').textContent = '1';
+
+      let t = 0;
+      const clock = new THREE.Clock();
+      function frame() {
+        const dt = Math.min(clock.getDelta(), 0.1);
+        t += dt;
+
+        // Synthetic per-archetype state so animate() shows off its full
+        // range of motion for screenshots. `attack`/`telegraph` (generic to
+        // ALL mobs as of Phase 4a) and `phase` (boss-only) are included
+        // defensively for every branch -- creature animate()
+        // implementations that don't use them simply ignore them.
+        // `speed01`/`dying`/`turn` are likewise always present (0/0/0 or a
+        // sensible non-zero default), matching the EXTENDED state contract
+        // MobManager itself now builds in _animateMob -- see mobs/README.md
+        // "Animation & VFX".
+        let state;
+        if (archetype === 'exploder') {
+          // Looping fuse ramp 0 -> 1 every 2.5s. Fuse-based, no attack/telegraph.
+          const fuse = (t % 2.5) / 2.5;
+          state = { moving: false, grounded: true, fuse, hurt: 0, attack: 0, telegraph: 0, phase: 0, dying: 0, turn: 0, speed01: 0, dimension: entry.meta.dimensionDefault };
+        } else if (archetype === 'lastneedle') {
+          // Cycle through all 3 boss phases over a 9s loop, plus a periodic
+          // windup->attack pulse, so the isolate view shows the full range
+          // of the boss's animation states.
+          const cyclePos = (t % 9) / 9;
+          const phase = cyclePos < 0.34 ? 0 : (cyclePos < 0.67 ? 1 : 2);
+          const { telegraph, attack } = telegraphAttackPulse(t, 2, 0.35);
+          state = { moving: true, grounded: false, fuse: 0, hurt: 0, attack, telegraph, phase, dying: 0, turn: 0, speed01: 0.6, dimension: entry.meta.dimensionDefault };
+        } else if (archetype === 'screecher' || archetype === 'silencemoth') {
+          // silencemoth is a harmless ambient flyer (hostile:false) -- no
+          // attack/telegraph, just gentle hover/flap like screecher's motion.
+          const pulse = archetype === 'screecher' ? telegraphAttackPulse(t, 2.2, 0.35) : { telegraph: 0, attack: 0 };
+          state = { moving: true, grounded: false, fuse: 0, hurt: 0, attack: pulse.attack, telegraph: pulse.telegraph, phase: 0, dying: 0, turn: 0, speed01: 0.7, dimension: entry.meta.dimensionDefault };
+        } else if (archetype === 'molthkin') {
+          // Grounded 2-phase boss (canonical 50% threshold): cycle 0->1
+          // every 6s, plus a periodic windup->attack pulse, so the isolate
+          // view shows both phase poses.
+          const cyclePos = (t % 6) / 6;
+          const phase = cyclePos < 0.5 ? 0 : 1;
+          const { telegraph, attack } = telegraphAttackPulse(t, 2, 0.35);
+          state = { moving: true, grounded: true, fuse: 0, hurt: 0, attack, telegraph, phase, dying: 0, turn: 0, speed01: 0.6, dimension: entry.meta.dimensionDefault };
+        } else if (archetype === 'spoolmare') {
+          // Passive rideable mount -- just walks/gallops, never attacks/telegraphs.
+          state = { moving: true, grounded: true, fuse: 0, hurt: 0, attack: 0, telegraph: 0, phase: 0, dying: 0, turn: 0, speed01: 0.75, dimension: entry.meta.dimensionDefault };
+        } else {
+          // Hostile grounded archetypes (groaner/frayedhound/emberspinner/
+          // unpicked/needlejack/raveler/selvagewarden) also get a periodic
+          // windup->attack pulse; passive/neutral ones (grazer/trader/
+          // bobbindeer/scaldwarden) just sit at attack:0/telegraph:0.
+          const isHostileGrounded = ['groaner', 'frayedhound', 'emberspinner', 'unpicked', 'needlejack', 'raveler', 'selvagewarden'].includes(archetype);
+          const pulse = isHostileGrounded ? telegraphAttackPulse(t, 2.2, 0.35) : { telegraph: 0, attack: 0 };
+          state = { moving: true, grounded: true, fuse: 0, hurt: 0, attack: pulse.attack, telegraph: pulse.telegraph, phase: 0, dying: 0, turn: 0, speed01: 0.65, dimension: entry.meta.dimensionDefault };
+        }
+
+        const animate = group.userData && group.userData.animate;
+        if (typeof animate === 'function') {
+          try { animate(t, state); } catch (e) { console.error('animate() threw', e); }
+        }
+
+        // Slow spin around Y so all sides are visible without orbit controls.
+        group.rotation.y = t * 0.35;
+
+        updateCamera(dt, 0.08);
+        updateLabels();
+        renderer.render(scene, camera);
+
+        if (!window.__ready) window.__ready = true;
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    }
+
+    // ==================================================================
+    // SHOWCASE + LIVE SIM MODE
+    // ==================================================================
+    function runShowcaseMode() {
+      // ---- Static showcase row: all seventeen creatures side by side ---
+      const spacing = 2.2;
+      const startX = -((ARCHETYPES.length - 1) * spacing) / 2;
+      ARCHETYPES.forEach((archetype, i) => {
+        const entry = CREATURES[archetype];
+        const group = entry.build();
+        group.position.set(startX + i * spacing, 0, -6);
+        scene.add(group);
+
+        const label = makeLabel(entry.meta.species);
+        labelEls.push({ el: label, anchor: group.userData.headAnchor || group });
+
+        group.userData.__showcaseAnimate = group.userData.animate;
+        group.userData.__showcaseArchetype = archetype;
+      });
+
+      // ---- Live MobManager simulation over a StubWorld ----------------
+      const world = new StubWorld();
+
+      // Scripted moving player position: a slow figure-eight so grazers/
+      // bobbindeer flee, groaners/exploders/screechers/frayedhounds/
+      // emberspinners/unpicked seek+attack, and traders tether.
+      let simTime = 0;
+      let isDay = true;
+      let dimension = 'warpwold';
+      function getPlayerPos() {
+        const r = 6;
+        return {
+          x: Math.sin(simTime * 0.25) * r,
+          y: 1,
+          z: Math.sin(simTime * 0.5) * (r * 0.6),
+        };
+      }
+      window.__getPlayerPos = getPlayerPos;
+
+      let hp = 20;
+      function onPlayerHurt(dmg) {
+        hp = Math.max(0, hp - (Number.isFinite(dmg) ? dmg : 0));
+        if (hp <= 0) hp = 20; // never let the demo player actually die
+      }
+
+      const manager = new MobManager(scene, world, {
+        getPlayerPos,
+        onPlayerHurt,
+        isDay: () => isDay,
+        dimension,
+        onEvent: (name, detail) => logEvent(name, detail),
+        // Phase 4a animation/VFX system: distance-origin fallback for LOD
+        // (billboard visibility / animate() cadence) when getPlayerPos is
+        // missing/throws. Particles/billboards themselves need no extra
+        // wiring to render -- Particles' pooled meshes and Billboard's
+        // camera-facing Sprites are plain scene children with generous
+        // near/far planes (0.05/200, see camera above) and no manual
+        // frustum-culling overrides anywhere in this file, so nothing here
+        // hides them.
+        getCamera: () => camera,
+      });
+      window.__manager = manager;
+
+      // ================================================================
+      // window.__testLoot(): spawns one grazer/Skeinling at a fixed,
+      // off-to-the-side position, kills it in one hit, and returns the
+      // 'mobDrop' event(s) it produced -- so a verifier can assert the
+      // dropped itemId is the REAL canonical id 'raw_skein' (from
+      // content/naming.json), not a placeholder/stub string. LOOT_TABLES.
+      // grazer rolls raw_skein at a 90% independent chance per kill (not
+      // guaranteed), so this retries with fresh grazers (each fully
+      // killed and cleaned up before the next) until a drop lands, capped
+      // at maxAttempts so a broken loot table fails fast instead of
+      // hanging. Returns [] only if every attempt whiffs (statistically
+      // ~1 in 25^-ish for the default cap, i.e. effectively "loot table is
+      // broken").
+      // ================================================================
+      window.__testLoot = function (maxAttempts) {
+        const attempts = Number.isFinite(maxAttempts) ? maxAttempts : 25;
+        const pos = { x: 500, y: 1, z: 500 }; // fixed, far outside the showcase/sim view
+        for (let i = 0; i < attempts; i++) {
+          const beforeLen = window.__events.length;
+          const mob = manager.spawn('grazer', pos);
+          if (!mob) return [];
+          mob.hurt(mob.maxHp + 1000); // guaranteed one-hit kill regardless of tuning
+          const drops = window.__events
+            .slice(beforeLen)
+            .filter((e) => e.name === 'mobDrop' && e.mobId === mob.id);
+          if (drops.length) return drops;
+        }
+        return [];
+      };
+
+      manager.addEventListener('mobSpawn', (e) => attachLabelForMob(e.detail.mob));
+
+      function attachLabelForMob(mob) {
+        if (!mob || mob.__labeled) return;
+        mob.__labeled = true;
+        const label = makeLabel(mob.species);
+        labelEls.push({ el: label, anchor: mob.headAnchor || mob.group });
+      }
+
+      // Force an initial spawn of all non-boss, non-structure-bound
+      // archetypes (SPAWN_ARCHETYPES) so the scene is populated immediately
+      // rather than waiting on the random spawn timer. lastneedle/molthkin
+      // (bosses) and selvagewarden (Nevermend mini-boss, hand-placed per
+      // spawnRules.SPAWN_TABLES) are never part of ambient/force spawning --
+      // see __runBossSim()/__runMolthkinSim() below.
+      window.__forceSpawnAll();
+
+      document.getElementById('hudDimension').textContent = dimension;
+      document.getElementById('hudDay').textContent = isDay ? 'day' : 'night';
+
+      document.getElementById('toggleDay').addEventListener('click', () => {
+        isDay = !isDay;
+        manager.setDay(isDay);
+        document.getElementById('hudDay').textContent = isDay ? 'day' : 'night';
+      });
+      document.getElementById('forceSpawn').addEventListener('click', () => {
+        window.__forceSpawnAll();
+      });
+
+      // ================================================================
+      // BOSS SIM: window.__runBossSim()
+      //
+      // Proves out (1) dimension reconcile -- switches to Nevermend using
+      // the ENGINE id 'end' rather than the display name 'nevermend', both
+      // on the main `manager` (via setDimension) and at construction time
+      // of a dedicated boss MobManager -- and (2) the full 3-phase boss
+      // encounter: spawns The Last Needle into a flat arena
+      // (`new StubWorld({arena:true})`) and scripts repeated mob.hurt()
+      // calls on a timer over ~6-8s so hp crosses both canonical phase
+      // thresholds (phase1HpFrac=0.60, phase2HpFrac=0.15) and finally
+      // reaches 0, firing exactly one 'bossDefeated' (canonicalId
+      // 'last_needle', victoryTrigger 'kill_entity:last_needle',
+      // achievement 'taught_to_mend', bound:true) and NO 'mobDrop' --
+      // canonically the Last Needle is bound, not killed, and has no loot.
+      //
+      // A SEPARATE MobManager is used for the boss rather than reusing
+      // `manager`: MobManager's `world` is fixed at construction (there is
+      // no setWorld()), and the boss arena needs its own flat end_stone
+      // floor (StubWorld({arena:true})) distinct from the main showcase's
+      // pillared terrain. Both managers share the same THREE.Scene/
+      // renderer/camera, so the boss still renders in the same view.
+      // ================================================================
+      let bossManager = null;
+      let bossSimActive = false;
+      let bossHitTimer = null;
+
+      function clearBossTimer() {
+        if (bossHitTimer !== null) {
+          clearInterval(bossHitTimer);
+          bossHitTimer = null;
+        }
+      }
+
+      window.__runBossSim = function () {
+        if (bossSimActive) return false;
+        bossSimActive = true;
+        window.__bossDefeated = false;
+        clearBossTimer();
+        if (bossManager) {
+          try { bossManager.dispose(); } catch (e) { /* ignore */ }
+          bossManager = null;
+        }
+
+        // (1) Dimension reconcile: switch the main manager to Nevermend
+        // using the engine id 'end' (normalizeDimension() must resolve
+        // this to the canonical 'nevermend' key).
+        manager.setDimension('end');
+        dimension = manager.dimension; // -> 'nevermend'
+        document.getElementById('hudDimension').textContent = dimension;
+
+        // (2) Boss arena world + a dedicated MobManager, ALSO constructed
+        // with the engine id 'end' (proving reconcile works at
+        // construction time too, not just via setDimension()).
+        const arenaWorld = new StubWorld({ arena: true });
+        const bossPlayerPos = { x: 0, y: 1, z: 0 };
+        bossManager = new MobManager(scene, arenaWorld, {
+          getPlayerPos: () => bossPlayerPos,
+          onPlayerHurt: () => {},
+          isDay: () => isDay,
+          dimension: 'end',
+          maxMobs: 1, // ambient spawn cap; spawnBoss()/summoned adds bypass this
+          onEvent: (name, detail) => logEvent(name, detail),
+          getCamera: () => camera, // same LOD-fallback wiring as the main manager
+        });
+        bossManager.addEventListener('mobSpawn', (e) => attachLabelForMob(e.detail.mob));
+
+        const boss = bossManager.spawnBoss({ x: 0, y: 1, z: -6 });
+        if (!boss) {
+          bossSimActive = false;
+          return false;
+        }
+        window.__bossState = { phase: boss.bossPhase, hp: boss.hp, maxHp: boss.maxHp };
+
+        // Script ~6-8s of player damage so hp sweeps through all 3 phases
+        // (frac>0.60 / 0.15<frac<=0.60 / frac<=0.15) and reaches 0. Fixed
+        // tick count/interval derived from maxHp so this stays correct
+        // even if boss tuning (maxHp) changes later.
+        const totalDurationMs = 7000;
+        const tickMs = 200;
+        const ticks = Math.ceil(totalDurationMs / tickMs);
+        const dmgPerTick = Math.ceil(boss.maxHp / ticks) + 1; // ensure hp reaches <=0 within the window
+        let tickCount = 0;
+        bossHitTimer = setInterval(() => {
+          tickCount++;
+          if (!boss.dead) {
+            boss.hurt(dmgPerTick);
+          }
+          if (boss.dead || tickCount >= ticks) {
+            clearBossTimer();
+            bossSimActive = false;
+          }
+        }, tickMs);
+
+        return true;
+      };
+
+      document.getElementById('runBossSim').addEventListener('click', () => {
+        window.__runBossSim();
+      });
+
+      // ================================================================
+      // MOLTHKIN SIM: window.__runMolthkinSim()
+      //
+      // Mirrors __runBossSim() above but for the Cinderloom boss, Molthkin
+      // the First Bobbin: dimension Cinderloom via the ENGINE id 'nether'
+      // (normalizeDimension() resolves it to 'cinderloom'), a dedicated
+      // arena MobManager, and a scripted ~7s damage ramp that sweeps
+      // molthkin's simpler 2-phase hp-fraction model (canonical 50%
+      // threshold, ARCHETYPE_CONFIG.molthkin.phase1HpFrac:0.5) from phase 0
+      // to phase 1 and down to 0 hp. Unlike The Last Needle, Molthkin is
+      // genuinely KILLABLE (ARCHETYPE_CONFIG.molthkin.bound:false) -- its
+      // 'bossDefeated' has no victoryTrigger/achievement fields and IS
+      // followed by a 'mobDrop' (its loot table has 'everthread', the
+      // canonical Everthread source) -- see MobManager._killBoss/_dropLoot.
+      // Recorded into window.__molthkinDrops by logEvent() above.
+      //
+      // NOTE: manager.spawnBoss(pos) is a thin wrapper hardcoded to
+      // spawn('lastneedle', pos) -- it can NOT be reused for molthkin, so
+      // this calls manager.spawn('molthkin', pos) directly.
+      //
+      // A SEPARATE MobManager + arena is used, same reasoning as the Last
+      // Needle sim above, offset well away from that arena (x=26 vs x=0)
+      // so both boss sims can run side by side without overlapping.
+      // ================================================================
+      let molthkinManager = null;
+      let molthkinSimActive = false;
+      let molthkinHitTimer = null;
+
+      function clearMolthkinTimer() {
+        if (molthkinHitTimer !== null) {
+          clearInterval(molthkinHitTimer);
+          molthkinHitTimer = null;
+        }
+      }
+
+      window.__runMolthkinSim = function () {
+        if (molthkinSimActive) return false;
+        molthkinSimActive = true;
+        window.__molthkinDefeated = false;
+        window.__molthkinDrops = [];
+        clearMolthkinTimer();
+        if (molthkinManager) {
+          try { molthkinManager.dispose(); } catch (e) { /* ignore */ }
+          molthkinManager = null;
+        }
+
+        const arenaWorld = new StubWorld({ arena: true });
+        const molthkinPlayerPos = { x: 26, y: 1, z: 0 };
+        molthkinManager = new MobManager(scene, arenaWorld, {
+          getPlayerPos: () => molthkinPlayerPos,
+          onPlayerHurt: () => {},
+          isDay: () => isDay,
+          dimension: 'nether', // engine id -> reconciles to 'cinderloom'
+          maxMobs: 1,
+          onEvent: (name, detail) => logEvent(name, detail),
+          getCamera: () => camera, // same LOD-fallback wiring as the main manager
+        });
+        molthkinManager.addEventListener('mobSpawn', (e) => attachLabelForMob(e.detail.mob));
+
+        const boss = molthkinManager.spawn('molthkin', { x: 26, y: 1, z: -6 });
+        if (!boss) {
+          molthkinSimActive = false;
+          return false;
+        }
+        window.__molthkinState = { phase: boss.bossPhase, hp: boss.hp, maxHp: boss.maxHp };
+
+        // Script ~7s of player damage so hp sweeps through both canonical
+        // phases (frac>0.5 / frac<=0.5) and reaches 0.
+        const totalDurationMs = 7000;
+        const tickMs = 200;
+        const ticks = Math.ceil(totalDurationMs / tickMs);
+        const dmgPerTick = Math.ceil(boss.maxHp / ticks) + 1; // ensure hp reaches <=0 within the window
+        let tickCount = 0;
+        molthkinHitTimer = setInterval(() => {
+          tickCount++;
+          if (!boss.dead) {
+            boss.hurt(dmgPerTick);
+          }
+          if (boss.dead || tickCount >= ticks) {
+            clearMolthkinTimer();
+            molthkinSimActive = false;
+          }
+        }, tickMs);
+
+        return true;
+      };
+
+      document.getElementById('runMolthkinSim').addEventListener('click', () => {
+        window.__runMolthkinSim();
+      });
+
+      // ================================================================
+      // MOUNT SYSTEM: window.__mountSpoolmare()
+      //
+      // Spawns a spoolmare, mounts it via manager.mountPlayer(), and feeds
+      // scripted forward ride input (via the returned controller's
+      // setInput(), equivalent to manager.setRideInput(mob, input)) for
+      // ~2.5s so it visibly trots forward under _driveRideInput's shared
+      // grounded-body physics path (gravity/collision/step-up, same as any
+      // other grounded mob). A small visible marker sphere is repositioned
+      // every frame (see frame() below) to mob.rideAnchor's live THREE
+      // world position via getWorldPosition -- exactly how a real builder
+      // would seat a player/camera -- so a screenshot shows the saddle
+      // point. window.__mountState:{mounted,riderAnchorPos} is updated
+      // every frame in frame() below, not just here.
+      // ================================================================
+      const mountMarkerGeo = new THREE.SphereGeometry(0.08, 12, 8);
+      const mountMarkerMat = new THREE.MeshStandardMaterial({
+        color: 0x7fe0ff,
+        emissive: new THREE.Color(0x2fb0d0),
+        emissiveIntensity: 0.8,
+      });
+      const mountMarker = new THREE.Mesh(mountMarkerGeo, mountMarkerMat);
+      mountMarker.visible = false;
+      scene.add(mountMarker);
+
+      let mountedSpoolmare = null;
+      let spoolmareController = null;
+      let spoolmareRideEndTime = 0;
+
+      window.__mountSpoolmare = function () {
+        try {
+          if (mountedSpoolmare) {
+            manager.dismountPlayer(mountedSpoolmare);
+            mountedSpoolmare = null;
+            spoolmareController = null;
+          }
+          // Fixed spot off to the side, clear of the showcase row/arenas.
+          const pos = { x: -22, y: 1, z: 12 };
+          const mob = manager.spawn('spoolmare', pos);
+          if (!mob) return false;
+          const controller = manager.mountPlayer(mob);
+          if (!controller) return false;
+          mountedSpoolmare = mob;
+          spoolmareController = controller;
+          spoolmareRideEndTime = simTime + 2.5;
+          mountMarker.visible = true;
+          return true;
+        } catch (err) {
+          showFatalError(err);
+          return false;
+        }
+      };
+
+      document.getElementById('mountSpoolmare').addEventListener('click', () => {
+        window.__mountSpoolmare();
+      });
+
+      // ================================================================
+      // PROVOKE TEST: window.__provokeTest()
+      //
+      // Spawns a scaldwarden (aiBase:'guardian') at a fixed offset spot,
+      // confirms it spawns neutral (mob.provoked === false -- it never
+      // attacks while neutral, per _aiGuardian falling through to
+      // _aiTrader's idle/tether loop regardless of player distance), then
+      // hurts it once and confirms MobManager._hurtMob's guardian-specific
+      // branch flipped mob.provoked = true (hostile/seeking+attacking for
+      // provokeDuration seconds). Result exposed on window.__scaldProvoked.
+      // ================================================================
+      window.__provokeTest = function () {
+        try {
+          const pos = { x: -30, y: 1, z: -22 }; // fixed, off to the side
+          const mob = manager.spawn('scaldwarden', pos);
+          if (!mob) return false;
+          const neutralBefore = mob.provoked === false;
+          mob.hurt(5);
+          const provokedAfter = mob.provoked === true && mob.provokeTimer > 0;
+          window.__scaldProvoked = !!provokedAfter;
+          document.getElementById('hudScaldProvoked').textContent =
+            window.__scaldProvoked ? 'provoked' : 'neutral';
+          return neutralBefore && provokedAfter;
+        } catch (err) {
+          showFatalError(err);
+          return false;
+        }
+      };
+
+      document.getElementById('provokeTest').addEventListener('click', () => {
+        window.__provokeTest();
+      });
+
+      // ================================================================
+      // ANIM SHOWCASE: window.__animShowcase()
+      //
+      // Phase 4a animation/VFX system: lines up one of each interesting
+      // animate() consumer -- a grounded walker (frayedhound), a flyer
+      // (silencemoth), the rideable spoolmare (quadruped gait), and a
+      // hostile that gets a health-bar Billboard (groaner) -- at a fixed
+      // spot well clear of the player's scripted figure-eight (so aggro
+      // never kicks in) and of every other fixed demo spot (mount/provoke/
+      // boss arenas), then FORCES a walk-cycle animate() state (moving:true,
+      // a fixed speed01) on each of them every frame in frame() below,
+      // overriding whatever MobManager's own AI-driven animate() call
+      // decided that same tick (idle/wander, this far from the scripted
+      // player). This is the same "call animate() again with a synthetic
+      // state" pattern the static showcase row / isolate mode already use
+      // (see runShowcaseMode's __showcaseAnimate / runIsolateMode above),
+      // just applied to real manager-owned mobs so the hostile still gets
+      // its Billboard. x/z position is pinned back to the spawn spot every
+      // frame (y is left to physics/hover) so the cycle reads as walking
+      // IN PLACE rather than the mob actually wandering off on its own
+      // (usually tiny, but non-zero) AI drift. window.__animT accumulates
+      // elapsed seconds while active, for scripted frame-sequence capture.
+      // ================================================================
+      const ANIM_SHOWCASE_SPECS = [
+        { archetype: 'frayedhound', role: 'walker' },
+        { archetype: 'silencemoth', role: 'flyer' },
+        { archetype: 'spoolmare', role: 'mount' },
+        { archetype: 'groaner', role: 'hostile+healthbar' },
+      ];
+      const ANIM_SHOWCASE_BASE = { x: -46, y: 1, z: 30 }; // far from the player/other fixed spots
+      const ANIM_SHOWCASE_SPACING = 3;
+      let animShowcaseMobs = null;
+      let animShowcaseActive = false;
+      let animShowcaseT = 0;
+
+      window.__animShowcase = function () {
+        try {
+          if (!animShowcaseMobs) {
+            animShowcaseMobs = ANIM_SHOWCASE_SPECS.map((spec, i) => {
+              const pos = {
+                x: ANIM_SHOWCASE_BASE.x + i * ANIM_SHOWCASE_SPACING,
+                y: ANIM_SHOWCASE_BASE.y,
+                z: ANIM_SHOWCASE_BASE.z,
+              };
+              const mob = manager.spawn(spec.archetype, pos);
+              if (mob) {
+                mob.__animShowcaseRole = spec.role;
+                mob.__animShowcaseBaseX = pos.x;
+                mob.__animShowcaseBaseZ = pos.z;
+              }
+              return mob;
+            });
+          }
+          animShowcaseT = 0;
+          animShowcaseActive = true;
+          return animShowcaseMobs.every((m) => !!m);
+        } catch (err) {
+          showFatalError(err);
+          return false;
+        }
+      };
+
+      document.getElementById('animShowcase').addEventListener('click', () => {
+        window.__animShowcase();
+      });
+
+      // ================================================================
+      // KILL DEMO: window.__killDemo(archetype)
+      //
+      // Spawns `archetype` (any registered archetype; defaults to
+      // 'groaner') in clear view of the default showcase camera orbit
+      // (camTarget (0,1,0), camRadius 14 below), then immediately
+      // mob.hurt(9999) -- a guaranteed overkill regardless of maxHp tuning
+      // -- so the death-ramp animation (state.dying 0->1 over the mob's
+      // MobManager._deathDuration, ~0.8s non-boss/~1.4s boss, see
+      // MobManager._beginDeathRamp) and the UNRAVEL particle poof both
+      // play. window.__lastDeath.dyingObserved starts false and flips to
+      // true the first frame() tick (below) that actually observes
+      // mob.dying > 0 / mob._dying -- mob.hurt() itself only sets
+      // dying=0/_dying=true SYNCHRONOUSLY; the ramp itself advances inside
+      // manager.update() on subsequent frames -- so a caller can invoke
+      // __killDemo() and then poll __lastDeath.dyingObserved without
+      // needing to know the manager's internal frame timing.
+      // ================================================================
+      const KILL_DEMO_ARCHETYPES = ['groaner', 'frayedhound', 'spoolmare', 'exploder', 'screecher'];
+      let killDemoCycle = 0;
+      let killDemoMob = null;
+
+      window.__killDemo = function (archetype) {
+        try {
+          const arch = (typeof archetype === 'string' && archetype) || 'groaner';
+          const pos = { x: 0, y: 1, z: 9 }; // in view of the default camera orbit, clear of every arena/row
+          const mob = manager.spawn(arch, pos);
+          window.__lastDeath = { archetype: arch, dyingObserved: false };
+          if (!mob) return false;
+          killDemoMob = mob;
+          mob.hurt(9999); // guaranteed overkill regardless of maxHp tuning
+          return true;
+        } catch (err) {
+          showFatalError(err);
+          return false;
+        }
+      };
+
+      document.getElementById('killDemo').addEventListener('click', () => {
+        const arch = KILL_DEMO_ARCHETYPES[killDemoCycle % KILL_DEMO_ARCHETYPES.length];
+        killDemoCycle++;
+        window.__killDemo(arch);
+      });
+
+      camTarget = new THREE.Vector3(0, 1, 0);
+      camRadius = 14;
+      camHeight = 7;
+
+      const clock = new THREE.Clock();
+      function frame() {
+        const dt = Math.min(clock.getDelta(), 0.1);
+        simTime += dt;
+
+        manager.update(dt);
+        if (bossManager) bossManager.update(dt);
+        if (molthkinManager) molthkinManager.update(dt);
+
+        document.getElementById('hudCount').textContent = String(
+          manager.mobs.length +
+          (bossManager ? bossManager.mobs.length : 0) +
+          (molthkinManager ? molthkinManager.mobs.length : 0)
+        );
+
+        // Reflect live boss state on the HUD + window.__bossState every
+        // frame (not just on hit-ticks) so a polling test sees smooth
+        // updates.
+        const bossMob = bossManager && bossManager.mobs.find((m) => m.archetype === 'lastneedle');
+        if (bossMob) {
+          window.__bossState = { phase: bossMob.bossPhase, hp: Math.max(0, bossMob.hp), maxHp: bossMob.maxHp };
+          document.getElementById('hudBossPhase').textContent = String(bossMob.bossPhase);
+          document.getElementById('hudBossHp').textContent = `${Math.max(0, Math.round(bossMob.hp))}/${bossMob.maxHp}`;
+        } else if (window.__bossDefeated) {
+          document.getElementById('hudBossPhase').textContent = 'defeated';
+          document.getElementById('hudBossHp').textContent = '0/' + (window.__bossState.maxHp || 600);
+        } else {
+          document.getElementById('hudBossPhase').textContent = '–';
+          document.getElementById('hudBossHp').textContent = '–';
+        }
+
+        // Same pattern for the Molthkin sim.
+        const molthkinMob = molthkinManager && molthkinManager.mobs.find((m) => m.archetype === 'molthkin');
+        if (molthkinMob) {
+          window.__molthkinState = { phase: molthkinMob.bossPhase, hp: Math.max(0, molthkinMob.hp), maxHp: molthkinMob.maxHp };
+          document.getElementById('hudMolthkinPhase').textContent = String(molthkinMob.bossPhase);
+          document.getElementById('hudMolthkinHp').textContent = `${Math.max(0, Math.round(molthkinMob.hp))}/${molthkinMob.maxHp}`;
+        } else if (window.__molthkinDefeated) {
+          document.getElementById('hudMolthkinPhase').textContent = 'defeated';
+          document.getElementById('hudMolthkinHp').textContent = '0/' + (window.__molthkinState.maxHp || 280);
+        } else {
+          document.getElementById('hudMolthkinPhase').textContent = '–';
+          document.getElementById('hudMolthkinHp').textContent = '–';
+        }
+
+        // Anim showcase (Phase 4a): force a walk-cycle animate() state on
+        // the lined-up mobs every frame, overriding this tick's AI-driven
+        // pose (see window.__animShowcase above), and pin x/z back to their
+        // spawn spot so it reads as walking IN PLACE.
+        if (animShowcaseActive && animShowcaseMobs) {
+          animShowcaseT += dt;
+          window.__animT = animShowcaseT;
+          for (const mob of animShowcaseMobs) {
+            if (!mob || mob.dead) continue;
+            if (Number.isFinite(mob.__animShowcaseBaseX)) {
+              mob.position.x = mob.__animShowcaseBaseX;
+              mob.position.z = mob.__animShowcaseBaseZ;
+              mob.group.position.set(mob.position.x, mob.position.y, mob.position.z);
+            }
+            const animate = mob.group && mob.group.userData && mob.group.userData.animate;
+            if (typeof animate === 'function') {
+              const flies = mob.archetype === 'silencemoth' || mob.archetype === 'screecher';
+              try {
+                animate(animShowcaseT, {
+                  moving: true,
+                  grounded: !flies,
+                  dimension: manager.dimension,
+                  speed01: 0.8,
+                  fuse: 0,
+                  hurt: 0,
+                  attack: 0,
+                  telegraph: 0,
+                  phase: mob.bossPhase || 0,
+                  dying: mob.dying || 0,
+                  turn: 0,
+                });
+              } catch (e) { /* keep the showcase resilient */ }
+            }
+          }
+        }
+
+        // Kill demo (Phase 4a): track whether the death-ramp has actually
+        // been observed running (see window.__killDemo above).
+        if (killDemoMob) {
+          if (killDemoMob.dying > 0 || killDemoMob._dying) {
+            window.__lastDeath.dyingObserved = true;
+          }
+          if (!manager.mobs.includes(killDemoMob)) {
+            killDemoMob = null; // fully removed; window.__lastDeath keeps the final record
+          }
+        }
+
+        // Mount system: drive the scripted ride input for the first
+        // ~2.5s, then hold station (still mounted) while continuing to
+        // update the marker/state every frame off the mob's live
+        // rideAnchor world position.
+        if (mountedSpoolmare && !mountedSpoolmare.dead && mountedSpoolmare.rider) {
+          if (spoolmareController) {
+            if (simTime < spoolmareRideEndTime) {
+              spoolmareController.setInput({ moveX: 0, moveZ: 1, jump: false });
+            } else {
+              spoolmareController.setInput({ moveX: 0, moveZ: 0, jump: false });
+            }
+          }
+          if (mountedSpoolmare.rideAnchor && typeof mountedSpoolmare.rideAnchor.getWorldPosition === 'function') {
+            const v = new THREE.Vector3();
+            mountedSpoolmare.rideAnchor.getWorldPosition(v);
+            mountMarker.position.copy(v);
+            mountMarker.visible = true;
+            window.__mountState = { mounted: true, riderAnchorPos: { x: v.x, y: v.y, z: v.z } };
+          } else {
+            window.__mountState = { mounted: true, riderAnchorPos: null };
+          }
+          document.getElementById('hudMounted').textContent = 'yes';
+        } else {
+          mountMarker.visible = false;
+          window.__mountState = { mounted: false, riderAnchorPos: null };
+          document.getElementById('hudMounted').textContent = 'no';
+        }
+
+        // Animate the static showcase row too (idle/moving state), driven
+        // by the same simTime so nothing on screen ever looks frozen.
+        for (const child of scene.children) {
+          if (child.userData && child.userData.__showcaseAnimate) {
+            const showArchetype = child.userData.__showcaseArchetype;
+            const fuse = showArchetype === 'exploder'
+              ? (simTime % 3) / 3 * 0.4 // gentle idle flicker, never detonates
+              : 0;
+            const phase = showArchetype === 'lastneedle'
+              ? Math.floor((simTime % 9) / 3) // gentle 0->1->2 cycle for the showcase copy
+              : showArchetype === 'molthkin'
+                ? Math.floor((simTime % 6) / 3) // gentle 0->1 cycle (canonical 50% threshold)
+                : 0;
+            const flies = showArchetype === 'screecher' || showArchetype === 'lastneedle' || showArchetype === 'silencemoth';
+            try {
+              child.userData.__showcaseAnimate(simTime, {
+                moving: true,
+                grounded: !flies,
+                fuse,
+                hurt: 0,
+                attack: 0,
+                telegraph: 0,
+                phase,
+                dying: 0,
+                turn: 0,
+                speed01: 0.5,
+                dimension,
+              });
+            } catch (e) { /* keep the showcase resilient */ }
+          }
+        }
+
+        updateCamera(dt, 0.05);
+        updateLabels();
+        renderer.render(scene, camera);
+
+        if (!window.__ready) window.__ready = true;
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    }
+  }
+</script>
