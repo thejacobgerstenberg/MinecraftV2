@@ -244,6 +244,50 @@ export function envBool(name, def = false) {
   return toBool(v, def);
 }
 
+/**
+ * Tokenize a shell-ish command string into an argv array WITHOUT invoking a
+ * shell. Honors single quotes, double quotes, and backslash escaping; collapses
+ * unquoted whitespace runs. This lets callers `spawn(argv[0], argv.slice(1))`
+ * directly so the owned child pid is the real program (e.g. `node`) and not a
+ * `/bin/sh -c` wrapper — required for /proc sampling and precise signalling.
+ * It intentionally does NOT expand env vars, globs, pipes, or redirects; a
+ * command that needs those genuinely needs a shell.
+ *
+ * @param {string} cmd
+ * @returns {string[]} argv tokens (possibly empty)
+ */
+export function tokenizeCommand(cmd) {
+  const s = toStr(cmd, '');
+  const argv = [];
+  let cur = '';
+  let has = false; // did the current token get any (possibly empty-quoted) content?
+  let quote = null; // "'" | '"' | null
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (quote === "'") {
+      if (c === "'") quote = null;
+      else cur += c;
+      continue;
+    }
+    if (quote === '"') {
+      if (c === '"') { quote = null; }
+      else if (c === '\\' && i + 1 < s.length && (s[i + 1] === '"' || s[i + 1] === '\\')) { cur += s[++i]; }
+      else cur += c;
+      continue;
+    }
+    if (c === "'" || c === '"') { quote = c; has = true; continue; }
+    if (c === '\\' && i + 1 < s.length) { cur += s[++i]; has = true; continue; }
+    if (c === ' ' || c === '\t' || c === '\n' || c === '\r') {
+      if (has) { argv.push(cur); cur = ''; has = false; }
+      continue;
+    }
+    cur += c;
+    has = true;
+  }
+  if (has) argv.push(cur);
+  return argv;
+}
+
 /* =========================================================================
  * Stats — accumulate numeric samples and derive percentiles from a sorted copy.
  * Percentile convention (matches the harness contract):

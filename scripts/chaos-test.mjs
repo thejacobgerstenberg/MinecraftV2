@@ -26,10 +26,12 @@
  * ---------------------------------------------------------------------------
  * THE CANARY
  * Before any attack runs we establish a healthy CANARY client in its OWN world
- * (join, then prove liveness on demand via CHAT SELF-ECHO — Voxelheim has NO app
- * ping, but chat echoes to the whole room INCLUDING the sender, so a chat whose
- * echoed id === the canary's own welcome id proves the server is still processing
- * application messages). Keeping the canary in a dedicated world means only a true
+ * (join, then prove liveness on demand via a WS CONTROL-FRAME PING/PONG — both the
+ * reference and the real `ws` server auto-answer a ping with a pong at the protocol
+ * layer, so a returned pong proves the socket is still being serviced by the event
+ * loop). The pong path BYPASSES every app-level rate limit (chat throttle 3/2s,
+ * edit/move buckets), so rapid attack vectors can't starve the probe into a FALSE
+ * "unresponsive" flag. Keeping the canary in a dedicated world means only a true
  * server-wide problem (crash / event-loop starvation) can disrupt it — never a
  * legitimate same-room broadcast. It MUST stay responsive through every attack.
  *
@@ -50,7 +52,7 @@
  *
  * AFTER EACH VECTOR we assert:
  *   (i)   server still alive           (spawned/--server-pid: pid alive; else: fresh client connects)
- *   (ii)  canary still responsive      (chat self-echo comes back)
+ *   (ii)  canary still responsive      (WS ping → pong comes back)
  *   (iii) others unaffected            (a fresh healthy client can connect+join)
  * and record {id,name,serverAlive,canaryOk,othersUnaffected,observation,severity}.
  *
@@ -439,13 +441,13 @@ function samplingPid() {
 
 const canary = {
   conn: null,
-  id: null, // our welcome id ("p<N>"); a self-echoed chat carries this id back
-  echoCount: 0, // chat self-echoes received (Voxelheim's responsiveness signal)
+  id: null, // our welcome id ("p<N>")
+  pongCount: 0, // WS control-frame pongs received (transport-level liveness signal)
   closed: false,
   closeCode: null,
 };
 
-let canaryChatSeq = 0;
+let canaryPingSeq = 0;
 
 async function startCanary() {
   const conn = await wsConnect(server.url, {
@@ -458,14 +460,13 @@ async function startCanary() {
     canary.closed = true;
     canary.closeCode = code;
   });
-  // Voxelheim has NO app ping. Keepalive is the WS control-frame pong the
-  // transport auto-answers; responsiveness is proved by CHAT SELF-ECHO: a chat
-  // echoes to the whole room including the sender, tagged with the sender's id.
-  conn.on('message', (data) => {
-    let d;
-    try { d = decode(data); } catch { return; }
-    if (d.kind === 'chat' && canary.id != null && d.id === canary.id) canary.echoCount++;
-  });
+  // Liveness = WS control-frame ping/pong. Both our reference server and the real
+  // `ws` server auto-answer a ping with a pong at the protocol layer, BYPASSING
+  // every app-level rate limit (chat throttle, edit/move buckets). That makes the
+  // pong a rate-limit-immune "is the socket still being serviced?" probe — unlike
+  // chat self-echo, which the hardened server throttles to 3 msgs/2s and would
+  // falsely flag as "canary unresponsive" under rapid attack vectors.
+  conn.on('pong', () => { canary.pongCount++; });
 
   // Dedicated world so attack-room broadcasts can never reach the canary.
   conn.send(encJoin({ name: 'canary', worldId: CANARY_WORLD }));
@@ -473,20 +474,22 @@ async function startCanary() {
   if (!welcome) throw new Error('canary never received a welcome — cannot establish a baseline');
   canary.id = welcome.id;
 
-  // Prove the baseline: our own chat must echo back to us.
+  // Prove the baseline: a ping must come back as a pong.
   const ok = await canaryResponsive(3000);
-  if (!ok) throw new Error('canary never received its own chat self-echo — cannot establish a baseline');
+  if (!ok) throw new Error('canary never received a pong to its ping — cannot establish a baseline');
 }
 
 /**
- * Actively probe the canary: send a chat and confirm a NEW self-echo comes back.
- * This is Voxelheim's stand-in for a ping/pong round trip.
+ * Actively probe the canary: send a WS control-frame ping and confirm a NEW pong
+ * comes back. The server auto-answers pings at the protocol layer, so this stays
+ * responsive even while application messages are being rate-limited/throttled —
+ * canary = connected + joined + still receiving pongs within the timeout.
  */
 async function canaryResponsive(timeoutMs = 3000) {
   if (canary.closed || !canary.conn || canary.conn.readyState !== OPEN || canary.id == null) return false;
-  const before = canary.echoCount;
-  try { canary.conn.send(encChat({ text: `canary-alive-${++canaryChatSeq}` })); } catch { /* ignore */ }
-  return pollUntil(() => canary.echoCount > before, timeoutMs);
+  const before = canary.pongCount;
+  try { canary.conn.ping(`canary-alive-${++canaryPingSeq}`); } catch { /* ignore */ }
+  return pollUntil(() => canary.pongCount > before, timeoutMs);
 }
 
 /** Poll `cond` every 25 ms until true or timeout. */
@@ -1068,7 +1071,7 @@ async function assertHealthy(rec) {
     const reasons = [];
     if (crashed) reasons.push('server process died');
     if (dos) reasons.push('a fresh client could not connect/join (DoS to others)');
-    if (canaryDisrupted) reasons.push('canary self-echo stopped (unresponsive)');
+    if (canaryDisrupted) reasons.push('canary ping/pong stopped (unresponsive)');
     rec.severity = 'critical';
     rec.observation = `${rec.observation} | FAILURE: ${reasons.join('; ')}`;
   }
@@ -1137,7 +1140,7 @@ async function main() {
 
   console.log('[chaos] establishing canary …');
   await startCanary();
-  console.log(`[chaos] canary connected and responsive via chat self-echo (id=${canary.id}, echoes=${canary.echoCount})`);
+  console.log(`[chaos] canary connected and responsive via WS ping/pong (id=${canary.id}, pongs=${canary.pongCount})`);
 
   const results = [];
   let idx = 0;
@@ -1186,7 +1189,7 @@ async function main() {
     },
     canary: {
       finalResponsive: canaryFinalOk,
-      selfEchoesReceived: canary.echoCount,
+      pongsReceived: canary.pongCount,
       everClosed: canary.closed,
       closeCode: canary.closeCode,
     },

@@ -31,7 +31,8 @@
  *
  * ---------------------------------------------------------------------------
  * THE 5 DURABILITY CHECKS (each → PASS | FAIL | SKIP with detail):
- *   P1 create+edit+GET       ~150 edits/dim across chunks → REST GET matches exactly
+ *   P1 create+edit+GET       ~108 edits/dim in reachable clusters (writer walks to each,
+ *                            speed-legal moves), spanning many chunks → REST GET matches exactly
  *   P2 save + reload-from-disk  flush, RESTART process (same port+save-dir), rejoin →
  *                            welcome.world.edits + GET still match the full set
  *   P3 save-file schema      read saves/<id>.json → valid JSON + {id,name,seed,
@@ -46,7 +47,7 @@
  * CLI:
  *   --url <ws://host:port/ws>   target an already-running server (no restart/kill)
  *   --spawn                     spawn the reference persistent server (persist-ref-server.mjs)
- *   --server-cmd "<cmd>"        spawn the REAL server via shell (test owns it → can restart/kill)
+ *   --server-cmd "<cmd>"        spawn the REAL server (tokenized argv, NO shell; test owns it → can restart/kill)
  *   --server-cwd <dir>          working dir for --server-cmd
  *   --rest <http://host:port>   REST base (default derived from the ws url)
  *   --save-dir <dir>            where the target writes saves (spawn: a temp dir;
@@ -69,8 +70,8 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { wsConnect } from './lib/ws-transport.mjs';
-import { CAPS, defaultUrl, encJoin, encEdit, decode } from './lib/protocol.mjs';
-import { parseArgs, nowMs, writeJsonReport } from './lib/util.mjs';
+import { CAPS, defaultUrl, encJoin, encMove, encEdit, decode } from './lib/protocol.mjs';
+import { parseArgs, nowMs, writeJsonReport, tokenizeCommand } from './lib/util.mjs';
 
 /* =========================================================================
  * Constants.
@@ -81,8 +82,32 @@ const MAX_BLOCK_ID = 40; // 0..40 valid; edits here use 1..40 (0 == break/air)
 const KEY_RE = /^-?\d+,-?\d+,-?\d+$/; // save-file edit key format "x,y,z"
 
 const CLIENT_MAX_PAYLOAD = 16 * 1024 * 1024; // generous inbound cap for the client
-const EDITS_PER_DIM_P1 = 150; // ~150 edits/dim (P1/P2) spread across many chunks
-const EDITS_PER_DIM_P4 = 50; // fewer per world for the concurrent check (keeps it quick)
+
+// --- Server-authoritative movement/edit limits (must stay <= the hardened real
+//     server's caps; see origin/feat/voxel-sandbox-game server/index.js). The
+//     real server tracks the player's position and rejects edits farther than
+//     MAX_REACH=7 from it, drops moves over MAX_MOVE_SPEED=25 b/s (25-block
+//     burst), and binds every edit to the sender's CURRENT dimension. So the
+//     suite must WALK the writer (speed-legal steps) to within reach of each
+//     cluster before editing it, and use a SEPARATE per-dimension connection.
+const SRV_MAX_REACH = 7; // real server edit reach cap (client reach 6)
+const REACH_SAFE = 6.0; // stay comfortably under the cap when placing cluster edits
+const SRV_EDIT_BURST = 20; // real server edit token-bucket burst (edits/s too)
+const MOVE_STEP = 4; // max 3D blocks per legal move step (<< 25-block budget)
+const MOVE_STEP_GAP_MS = 200; // pause between move steps (refills ~5 blocks of budget)
+const EDIT_GAP_MS = 8; // pause between edits within a cluster (burst covers a cluster)
+
+// Cluster layout: a handful of centers per dimension, spaced so the writer walks
+// between them, each holding a modest reachable batch. Aggregate spans many
+// 16-block chunks; every edit sits within REACH_SAFE of its cluster center.
+const CLUSTERS_PER_DIM_P1 = 6; // ~108 edits/dim for P1/P2
+const EDITS_PER_CLUSTER = 18; // < SRV_EDIT_BURST so a cluster never trips the edit rate
+const CLUSTER_SPACING = 14; // blocks between adjacent cluster centers (> chunk size)
+const CLUSTER_BASE_X = 8; // first cluster center x
+const CLUSTERS_PER_DIM_P4 = 3; // fewer per world for the concurrent check (keeps it quick)
+// Per-dimension base feet-y for the writer/cluster (kept so edits land in 1..127).
+const DIM_BASE_Y = { overworld: 60, nether: 50, end: 70 };
+const SPAWN = { x: 0, y: 80, z: 0 }; // real + ref server join spawn (feet)
 
 // Unique per-run tag so worlds never collide across runs. Matches ^[A-Za-z0-9_-]{1,64}$.
 const RUN_TAG = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
@@ -238,31 +263,113 @@ function editsOf(world, dim) {
  * ========================================================================= */
 
 /**
- * Build a deterministic edit set: `perDim` edits in EACH dimension, spread across
- * many chunks (x and z step by 20 between rows — > the 16-block chunk size), with
- * valid y (1..120) and block (1..40). `blockSeed` shifts block ids so two worlds
- * generated with different seeds get distinguishable block values at the same key.
- *
- * @returns {{expected:{overworld:Object,nether:Object,end:Object}, flat:Array}}
+ * Server reach distance from a player at (px,py,pz) (feet, height 1.8) to the
+ * CENTER of block (x,y,z). Mirrors the hardened real server's handleEdit exactly
+ * so we only ever emit edits the server will accept.
  */
-function buildWorldEdits(perDim, blockSeed = 0) {
+function reachDist(px, py, pz, x, y, z) {
+  const bc = y + 0.5;
+  const clampedY = Math.min(Math.max(bc, py), py + 1.8);
+  const cy = bc - clampedY;
+  return Math.hypot(x + 0.5 - px, cy, z + 0.5 - pz);
+}
+
+/**
+ * Build a deterministic, server-authoritative-LEGAL edit set.
+ *
+ * Each dimension gets `clusters` cluster centers spaced CLUSTER_SPACING apart
+ * along x (so the aggregate spans many 16-block chunks). Every cluster holds up
+ * to EDITS_PER_CLUSTER edits, all within REACH_SAFE of the center (so once the
+ * writer WALKS to the center, the real server accepts them) with valid y (1..127)
+ * and block (1..40). `blockSeed` shifts block ids so two worlds generated with
+ * different seeds get distinguishable block values at the same key.
+ *
+ * @returns {{expected:{overworld:Object,nether:Object,end:Object},
+ *            plan:{overworld:Array,nether:Array,end:Array}}}
+ *   plan[dim] = [{ center:{x,y,z}, edits:[{x,y,z,block}] }, ...]
+ */
+function buildWorldEdits(clusters, blockSeed = 0) {
   const expected = { overworld: {}, nether: {}, end: {} };
-  const flat = [];
+  const plan = { overworld: [], nether: [], end: [] };
+  // Coarse offset grid within a cluster; filtered to those actually in reach.
+  const AXIS = [-5, -3, -1, 1, 3, 5];
+  const DY = [0, 2, -2, 4, -4];
   for (let di = 0; di < DIMENSIONS.length; di++) {
     const dim = DIMENSIONS[di];
-    for (let i = 0; i < perDim; i++) {
-      const cx = i % 12;
-      const cz = Math.floor(i / 12);
-      const x = cx * 20 + (i % 5); // > 16 apart between chunk columns
-      const z = cz * 20 + (i % 3); // > 16 apart between chunk rows
-      const y = 1 + ((i * 7 + di * 3) % 120); // 1..120
-      const block = 1 + ((i * 13 + di * 9 + blockSeed) % MAX_BLOCK_ID); // 1..40
-      const key = `${x},${y},${z}`;
-      expected[dim][key] = block;
-      flat.push({ x, y, z, block, dim });
+    const cy = DIM_BASE_Y[dim];
+    let idx = 0; // running index -> deterministic block ids across the dim
+    for (let k = 0; k < clusters; k++) {
+      const center = { x: CLUSTER_BASE_X + k * CLUSTER_SPACING, y: cy, z: 0 };
+      const edits = [];
+      outer:
+      for (const dy of DY) {
+        for (const dx of AXIS) {
+          for (const dz of AXIS) {
+            if (edits.length >= EDITS_PER_CLUSTER) break outer;
+            const x = center.x + dx;
+            const y = center.y + dy;
+            const z = center.z + dz;
+            if (y < 1 || y >= 128) continue;
+            if (reachDist(center.x, center.y, center.z, x, y, z) > REACH_SAFE) continue;
+            const key = `${x},${y},${z}`;
+            if (Object.prototype.hasOwnProperty.call(expected[dim], key)) continue;
+            const block = 1 + ((idx * 13 + di * 9 + blockSeed) % MAX_BLOCK_ID); // 1..40
+            idx++;
+            expected[dim][key] = block;
+            edits.push({ x, y, z, block });
+          }
+        }
+      }
+      plan[dim].push({ center, edits });
     }
   }
-  return { expected, flat };
+  return { expected, plan };
+}
+
+/**
+ * Move `player` from `cur` (feet {x,y,z}) to `target` in SPEED-LEGAL steps whose
+ * per-step 3D delta stays well under the server's move budget, pausing between
+ * steps so the token bucket refills. Same-dim moves only (dim never changes on a
+ * connection). Returns the new position.
+ */
+async function moveWriterTo(player, cur, target, dim) {
+  const dx = target.x - cur.x;
+  const dy = target.y - cur.y;
+  const dz = target.z - cur.z;
+  const dist = Math.hypot(dx, dy, dz);
+  const steps = Math.max(1, Math.ceil(dist / MOVE_STEP));
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    player.conn.send(encMove({ pos: { x: cur.x + dx * t, y: cur.y + dy * t, z: cur.z + dz * t }, dim }));
+    await sleep(MOVE_STEP_GAP_MS);
+  }
+  return { x: target.x, y: target.y, z: target.z };
+}
+
+/**
+ * Seed a world's edits LEGALLY: one connection PER DIMENSION (edits bind to the
+ * player's current dim on the real server), walking the writer to each cluster
+ * center before placing that cluster's edits. Returns the still-open player
+ * connections so the caller controls the flush (disconnect => last-leave save).
+ */
+async function seedWorldLegally(wsUrl, worldId, plan, namePrefix) {
+  const players = [];
+  for (const dim of DIMENSIONS) {
+    const clusters = plan[dim] || [];
+    if (clusters.length === 0) continue;
+    const player = await connectPlayer(wsUrl, { worldId, name: `${namePrefix}-${dim}`, dim });
+    players.push(player);
+    let cur = { ...SPAWN };
+    for (const cl of clusters) {
+      cur = await moveWriterTo(player, cur, cl.center, dim);
+      await sleep(40); // let the server record the new position before we edit
+      for (const e of cl.edits) {
+        player.conn.send(encEdit({ pos: { x: e.x, y: e.y, z: e.z }, block: e.block, dim }));
+        await sleep(EDIT_GAP_MS);
+      }
+    }
+  }
+  return players;
 }
 
 /** Compare one dimension's expected vs actual edits map. */
@@ -298,15 +405,6 @@ function diffWorld(expected, world) {
 
 function totalExpected(expected) {
   return DIMENSIONS.reduce((n, d) => n + Object.keys(expected[d] || {}).length, 0);
-}
-
-/** Send a list of {x,y,z,block,dim} edits over a WS connection, yielding periodically. */
-async function sendEdits(conn, edits, { chunk = 40, gapMs = 6 } = {}) {
-  let n = 0;
-  for (const e of edits) {
-    conn.send(encEdit({ pos: { x: e.x, y: e.y, z: e.z }, block: e.block, dim: e.dim }));
-    if (++n % chunk === 0) await sleep(gapMs);
-  }
 }
 
 /* =========================================================================
@@ -491,8 +589,13 @@ function spawnServerProcess() {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
   } else {
-    proc = spawn(server.serverCmd, {
-      shell: true,
+    // Tokenize + spawn WITHOUT a shell so server.pid is the real node process
+    // (not a /bin/sh -c wrapper). That makes /proc sampling, SIGTERM/SIGKILL,
+    // and restart target the actual server. `detached:true` still makes the
+    // child its own process-group leader so killServer(-pid) reaps it cleanly.
+    const argv = tokenizeCommand(server.serverCmd);
+    if (argv.length === 0) throw new Error(`empty --server-cmd: ${JSON.stringify(server.serverCmd)}`);
+    proc = spawn(argv[0], argv.slice(1), {
       detached: true,
       cwd: server.serverCwd || undefined,
       env: {
@@ -680,10 +783,9 @@ async function flushWorld(players, { waitDebounce = false } = {}) {
 // -- P1: create + edit + REST GET --------------------------------------------
 async function checkP1(ctx) {
   const world = wid('p1');
-  const { expected, flat } = buildWorldEdits(EDITS_PER_DIM_P1, 0);
-  const player = await connectPlayer(ctx.wsUrl, { worldId: world, name: 'p1writer' });
+  const { expected, plan } = buildWorldEdits(CLUSTERS_PER_DIM_P1, 0);
+  const players = await seedWorldLegally(ctx.wsUrl, world, plan, 'p1writer');
   try {
-    await sendEdits(player.conn, flat);
     await sleep(600); // let every edit apply in-memory before the GET
     const w = await getWorld(ctx.restBase, world);
     if (!w) return fail('P1', 'create+edit+GET', `GET /api/worlds/${world} returned no world`);
@@ -695,7 +797,7 @@ async function checkP1(ctx) {
       sample: sampleDiff(d),
     });
   } finally {
-    try { await player.close(); } catch { /* ignore */ }
+    for (const p of players) { try { await p.close(); } catch { /* ignore */ } }
   }
 }
 
@@ -705,11 +807,10 @@ async function checkP2(ctx) {
     return skip('P2', 'save+reload-from-disk', 'requires a test-owned server (use --spawn or --server-cmd) to restart');
   }
   const world = wid('p2');
-  const { expected, flat } = buildWorldEdits(EDITS_PER_DIM_P1, 3);
-  const writer = await connectPlayer(ctx.wsUrl, { worldId: world, name: 'p2writer' });
-  await sendEdits(writer.conn, flat);
+  const { expected, plan } = buildWorldEdits(CLUSTERS_PER_DIM_P1, 3);
+  const writers = await seedWorldLegally(ctx.wsUrl, world, plan, 'p2writer');
   // Trigger a save: wait past the debounce, then disconnect to force a last-leave flush.
-  await flushWorld([writer], { waitDebounce: true });
+  await flushWorld(writers, { waitDebounce: true });
 
   // RESTART the server (same port + save-dir) — proves the on-DISK round-trip.
   await restartServer('SIGTERM');
@@ -742,10 +843,9 @@ async function checkP3(ctx) {
     return skip('P3', 'save-file schema', 'no --save-dir known (pass --save-dir for a --url target)');
   }
   const world = wid('p3');
-  const { flat } = buildWorldEdits(40, 7);
-  const writer = await connectPlayer(ctx.wsUrl, { worldId: world, name: 'p3writer' });
-  await sendEdits(writer.conn, flat);
-  await flushWorld([writer], { waitDebounce: true });
+  const { plan } = buildWorldEdits(CLUSTERS_PER_DIM_P4, 7);
+  const writers = await seedWorldLegally(ctx.wsUrl, world, plan, 'p3writer');
+  await flushWorld(writers, { waitDebounce: true });
 
   const sf = readSaveFile(world);
   if (!sf.exists) return fail('P3', 'save-file schema', `save file not written: ${sf.path} (${sf.error})`, { worldId: world });
@@ -769,19 +869,14 @@ async function checkP4(ctx) {
   const worldB = wid('p4b');
   // Same key layout, DIFFERENT block seeds — so any cross-world leak shows up as a
   // wrong block value, and completeness is exact-match.
-  const A = buildWorldEdits(EDITS_PER_DIM_P4, 0);
-  const B = buildWorldEdits(EDITS_PER_DIM_P4, 17);
-  const pa = await connectPlayer(ctx.wsUrl, { worldId: worldA, name: 'p4a' });
-  const pb = await connectPlayer(ctx.wsUrl, { worldId: worldB, name: 'p4b' });
-
-  // Drive both worlds simultaneously (interleaved sends).
-  const n = Math.max(A.flat.length, B.flat.length);
-  for (let i = 0; i < n; i++) {
-    if (i < A.flat.length) { const e = A.flat[i]; pa.conn.send(encEdit({ pos: { x: e.x, y: e.y, z: e.z }, block: e.block, dim: e.dim })); }
-    if (i < B.flat.length) { const e = B.flat[i]; pb.conn.send(encEdit({ pos: { x: e.x, y: e.y, z: e.z }, block: e.block, dim: e.dim })); }
-    if (i % 40 === 0) await sleep(6);
-  }
-  await flushWorld([pa, pb], { waitDebounce: true });
+  const A = buildWorldEdits(CLUSTERS_PER_DIM_P4, 0);
+  const B = buildWorldEdits(CLUSTERS_PER_DIM_P4, 17);
+  // Seed both worlds legally, then keep every connection open so BOTH worlds are
+  // dirty and get flushed together (exercises the concurrent-save path) when we
+  // disconnect them in one flush.
+  const pa = await seedWorldLegally(ctx.wsUrl, worldA, A.plan, 'p4a');
+  const pb = await seedWorldLegally(ctx.wsUrl, worldB, B.plan, 'p4b');
+  await flushWorld([...pa, ...pb], { waitDebounce: true });
 
   const sfA = readSaveFile(worldA);
   const sfB = readSaveFile(worldB);
@@ -836,15 +931,33 @@ async function checkP5(ctx) {
     return skip('P5', 'mid-save SIGKILL recovery', 'requires a test-owned server (use --spawn or --server-cmd) to SIGKILL');
   }
   const world = wid('p5');
-  const writer = await connectPlayer(ctx.wsUrl, { worldId: world, name: 'p5writer' });
+  // Single overworld writer, walked to one cluster so every edit is in reach.
+  const writer = await connectPlayer(ctx.wsUrl, { worldId: world, name: 'p5writer', dim: 'overworld' });
+  const dim = 'overworld';
+  const center = { x: CLUSTER_BASE_X, y: DIM_BASE_Y.overworld, z: 0 };
+  await moveWriterTo(writer, { ...SPAWN }, center, dim);
+  await sleep(40);
+  // Reachable churn positions (within REACH_SAFE of the center); the SIGKILL may
+  // drop some over the edit-rate cap — fine, P5 only needs a VALID file + reload.
+  const churnCells = [];
+  for (let dx = -3; dx <= 3 && churnCells.length < 24; dx += 2) {
+    for (let dz = -3; dz <= 3 && churnCells.length < 24; dz += 2) {
+      for (const dy of [0, 2, -2]) {
+        const x = center.x + dx, y = center.y + dy, z = center.z + dz;
+        if (y < 1 || y >= 128) continue;
+        if (reachDist(center.x, center.y, center.z, x, y, z) > REACH_SAFE) continue;
+        churnCells.push({ x, y, z });
+      }
+    }
+  }
 
   // 1) Write an initial batch and let the FIRST debounced flush complete so a valid
   //    file is guaranteed on disk before we crash mid-write.
-  const batch1 = [];
-  for (let i = 0; i < 60; i++) {
-    batch1.push({ x: (i % 8) * 20, y: 1 + (i % 120), z: Math.floor(i / 8) * 20, block: 1 + (i % 40), dim: DIMENSIONS[i % 3] });
+  for (let i = 0; i < churnCells.length; i++) {
+    const c = churnCells[i];
+    writer.conn.send(encEdit({ pos: c, block: 1 + (i % 40), dim }));
+    await sleep(EDIT_GAP_MS);
   }
-  await sendEdits(writer.conn, batch1, { chunk: 20, gapMs: 5 });
   await sleep(server.debounceMs + 800); // first atomic write lands
 
   // 2) Churn: keep the debounced writer busy so a write is likely in-flight at kill.
@@ -852,15 +965,10 @@ async function checkP5(ctx) {
   const churn = (async () => {
     let s = 0;
     while (churning) {
-      const x = (s % 8) * 20;
-      const z = (Math.floor(s / 8) % 8) * 20;
-      writer.conn.send(encEdit({
-        pos: { x, y: 1 + (s % 120), z },
-        block: 1 + (s % 40),
-        dim: DIMENSIONS[s % 3],
-      }));
+      const c = churnCells[s % churnCells.length];
+      writer.conn.send(encEdit({ pos: c, block: 1 + (s % 40), dim }));
       s++;
-      if (s % 25 === 0) await sleep(4);
+      if (s % 15 === 0) await sleep(40); // stay near the 20 edits/s cap
     }
     return s;
   })();
@@ -1003,7 +1111,8 @@ USAGE
 TARGET (precedence: --spawn > --server-cmd > --url)
   --spawn                 Spawn the reference persistent server (scripts/persist-ref-server.mjs)
                           into a temp save dir; every applicable check MUST PASS (self-test).
-  --server-cmd "<cmd>"    Spawn the REAL server via shell so the suite OWNS it (can
+  --server-cmd "<cmd>"    Spawn the REAL server (tokenized argv, NO shell — child.pid is
+                          the real node process) so the suite OWNS it (can
                           SIGTERM/SIGKILL/restart). save-dir defaults to <server-cwd>/saves.
   --server-cwd <dir>      Working directory for --server-cmd (env SERVER_CWD).
   --url <ws://host:port/ws>   Target an already-running server (env GAME_URL). The

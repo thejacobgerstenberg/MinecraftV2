@@ -96,7 +96,7 @@ import { fileURLToPath } from 'node:url';
 
 import { wsConnect, OPEN } from './lib/ws-transport.mjs';
 import { CAPS, encJoin, encMove, encEdit, encChat, decode, defaultUrl } from './lib/protocol.mjs';
-import { parseArgs, envNum, nowMs, printReport, writeJsonReport } from './lib/util.mjs';
+import { parseArgs, envNum, nowMs, printReport, writeJsonReport, tokenizeCommand } from './lib/util.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -275,12 +275,16 @@ function spawnMock() {
 }
 
 /**
- * Spawn an arbitrary server command through a shell and wait for its port to open.
+ * Spawn an arbitrary server command and wait for its port to open. The command is
+ * tokenized into argv and spawned WITHOUT a shell, so child.pid is the real program
+ * (e.g. the `node` process) rather than a `/bin/sh -c` wrapper — the /proc sampler
+ * then reads the server's true RSS/fd/threads instead of the ~1-2 MB shell stub.
  * @returns {Promise<{child:import('node:child_process').ChildProcess, url:string}>}
  */
 async function spawnServerCmd(cmd, url, cwd = '') {
-  const child = spawn(cmd, {
-    shell: true,
+  const argv = tokenizeCommand(cmd);
+  if (argv.length === 0) throw new Error(`empty --server-cmd: ${JSON.stringify(cmd)}`);
+  const child = spawn(argv[0], argv.slice(1), {
     cwd: cwd || undefined,
     env: { ...process.env },
     stdio: ['ignore', 'pipe', 'pipe'],
