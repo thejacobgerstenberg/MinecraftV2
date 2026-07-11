@@ -14,15 +14,25 @@ Contents:
   (15-check authority audit / regression suite) and `authority-ref-server.mjs`
   (strict reference authoritative server). Latest results:
   [`docs/SECURITY_FINDINGS.md`](../docs/SECURITY_FINDINGS.md).
+- **[Persistence & durability suite](#persistence--durability-suite)** —
+  `persistence-test.mjs` (P1–P5 on-disk round-trip checks) and
+  `persist-ref-server.mjs` (reference durable server / CI self-test target).
+- **[Soak / leak-trend detector](#soak--leak-trend-detector)** — `soak-test.mjs`
+  (long-run `/proc` RSS/fd/thread sampling → flat-vs-leaking verdict).
 - **[scripts/verify-audio.mjs](#scriptsverify-audiomjs)** — headless-Chromium
   audio engine verification.
+
+Server-facing recommendations and audit findings the harnesses feed into live in
+[`docs/metrics.md`](../docs/metrics.md) (proposed observability surface for
+`server/index.js`) and [`docs/SECURITY_FINDINGS.md`](../docs/SECURITY_FINDINGS.md)
+(the latest authority-audit PASS/VULN verdicts).
 - **[scripts/validate-content.mjs](#scriptsvalidate-contentmjs)** — game content
   JSON validator.
 
 ## CI: what runs and when
 
 The workflow triggers on **push to `master`** and on **all pull requests**. It
-defines **five** independent jobs. Each **skips gracefully (stays green)** when
+defines **seven** independent jobs. Each **skips gracefully (stays green)** when
 its target does not exist yet on the branch being built — so this repo is green
 before the content, audio, game, and server branches land:
 
@@ -33,8 +43,11 @@ before the content, audio, game, and server branches land:
 | `game-tests` | root `package.json` with a `test` script | `exit 0` with "no package.json — skipping" (or "no test script — skipping") | `npm ci` if `package-lock.json` exists, else `npm install`; then `npm test`. A real `npm test` failure fails the job — only a *missing* test script skips |
 | `backend-load` | *(always runs the mock self-test)*; the full suite needs a real server entrypoint | Runs the harness self-test against the bundled reference mock only | Self-test: `load-test.mjs --spawn` + `chaos-test.mjs --spawn`. When a real server is detected, additionally runs the full suite against it via `--server-cmd`. See [How CI runs the harness](#how-ci-runs-the-harness) |
 | `authority-audit` | *(always runs the reference self-test)*; the gate needs a real server entrypoint | Runs the 15-check authority suite against the bundled **strict reference** server only (all 15 must PASS → exit 0) | Self-test: `authority-test.mjs --spawn`. When a real server is detected, additionally **gates** it — the full audit runs against it and **any VULN fails the job**. See [How CI runs the authority audit](#how-ci-runs-the-authority-audit) |
+| `persistence` | *(always runs the reference self-test)*; the full suite needs a real server entrypoint | Runs the P1–P5 durability suite against the bundled **reference persistent** server only (all applicable checks must PASS → exit 0) | Self-test: `persistence-test.mjs --spawn`. When a real server is detected, additionally runs the full suite against it via `--server-cmd` (the test **owns** the process so it can SIGTERM/SIGKILL/restart it). 10-min timeout. See [How CI runs the persistence suite](#how-ci-runs-the-persistence-suite) |
+| `soak` | *(always runs a short mock self-test)*; the longer soak needs a real server entrypoint | Runs a 45 s soak against the bundled reference mock only; the RSS-vs-time fit must be **flat** (no fd/thread growth) → exit 0 | Self-test: `soak-test.mjs --spawn --duration-sec 45 --sample-ms 1500`. When a real server is detected, additionally runs a longer 120 s soak against it via `--server-cmd`. 12-min timeout. See [How CI runs the soak](#how-ci-runs-the-soak) |
 
-Timeouts: 5 min for `content-validation`, 15 min for the other four. The audio
+Timeouts: 5 min for `content-validation`, 10 min for `persistence`, 12 min for
+`soak`, 15 min for the other four. The audio
 job's Playwright install is:
 
 ```bash
@@ -546,6 +559,279 @@ two-phase shape:
    out. This lights up automatically once the server branch lands; no workflow edit
    needed.
 
+## Persistence & durability suite
+
+A third dependency-free harness (Node builtins only, Node 20 CI / Node 22 local)
+that proves block edits **survive** — in memory, across a full server restart
+loaded from disk, on disk as a well-formed save file, across concurrent
+multi-world saves, and across a mid-write crash. Data loss / corruption /
+duplication of persisted state is graded **S0** (`docs/BUG_TAXONOMY.md`), so
+against the real server each FAIL is a top-severity finding.
+
+Two files:
+
+| File | Role |
+|---|---|
+| `persistence-test.mjs` | The 5-check durability / on-disk round-trip suite. See [below](#scriptspersistence-testmjs) |
+| `persist-ref-server.mjs` | Minimal reference **durable** server — the CI self-test target *and* a worked reference of the correct save contract. See [below](#scriptspersist-ref-servermjs--the-reference-durable-server) |
+
+It **reuses the verified harness modules**: `lib/ws-transport.mjs` (the RFC6455
+client `wsConnect`, and — for the reference server — `wsCreateServer`),
+`lib/protocol.mjs` (the only protocol-specific adapter — `encJoin` / `encEdit` /
+`decode` / `CAPS`), and `lib/util.mjs` (`parseArgs` / `nowMs` /
+`writeJsonReport`). Retargeting to a new wire format is a change to
+`lib/protocol.mjs` alone.
+
+### scripts/persistence-test.mjs
+
+Drives real WS clients (`join` + `edit`) and the REST API against a target, then
+asserts durability across five checks. Because it needs to **own** the server
+process to prove on-disk round-trips, it can SIGTERM/SIGKILL/restart the *same*
+server (same port + same save-dir) in `--spawn` / `--server-cmd` mode; against a
+foreign `--url` server the restart/kill checks SKIP gracefully.
+
+**The 5 checks** (each → PASS | FAIL | SKIP with detail):
+
+| # | Check | What it does |
+|---|---|---|
+| P1 | create+edit+GET | ~150 edits/dim spread across many chunks → REST `GET /api/worlds/:id` must match the full set exactly (missing/wrong/extra all 0) |
+| P2 | save+reload-from-disk | flush (wait past the debounce, disconnect to force a last-leave flush), **RESTART** the process (SIGTERM) on the same port+save-dir, rejoin → `welcome.world.edits` **and** REST GET still match. *(needs a test-owned server; SKIP on `--url`)* |
+| P3 | save-file schema | read `saves/<id>.json` → valid JSON + `{id,name,seed,createdAt,edits:{overworld,nether,end}}`, all values int `0..40`, keys matching `/^-?\d+,-?\d+,-?\d+$/` |
+| P4 | concurrent saves | two worlds edited + saved simultaneously (interleaved sends, distinct block seeds) → both files valid + complete **and no cross-contamination** (a block from world A never appears in world B) |
+| P5 | mid-save SIGKILL recovery | *(needs a test-owned server)* let a first debounced flush land, then churn edits and **SIGKILL** mid-write → the save file is still valid JSON (atomic tmp+rename), the world reloads without crashing the server, and no leftover `.tmp` blocks reload. A stale (older) but valid file is acceptable |
+
+A thrown error in any check becomes a **FAIL** (a durability suite treats "could
+not verify" as a failure), never a false PASS. A concurrent-check "contamination"
+counter and per-dim missing/wrong/extra diffs are reported so a FAIL is
+diagnosable at a glance.
+
+**Target selection** (precedence, highest first):
+
+| Flag | Env | Meaning |
+|---|---|---|
+| `--spawn` | — | spawn + self-test the reference durable server (`persist-ref-server.mjs`) into a temp save dir; every applicable check MUST PASS |
+| `--server-cmd "<cmd>"` | `SERVER_CMD` | spawn the REAL server via shell so the suite OWNS it (can SIGTERM/SIGKILL/restart); save-dir defaults to `<server-cwd>/saves` |
+| `--server-cwd <dir>` | `SERVER_CWD` | working directory for `--server-cmd` |
+| `--url <ws://…/ws>` | `GAME_URL` | audit an already-running server; P2/P5 SKIP, pass `--save-dir` for P3/P4 |
+| `--rest <http://host:port>` | `REST_URL` | REST base (default derived from the ws url) |
+| `--save-dir <dir>` | `SAVE_DIR` | directory the target writes saves to |
+| `--report <file.json>` | `PERSIST_REPORT` | write the machine-readable report |
+| `--help` | — | usage |
+
+**Exit codes.** `0` iff **every applicable check PASSes** (SKIPs are fine); `1`
+on **any FAIL**; `2` on a **fatal setup error** (target unreachable or the
+preflight join failed). Always cleans up spawned servers and temp save dirs.
+
+```bash
+node scripts/persistence-test.mjs --spawn                                   # self-test
+node scripts/persistence-test.mjs --url ws://127.0.0.1:3000/ws --save-dir /path/saves
+node scripts/persistence-test.mjs --server-cmd "node server/index.js" --server-cwd /path/to/voxelheim --save-dir /path/to/voxelheim/saves
+```
+
+### scripts/persist-ref-server.mjs — the reference durable server
+
+A minimal, fully-**durable** Voxelheim server that speaks the exact real wire
+protocol (`docs/PROTOCOL.md` v1, on top of `lib/ws-transport.mjs`) and faithfully
+reproduces the real server's **persistence contract**: the same on-disk schema,
+the same **debounced + atomic** write, and a flush on last-player-leave and on
+SIGTERM. It serves two purposes at once:
+
+- **The CI self-test target.** `persistence-test.mjs --spawn` boots it into a
+  temp save dir; every applicable check must PASS, so the job stays green with no
+  real server checked out.
+- **A worked reference for the builder.** The save contract is small and
+  commented next to the rule it satisfies — a correct-answer key
+  `server/index.js` can be brought in line with.
+
+**The persistence contract it demonstrates:**
+
+| Property | Rule |
+|---|---|
+| **schema** | `saves/<id>.json` = `{id, name, seed, createdAt, edits:{overworld,nether,end}}` where each dim is a `{"x,y,z":block}` map (int `0..40`) |
+| **debounced** | a dirty room is flushed `SAVE_DEBOUNCE_MS` (~1 s here; the real server uses ~2 s) after the first edit, coalescing bursts |
+| **atomic** | write `<id>.json.tmp` then `rename()` — a reader never sees partial JSON, and a mid-write SIGKILL leaves the **previous** file intact (old-or-new, never half) |
+| **flushed** | on the last player leaving a world and on SIGTERM (a SIGKILL cannot run the flush — the atomic tmp+rename is what protects the file) |
+
+It also attaches a tiny REST surface (`GET /api/health`, `GET`/`POST /api/worlds`,
+`GET`/`PUT /api/worlds/:id`) to the *same* http server that carries the WS
+upgrade, so a client at `ws://host:PORT/ws` finds REST at `http://host:PORT` —
+what P1/P3/P4 read back through.
+
+**Config (env):** `PORT` / `GAME_PORT` (default `3000`; `GAME_PORT` wins for an
+ephemeral `0`), `GAME_WS_PATH` (default `/ws`), `SAVE_DIR` (default a fresh
+`os.tmpdir()` mkdtemp). On listen it prints exactly the line the suite waits for
+(and reconciles its save dir from):
+
+```
+PERSIST-REF-SERVER READY port=<port> saveDir=<dir>
+```
+
+Importing the file is side-effect-free — it only boots when run as the main
+module.
+
+### How CI runs the persistence suite
+
+The `persistence` job (Node 20, **10-min** timeout, builtins only — no browser,
+no Playwright, never creates a root `package.json`) mirrors the two-phase shape:
+
+1. **Reference self-test — always runs, always green.** `node
+   scripts/persistence-test.mjs --spawn --report "$RUNNER_TEMP/persistence-ref.json"`
+   boots the reference durable server and asserts all applicable checks PASS
+   (exit 0), on every push and PR, with no real server present.
+2. **Full suite against the real server — only when one is detected.** A *Detect
+   real server entrypoint* step sets `real=true` when a root `package.json`
+   exposes a `start` script. It then installs deps and runs `persistence-test.mjs
+   --server-cmd "node server/index.js" --server-cwd "$PWD" --save-dir "$PWD/saves"`
+   — the test owns the process so it can restart/SIGKILL it, and reads saves from
+   `<cwd>/saves`. This lights up automatically once the server branch lands.
+
+## Soak / leak-trend detector
+
+A fourth dependency-free harness (Node builtins only, Node 20 CI / Node 22 local)
+that holds a steady bot population against a server for a long window while
+continuously churning connections, sampling the server process from `/proc` to
+decide whether it **leaks**.
+
+### scripts/soak-test.mjs
+
+Unlike `load-test.mjs`, the bots here do **not** measure latency — their only job
+is to keep the server BUSY and to exercise connection/fd/handle churn:
+
+- `move` ~10 Hz (bounded random walk), `edit` ~1/s, `chat` ~0.2/s.
+- **Churn:** ~every 15 s a fraction (~25 %) of live bots disconnect and reconnect,
+  so sockets, fds, and per-connection handles are constantly created and torn
+  down — the classic shape that surfaces fd / handle / listener leaks.
+
+**What it samples** from `/proc/<pid>` on a fixed cadence:
+
+| Signal | Source |
+|---|---|
+| **RSS** | `/proc/<pid>/status` `VmRSS` (kB → MB) — resident memory |
+| **FD** | `/proc/<pid>/fd` directory entries — open file descriptors |
+| **THREADS** | `/proc/<pid>/task` directory entries — OS threads |
+
+**The flat-vs-leaking verdict.** After a warmup (the LARGER of ~first 15 % of
+samples and `SOAK_WARMUP_SEC` wall-clock seconds — V8/heap warmup is a roughly
+fixed wall-clock ramp, so a percentage alone under-drops on short runs), a
+least-squares linear regression fits RSS vs time over the **drained steady-state
+window**. The run is **flat** (healthy, exit 0) iff:
+
+- **NOT** (`|RSS slope| ≥ LEAK_RSS_MB_PER_MIN` (default 5) **AND** the growth that
+  slope IMPLIES over the sampled window `≥ LEAK_RSS_MIN_RISE_MB` (default 12 MB)) —
+  the rise-floor rejects V8's one-time heap-expansion **step** (a few MB) caught
+  at the tail of a short window as a false steep MB/min; on the canonical 1200 s
+  soak a real leak clears the floor by a wide margin, so long runs are unaffected,
+- **AND** `fd_end ≤ fd_start + LEAK_FD_GROWTH` (default 8) **and** no monotonic fd
+  growth across the steady window,
+- **AND** `threads_end ≤ threads_start + LEAK_THREAD_GROWTH` (default 8).
+
+Otherwise it is **leaking** (exit 1) and the offending signal(s) — RSS, fd,
+and/or threads — are named with their numbers. A server that **dies** mid-run is
+a hard failure (exit 1). With no sampled pid (`--url` without a pid) the leak
+verdict is **inconclusive** (still exit 0) — `/proc` needs a pid.
+
+**Config (CLI flag / env / default):**
+
+| Flag | Env | Default | Meaning |
+|---|---|---|---|
+| `--players <n>` | `SOAK_BOTS` | `30` | concurrent bot clients |
+| `--duration-sec <s>` | `SOAK_DURATION` | `240` | sampling window (after the ramp) |
+| `--sample-ms <ms>` | `SOAK_SAMPLE_MS` | `3000` | `/proc` sampling cadence |
+| *(warmup floor)* | `SOAK_WARMUP_SEC` | `30` | min wall-clock seconds dropped as warmup |
+| `--churn` / `--no-churn` | `SOAK_CHURN` | on | reconnect a fraction of bots ~every 15 s |
+| `--url <ws-url>` | `GAME_URL` | `""` | target an external server |
+| `--spawn` | — | off | spawn + target the bundled load/chaos mock (`mock-server.mjs`) |
+| `--server-cmd "<cmd>"` | `GAME_SERVER_CMD` | `""` | spawn an arbitrary server via shell |
+| `--server-cwd <dir>` | `GAME_SERVER_CWD` | `""` | cwd for the spawned `--server-cmd` |
+| `--server-pid <pid>` | `SERVER_PID` | `0` | `/proc` pid to sample (with `--url`) |
+| `--report <path>` | `GAME_REPORT` | `""` | also write the JSON report here |
+
+**Thresholds** (env-overridable): `LEAK_RSS_MB_PER_MIN` (5), `LEAK_RSS_MIN_RISE_MB`
+(12), `LEAK_FD_GROWTH` (8), `LEAK_THREAD_GROWTH` (8). **Target selection**
+precedence: `--server-cmd` > `--spawn` > `--url` > default (mock).
+
+**Duration is never silently capped** — whatever `--duration-sec` you pass is
+exactly what runs, and the report states the actual seconds and how they scale
+against the canonical **1200 s (20-min)** soak reference, so a short CI self-test
+is honest about being short.
+
+> **`/proc` pid gotcha.** `--server-cmd 'node …'` spawns through `sh -c`, so
+> `child.pid` is the `/bin/sh` wrapper, **not** the node server — sampling it
+> yields meaningless numbers (tiny RSS, 1 thread). To sample the real server,
+> start `node` directly and point the harness at it with `--url` +
+> `--server-pid <nodepid>`.
+
+```bash
+node scripts/soak-test.mjs --spawn --duration-sec 45 --sample-ms 1500          # mock self-test
+node scripts/soak-test.mjs --url ws://127.0.0.1:3000/ws --server-pid 12345     # external server
+LEAK_RSS_MB_PER_MIN=0 LEAK_RSS_MIN_RISE_MB=0 node scripts/soak-test.mjs --spawn --duration-sec 20  # forces "leaking" -> exit 1
+```
+
+### How CI runs the soak
+
+The `soak` job (Node 20, **12-min** timeout, builtins only) mirrors the two-phase
+shape:
+
+1. **Mock self-test — always runs, always green.** A short 45 s soak (scaled from
+   the 20-min target) with 1.5 s sampling against `mock-server.mjs` must fit
+   **flat** (no RSS/fd/thread leak) → exit 0.
+2. **Longer soak against the real server — only when one is detected.** When a
+   root `package.json` `start` script is present, it installs deps and runs a
+   120 s soak via `--server-cmd "node server/index.js" --server-cwd "$PWD"`.
+
+### Latest real-server results
+
+From a run against the **real, hardened Voxelheim server** (tip `98c7ea9` "Fix
+harden+wire issues"). Your numbers vary by hardware and load — and read the
+persistence note carefully, it is the interesting part:
+
+**Persistence — exit 1 (3 FAIL / 2 PASS), but all three FAILs are harness
+false-positives, NOT data loss.** The server was **hardened after** the harness
+was written: `handleEdit` now enforces `MAX_REACH=7` from the player's
+server-tracked position (plus a 20 edits/s token bucket, `y=0` bedrock, world
+bounds, and dim-match). The durability harness's writer spawns at `(0,80,0)` and
+**never moves**, but spreads its ~450 edits across chunks (x up to ~220, z up to
+~180), so the server legitimately **rejects every one** with `bad_edit "edit out
+of reach (max 7)"`. The tell-tale signature is `missing=N / wrong=0 / extra=0` —
+wholesale rejection, not corruption:
+
+- **P1 create+edit+GET — FAIL:** 450 edits, `missing=450 wrong=0 extra=0`. Every
+  edit rejected out-of-reach; nothing lost, wrong, or duplicated.
+- **P2 save+reload-from-disk — FAIL:** after SIGTERM restart, welcome and GET both
+  `missing=450 wrong=0 extra=0`. Same root cause — the edits were never accepted,
+  so nothing was on disk to reload. The restart + on-disk reload path itself works
+  (proven by P3/P5).
+- **P3 save-file schema — PASS:** the real save file is well-formed
+  (`{id,name,seed,createdAt,edits:{…}}`, values int `0..40`, keys well-formed).
+- **P4 concurrent saves — FAIL:** A `miss=150`, B `miss=150`, **`contamination=0`**.
+  Both worlds' edits were out-of-reach rejects; no world A block leaked into world
+  B. The isolation property the check targets is intact.
+- **P5 mid-save SIGKILL recovery — PASS:** valid JSON after SIGKILL (0 edits
+  persisted, stale-but-valid = OK), world reloads without crashing, no leftover
+  `.tmp`. Atomic tmp+rename holds.
+
+  Independently verified sound by a direct probe: 6 **in-reach** edits near
+  `(0,80,0)` all persisted (0 rejects); then moving the player to `(100,80,100)`
+  and editing `(102,78,100)` persisted as block 9. No lost/wrong/duplicated edit,
+  no corrupt file, no load crash anywhere — the three FAILs are the hardened
+  server correctly refusing an out-of-reach writer, not a durability bug.
+
+**Soak — flat (PASS, exit 0).** A 240 s run (20 % of the 1200 s reference; ran in
+full, no silent cap) with 30 players:
+
+- **RSS:** start **~79 MB** → end **~92 MB**, peak ~92, mean ~86; regression slope
+  **~3.5 MB/min** implying only **~12 MB** of growth over the window — under the
+  5 MB/min slope ceiling, so **flat**. `fd 52 → 52`, `threads 11 → 11` (no growth).
+  82 samples, 12 dropped as warmup, 70 steady.
+- **Connections / traffic:** 158 attempts, 158 welcomes, **0** connect failures,
+  128 reconnects, **0** socket errors, **0** unexpected closes; ~71.6 k moves +
+  ~7.1 k edits + ~1.3 k chats sent, **~2.32 M** messages received, **0** errors.
+- **Sampling caveat:** the first soak run (`--server-cmd 'node server/index.js'`)
+  sampled the wrong pid (the `sh -c` wrapper, RSS ~1.9 MB) — see the `/proc` pid
+  gotcha above. The numbers here are from a corrected run that started `node`
+  directly and pointed the soak at it with `--url` + `--server-pid <nodepid>`;
+  load and stability figures were identical across both runs.
+
 ## scripts/verify-audio.mjs
 
 Headless-Chromium verification suite for the procedural audio engine
@@ -677,9 +963,12 @@ creates a root `package.json`:
   so there is no `ws` dependency and no `package.json` to install.
 - The authority audit (`authority-test.mjs`, `authority-ref-server.mjs`) reuses
   those same builtin-only `lib/*.mjs` modules — no deps, no `package.json`.
+- The persistence suite (`persistence-test.mjs`, `persist-ref-server.mjs`) and the
+  soak detector (`soak-test.mjs`) reuse those same builtin-only `lib/*.mjs`
+  modules — no deps, no `package.json`.
 - `verify-audio.mjs` uses Node builtins plus a Playwright resolved from an
   *external* directory (`PW_DIR` / `/tmp/pw`); CI installs it under
   `$RUNNER_TEMP/pw`, outside the checkout.
-- The `game-tests`, `backend-load`, and `authority-audit` jobs only *consume* a
-  root `package.json` if another branch lands one — they never create it, and all
-  skip / self-test cleanly until then.
+- The `game-tests`, `backend-load`, `authority-audit`, `persistence`, and `soak`
+  jobs only *consume* a root `package.json` if another branch lands one — they
+  never create it, and all skip / self-test cleanly until then.

@@ -274,3 +274,124 @@ jobs:
           # GATE: any VULN exits non-zero and fails the job. The harness derives the
           # REST base (http://127.0.0.1:8124) from the ws url for GET/PUT checks.
           node scripts/authority-test.mjs --url ws://127.0.0.1:8124/ws
+
+  # ---------------------------------------------------------------------------
+  # Persistence / durability suite. The real Voxelheim server is owned by another
+  # branch and may not exist here yet, so this job ALWAYS runs a fast SELF-TEST of
+  # the durability suite against the bundled reference persistent server
+  # (scripts/persist-ref-server.mjs, spawned via --spawn) — every applicable
+  # durability check (create+edit+GET, on-disk save/reload, save-file schema,
+  # concurrent saves, mid-save SIGKILL recovery) must PASS → exit 0, proving the
+  # suite and the reference are correct and keeping the job green with no real
+  # server. When the real Voxelheim entrypoint lands (a root package.json with a
+  # `start` script — npm start == `node server/index.js`), it ADDITIONALLY installs
+  # the server's deps and runs the full suite against the REAL server via
+  # --server-cmd (the test OWNS the process so it can SIGTERM/SIGKILL/restart it
+  # with the same port + save-dir), reading saves from <cwd>/saves. Pure Node
+  # builtins only — no browser, no Playwright — and this job never creates a root
+  # package.json (that file is owned by another branch).
+  # ---------------------------------------------------------------------------
+  persistence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Always-on: prove the durability suite is correct by running it against the
+      # reference persistent server. --spawn boots scripts/persist-ref-server.mjs
+      # (same save schema + debounced atomic write as the real server); all
+      # applicable checks must PASS → exit 0.
+      - name: Persistence self-test (reference server)
+        run: node scripts/persistence-test.mjs --spawn --report "$RUNNER_TEMP/persistence-ref.json"
+
+      # Feature-detect the real Voxelheim entrypoint: a root package.json exposing
+      # a `start` script (npm start == `node server/index.js`). Emits real=<bool>;
+      # anything else leaves the reference self-test as the only coverage.
+      - name: Detect real server entrypoint
+        id: server
+        run: |
+          if [ -f package.json ] && node -e "const s=require('./package.json').scripts||{}; process.exit(s.start?0:1)"; then
+            echo "detected root package.json start script (Voxelheim entrypoint)"
+            echo "real=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no root package.json start script — reference self-test only"
+            echo "real=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Only when the real server exists: install its deps (never creating a root
+      # package.json) and run the full durability suite against the REAL server.
+      # --server-cmd lets the test OWN the process so it can SIGTERM/SIGKILL/restart
+      # it with the same port + save-dir; the real server writes saves to <cwd>/saves.
+      - name: Full persistence suite (real server)
+        if: steps.server.outputs.real == 'true'
+        run: |
+          npm ci || npm install
+          node scripts/persistence-test.mjs \
+            --server-cmd "node server/index.js" \
+            --server-cwd "$PWD" \
+            --save-dir "$PWD/saves" \
+            --report "$RUNNER_TEMP/persistence-real.json"
+
+  # ---------------------------------------------------------------------------
+  # Long-run leak / stability soak. The real Voxelheim server is owned by another
+  # branch and may not exist here yet, so this job ALWAYS runs a SHORT SELF-TEST of
+  # the soak harness against the bundled load/chaos reference mock
+  # (scripts/mock-server.mjs, spawned via --spawn) — bots continuously move/edit/chat
+  # while the harness samples RSS/fd/threads from /proc; the linear RSS-vs-time fit
+  # over the drained steady-state window must be FLAT (and fds must not grow) →
+  # exit 0, keeping the job green with no real server. The self-test duration is
+  # scaled down from the 20-min target to 45s so CI stays fast. When the real
+  # Voxelheim entrypoint lands (a root package.json with a `start` script — npm
+  # start == `node server/index.js`), it ADDITIONALLY installs the server's deps and
+  # runs a longer soak against the REAL server via --server-cmd (the harness reads
+  # the server pid from the process it spawned to sample /proc). Pure Node builtins
+  # only — no browser, no Playwright — and this job never creates a root
+  # package.json (that file is owned by another branch).
+  # ---------------------------------------------------------------------------
+  soak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Always-on: prove the soak harness works against the load/chaos reference
+      # mock. A short 45s run (scaled from the 20-min target) with 1.5s sampling
+      # must fit FLAT (no RSS/fd/thread leak) → exit 0.
+      - name: Soak self-test (reference mock)
+        run: node scripts/soak-test.mjs --spawn --duration-sec 45 --sample-ms 1500 --report "$RUNNER_TEMP/soak-ref.json"
+
+      # Feature-detect the real Voxelheim entrypoint: a root package.json exposing
+      # a `start` script (npm start == `node server/index.js`). Emits real=<bool>;
+      # anything else leaves the reference-mock self-test as the only coverage.
+      - name: Detect real server entrypoint
+        id: server
+        run: |
+          if [ -f package.json ] && node -e "const s=require('./package.json').scripts||{}; process.exit(s.start?0:1)"; then
+            echo "detected root package.json start script (Voxelheim entrypoint)"
+            echo "real=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no root package.json start script — reference mock self-test only"
+            echo "real=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Only when the real server exists: install its deps (never creating a root
+      # package.json) and run a longer soak against the REAL server. --server-cmd
+      # lets the harness own the process so it knows the pid and can sample
+      # /proc/<pid> RSS/fd/threads directly.
+      - name: Longer soak (real server)
+        if: steps.server.outputs.real == 'true'
+        run: |
+          npm ci || npm install
+          node scripts/soak-test.mjs \
+            --server-cmd "node server/index.js" \
+            --server-cwd "$PWD" \
+            --duration-sec 120 --sample-ms 3000 \
+            --report "$RUNNER_TEMP/soak-real.json"
