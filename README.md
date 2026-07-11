@@ -54,8 +54,8 @@ The server is authoritative and hardened: payload caps, rate limits, movement/re
 | `W` `A` `S` `D` | Move |
 | Mouse | Look (click the window to capture the pointer) |
 | `Space` | Jump — **double-tap to toggle flight**; hold to ascend while flying |
-| `Shift` | Sprint (walking) / descend (flying) |
-| `C` (or `Left Ctrl`) | Sneak — slower, and you can't walk off edges |
+| `Left Shift` | Sneak — slower, you can't walk off edges; descend while flying |
+| `Left Ctrl` | Sprint (walking) / fast fly (flying) |
 | Hold **Left click** | Break block (break time scales with hardness; instant while flying) |
 | **Right click** | Place block |
 | `1`–`9` / scroll wheel | Select hotbar slot |

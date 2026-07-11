@@ -147,7 +147,7 @@ const ACTION_LABELS = {
 /** Small dim notes for documented quirks (from the schema descriptions). */
 const ACTION_NOTES = {
   jump: 'Double-tap toggles flight (300 ms) while Toggle Flight is unbound.',
-  sneak: 'Legacy: the current engine drives Sneak and Sprint from one key.',
+  sneak: 'Doubles as flight-descend while flying (canon: Left Shift).',
   place: 'Shares Right Click with Interact and Eat — context decides.',
   pause: 'Escape always pauses via pointer-lock loss, even if rebound.',
   toggleFlight: 'Unbound by default — the double-tap-Jump gesture covers it.',

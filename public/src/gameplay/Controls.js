@@ -10,14 +10,14 @@
 // documented TEST HOOK that makes `isLocked` report true (and thus lets
 // mouse break/place fire) without real pointer lock.
 //
-// Key map:
+// Key map (canon bindings — ux/keybinds/bindings.default.json):
 //   WASD             — move (input.forward/back/left/right)
 //   Space            — jump; double-tap within 300 ms emits 'toggleFlight'
-//   ShiftLeft        — input.sprint (sprint while walking); also folded into
-//                      input.sneakOrDescend (descend while flying)
-//   KeyC / ControlLeft — input.sneak (sneak while walking: slow + edge-guard
-//                      + eye drop — Player decides; also descends in flight
-//                      via input.sneakOrDescend)
+//   ShiftLeft        — input.sneak (sneak while walking: slow + edge-guard
+//                      + eye drop — Player decides; the same key doubles as
+//                      descend while flying via input.sneakOrDescend)
+//   ControlLeft      — input.sprint (sprint while walking; fast fly while
+//                      flying)
 //   KeyE             — emits 'toggleInventory'
 //   KeyT             — emits 'openChat'
 //   F3               — emits 'toggleDebug' (preventDefault'ed)
@@ -64,8 +64,9 @@ export class Controls {
 
     /** Live input state polled by Player each frame. mouseDX/mouseDY
      *  accumulate until consumeMouseDelta() resets them.
-     *  sneak = KeyC/ControlLeft; sprint = ShiftLeft; sneakOrDescend is the
-     *  union (Shift OR sneak keys) read by Player as flight-descend. */
+     *  sneak = ShiftLeft; sprint = ControlLeft (canon bindings);
+     *  sneakOrDescend mirrors sneak — the sneak key doubles as
+     *  flight-descend (Player reads it while flying). */
     this.input = {
       forward: false, back: false, left: false, right: false,
       jump: false, sprint: false, sneak: false, sneakOrDescend: false,
@@ -75,9 +76,10 @@ export class Controls {
     this._locked = false;
     this._debugLocked = false;
     this._lastSpaceDown = -Infinity;
-    // Physical-key state feeding the derived sneak/sneakOrDescend flags.
-    this._shiftDown = false;
-    this._sneakKeys = new Set(); // 'KeyC' / 'ControlLeft' currently held
+    // Physical-key state feeding the derived sneak/sprint/sneakOrDescend
+    // flags (canon: sneak = ShiftLeft, sprint = ControlLeft).
+    this._sneakKeys = new Set(); // 'ShiftLeft' currently held
+    this._sprintKeys = new Set(); // 'ControlLeft' currently held
     this._listeners = new Map(); // event name -> Set<cb>
 
     if (this.camera) {
@@ -176,12 +178,11 @@ export class Controls {
       case 'KeyA': this.input.left = true; return;
       case 'KeyD': this.input.right = true; return;
       case 'ShiftLeft':
-        this._shiftDown = true;
+        this._sneakKeys.add(e.code); // sneak (walking) / descend (flying)
         this._refreshSneakFlags();
         return;
-      case 'KeyC':
       case 'ControlLeft':
-        this._sneakKeys.add(e.code);
+        this._sprintKeys.add(e.code); // sprint (walking) / fast fly
         this._refreshSneakFlags();
         return;
       case 'Space': {
@@ -223,24 +224,23 @@ export class Controls {
       case 'KeyD': this.input.right = false; break;
       case 'Space': this.input.jump = false; break;
       case 'ShiftLeft':
-        this._shiftDown = false;
+        this._sneakKeys.delete(e.code);
         this._refreshSneakFlags();
         break;
-      case 'KeyC':
       case 'ControlLeft':
-        this._sneakKeys.delete(e.code);
+        this._sprintKeys.delete(e.code);
         this._refreshSneakFlags();
         break;
     }
   }
 
-  /** Derive input.sprint/sneak/sneakOrDescend from the held physical keys:
-   *  Shift sprints (and descends in flight); KeyC/ControlLeft sneak (and
-   *  also descend in flight). */
+  /** Derive input.sprint/sneak/sneakOrDescend from the held physical keys
+   *  (canon bindings): ShiftLeft sneaks — and, being the sneak key, also
+   *  descends in flight; ControlLeft sprints (fast fly while flying). */
   _refreshSneakFlags() {
-    this.input.sprint = this._shiftDown;
+    this.input.sprint = this._sprintKeys.size > 0;
     this.input.sneak = this._sneakKeys.size > 0;
-    this.input.sneakOrDescend = this._shiftDown || this.input.sneak;
+    this.input.sneakOrDescend = this.input.sneak;
   }
 
   // ── mouse ─────────────────────────────────────────────────────────────

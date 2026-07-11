@@ -47,8 +47,8 @@
 const SETTINGS_KEY = 'loomfall.settings';
 
 // Splash lines shown under the title (random pick per visit). The full pool
-// is fetched from /content/splashes.json at runtime; this inlined subset is
-// the fallback when that fetch fails (offline dev harness, etc.).
+// comes from the ContentPack (content/splashes.json) at runtime; this
+// inlined subset is the synchronous pre-load text and the offline fallback.
 const SPLASHES = [
   'The Loom is not currently accepting feedback.',
   'No hand has been on the shuttle for some time.',
@@ -74,33 +74,11 @@ const SPLASHES = [
   'The Cinderloom regrets nothing and remembers everything.',
 ];
 
-// Runtime content (fetched once per page; every consumer falls back
-// gracefully if /content is unreachable).
-let splashPool = SPLASHES;
-const splashesReady = (typeof fetch === 'function'
-  ? fetch('/content/splashes.json')
-    .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
-    .then((data) => {
-      if (Array.isArray(data.splashes) && data.splashes.length > 0) {
-        splashPool = data.splashes.filter((s) => typeof s === 'string' && s.trim());
-      }
-      return splashPool;
-    })
-  : Promise.resolve(splashPool))
-  .catch(() => splashPool);
-
-let tipsPool = null; // [{text}] once loaded; null = unavailable
-const tipsReady = (typeof fetch === 'function'
-  ? fetch('/content/tips.json')
-    .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
-    .then((data) => {
-      if (Array.isArray(data.tips) && data.tips.length > 0) {
-        tipsPool = data.tips.filter((t) => t && typeof t.text === 'string');
-      }
-      return tipsPool;
-    })
-  : Promise.resolve(null))
-  .catch(() => null);
+// Runtime content now lives in the shared ContentPack (one load per page;
+// pack.splash()/pack.tip() degrade gracefully if /content is unreachable —
+// the inlined SPLASHES above stay as the synchronous pre-load text).
+import { pack } from '../systems/contentpack.js';
+const contentPackReady = pack.load().catch(() => null);
 
 const TIP_ROTATE_MS = 6000;
 
@@ -292,13 +270,10 @@ export function initMenus(opts = {}) {
     {
       const splashEl = el('div', 'menu-splash', titleWrap,
         SPLASHES[Math.floor(Math.random() * SPLASHES.length)]);
-      // Re-roll from the full runtime pool once it arrives (silent fallback
-      // to the inlined line already shown when the fetch fails).
-      splashesReady.then((pool) => {
-        if (Array.isArray(pool) && pool.length > 0) {
-          splashEl.textContent = pool[Math.floor(Math.random() * pool.length)];
-        }
-      });
+      // Re-roll from the full 155-line runtime pool once the ContentPack
+      // arrives (pack.splash() falls back to a canon-toned inline line, so
+      // the re-roll is safe even when /content is unreachable).
+      contentPackReady.then(() => { splashEl.textContent = pack.splash(); });
     }
     el('p', 'menu-tagline', wrap, 'An open-world voxel sandbox');
     const buttons = el('div', 'menu-buttons', wrap);
@@ -604,8 +579,8 @@ export function initMenus(opts = {}) {
   let tipsActive = false;
 
   function showRandomTip() {
-    if (!tipsPool || tipsPool.length === 0) return;
-    const tip = tipsPool[Math.floor(Math.random() * tipsPool.length)];
+    const tip = pack.tip(); // random over all 61 (pack.tip('mounts') etc. to theme)
+    if (!tip) return; // null only when tips.json failed to load
     tipEl.classList.remove('loading-tip--show');
     setTimeout(() => {
       if (!tipsActive) return;
@@ -617,7 +592,7 @@ export function initMenus(opts = {}) {
   function startTips() {
     if (tipsActive) return;
     tipsActive = true;
-    tipsReady.then(() => {
+    contentPackReady.then(() => {
       if (!tipsActive) return;
       showRandomTip();
       tipTimer = setInterval(showRandomTip, TIP_ROTATE_MS);

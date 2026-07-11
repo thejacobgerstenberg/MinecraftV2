@@ -99,6 +99,16 @@
       }
     },
     {
+      "id": "sennit_grain",
+      "displayName": "Sennit Grain",
+      "tier": 0,
+      "description": "Wild meadow grain whose heavy ears braid themselves flat as they ripen, like cordage that decided to be bread instead. Bobbin-deer favor it past anything else a hand can hold. The meadow grows it without being asked. Nothing else will.",
+      "recipe": {
+        "shape": [null, null, null, null, null, null, null, null, null],
+        "source": "Foraged as wild grain in the Sennmeadows; replanted in understitch_loam it regrows over two day-cycles in braided rows. Food, and the breeding-feed the bobbin-deer favor."
+      }
+    },
+    {
       "id": "woven_cloth",
       "displayName": "Woven Cloth",
       "tier": 0,
@@ -173,7 +183,7 @@
       "description": "A rider's frame of needle-iron and hide-cloth, strung with sinew, made for a mount that is itself unspooling. The Wickerkin do not ride. They make these anyway, for the company.",
       "recipe": {
         "shape": ["hide_cloth", "hide_cloth", "hide_cloth", "thread_sinew", "needle_iron", "thread_sinew", null, "needle_iron", null],
-        "note": "Used to ride a tamed spoolmare."
+        "note": "Used to ride a tamed spoolmare. The bond comes first (tame_entity:spoolmare); the frame will not sit an unbonded mare."
       }
     },
     {

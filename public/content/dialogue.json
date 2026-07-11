@@ -143,6 +143,87 @@
       "It was left alone at the edge of an unfinished thing, with no instruction but its nature. So, Mender, were you. You chose otherwise. That is the whole of it, and it is enough."
     ]
   },
+  "molthkin": {
+    "phaseIntros": [
+      {
+        "phase": 1,
+        "name": "The Long Shift",
+        "lines": [
+          "It does not turn to face you. It has no face, and it is busy. This is the Long Shift, and it has never once ended: the arm sweeps because the arm has always swept, and you have simply chosen to stand inside a machine that never learned it could stop.",
+          "Under the forge-roar, hear the groan. It is not anger and it is not warning. It is the sound of a shift begun before there were mornings, worked by the only worker who never asked when it ends.",
+          "It has not noticed you, exactly. It has noticed material. To Molthkin there is no difference, and that is the whole sadness of the fight ahead."
+        ]
+      },
+      {
+        "phase": 2,
+        "name": "Feeding the Fire",
+        "lines": [
+          "Half the thread is cut away, and it does the only arithmetic it has: the work is behind. It begins to feed itself to the fire — still turning, still certain that enough new thread will bring the Weaver back to weave again.",
+          "The groan climbs into a labored spinning-song. The song is worse than the groan was. Songs mean hope, and it should not still have any.",
+          "The waxlings sloughing off the barrel are not soldiers. They are what it is made of, spent like coin against a debt no one is collecting."
+        ]
+      },
+      {
+        "phase": 3,
+        "name": "The Last of the Thread",
+        "lines": [
+          "The bands run thin, and through them: gold. The one thing it never fed to the fire. The one instruction it never lost.",
+          "It spins itself bare now. What is left of it is no longer a measure — it is the thread you can see, and every stroke bares more of the shaft beneath.",
+          "There is nothing new left to learn. Sprint, hold, stand on cold — the fight ends on its first minute's grammar, priced at everything it has left."
+        ]
+      }
+    ],
+    "attackTelegraphs": [
+      {
+        "attackId": "molten_thread_arm",
+        "lines": [
+          "A hiss and a line of falling embers drag ahead of the arc. It is not aimed at you; it has swept exactly this circle since before there was anyone to sweep at. Step in behind its passage."
+        ]
+      },
+      {
+        "attackId": "the_winding",
+        "lines": [
+          "The grooves light, inward, spiraling to the shaft. You are being collected. Sprint out, take a bollard, or be standing on cold — doing nothing is the only way to lose this."
+        ]
+      },
+      {
+        "attackId": "dripfall",
+        "lines": [
+          "The rim rains without pause, as it has for an age. This is not an attack. It is rent, and you are standing in the shop."
+        ]
+      },
+      {
+        "attackId": "shed_of_waxlings",
+        "lines": [
+          "The rim thickens and drips, and the drips are walking. They are coming for you, not for your lace — but a burst is a strike, and frostlace shatters when struck."
+        ]
+      },
+      {
+        "attackId": "it_feeds_the_fire",
+        "lines": [
+          "The song labors up to a cracked high note, and the coil brightens through the thinning bands. It is about to spend itself to pull you in. Stand on cold, or count your four blocks."
+        ]
+      },
+      {
+        "attackId": "thread_squall",
+        "lines": [
+          "The loose ends rise off the barrel and stand upright in the heat-shimmer, each coming arc sketching itself in ember half a breath ahead. It is not aimed. It is what dying at speed simply does."
+        ]
+      },
+      {
+        "attackId": "the_last_winding",
+        "lines": [
+          "Every groove on the floor lights at once — and the song stops. The silence is the loudest thing in the fight. Move."
+        ]
+      }
+    ],
+    "onFelled": [
+      "The arm falls still mid-swing, the great discs sag a final inch, and the spinning-song runs down like a wheel no one is driving anymore. Ten seconds, and then the quiet.",
+      "The spindles still — all of them, everywhere. For the first time since the beginning, the Cinderloom is not roaring, and the Thrum stands alone in the dark like a held breath.",
+      "On the bare shaft a coil of gold thread stands waiting, kept perfect through an age of burning, for someone who was never coming back to collect it.",
+      "It only wanted to finish its work. Do not mistake it for a victory. Somewhere a shift has ended, and nobody rang the bell."
+    ]
+  },
   "tutorialNarrator": [
     {
       "event": "on_world_start",

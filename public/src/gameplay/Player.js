@@ -130,10 +130,10 @@ export class Player {
    * @param {{forward:boolean,back:boolean,left:boolean,right:boolean,
    *          jump:boolean,sprint:boolean,sneak:boolean,
    *          sneakOrDescend?:boolean}} input  from Controls.input.
-   *        sprint = ShiftLeft; sneak = KeyC/ControlLeft (slow walk + edge
-   *        guard + eye drop, cancels sprint); sneakOrDescend = Shift OR
-   *        sneak keys — read as "descend" while flying (falls back to
-   *        sneak for harnesses that only set input.sneak).
+   *        sneak = ShiftLeft (slow walk + edge guard + eye drop, cancels
+   *        sprint); sprint = ControlLeft (canon bindings); sneakOrDescend
+   *        mirrors the sneak key — read as "descend" while flying (falls
+   *        back to sneak for harnesses that only set input.sneak).
    * @param {number} yaw radians, from Controls (rotation about +Y; yaw 0
    *        faces -Z, matching THREE's YXZ camera convention).
    */

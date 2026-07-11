@@ -205,14 +205,30 @@ events). Integration points (`public/src/main.js`):
   emits a debris-particle poof; Waxling detonations play `explosion`.
 - **Player damage**: `mobAttack` events decrement `player.health`
   (explosions only when `hitPlayer`), update the HUD shards, play `hurt`,
-  and flash the screen red (`.hurt-flash`). At 0 health the death screen
-  shows a message from `/content/deathmessages.json` templated by cause
-  (`mob:<canonicalId>`, `void_unravel` for the kill plane) — Respawn
+  and flash the screen red (`.hurt-flash`). Environmental hazards
+  (`environmentTick` in main.js) add three more canon causes: `fall`
+  (landing tally over a 3-block grace, liquid breaks the fall), `lava`
+  (molten-skein contact, 4 dmg / 0.5 s) and `drowning` (eyes under water
+  past a 10 s breath, 2 dmg / s) — all three skipped while flying (creative
+  concession). At 0 health the death screen shows a message from
+  `/content/deathmessages.json` templated by cause (`mob:<canonicalId>`,
+  `void_unravel` for the kill plane, `fall`/`lava`/`drowning`) — Respawn
   re-stitches at the spawn column and resets health. While dead the player
   sim is frozen but the world keeps running.
 - **Boss**: `__game.mobs.spawnBoss(pos)` — 3 phases (60%/15% hp), summons
   Raveler adds, and on 0 hp emits `bossDefeated` (bound, no loot) which
-  grants the `taught_to_mend` achievement.
+  grants the `taught_to_mend` achievement. The defeat chat line comes from
+  `dialogue.json` (`lastNeedle.onBound` / `molthkin.onFelled` via the
+  ContentPack), with the old hardcoded line as offline fallback.
+- **KNOWN DELTA (molthkin)**: canon `content/molthkin.json` defines a
+  **3-phase** encounter ("The Long Shift" / "Feeding the Fire" / "The Last
+  of the Thread", hp 280 dmg 11 spd 2); the engine's MobManager still runs
+  its simplified **2-phase** molthkin (`phase1HpFrac 0.5`). The canon file
+  ships and loads (`pack.boss('molthkin')`), but the encounter rework is a
+  later wave — do not treat the in-engine phase count as canon. Likewise
+  canon `boss.json` now gates the Last Needle summon on four
+  `seal_released:*` predicates (selvage_outpost gauntlet); that data is
+  loaded as data only — no seal system exists in the engine yet.
 
 ## Game event bus (`__game.events`, `public/src/systems/events.js`)
 
@@ -226,7 +242,7 @@ events). Integration points (`public/src/main.js`):
 | `mob:killed` | `{canonicalId, archetype}` | non-boss mob death |
 | `mob:drop` | `{itemId, count}` | each loot stack |
 | `boss:defeated` | `{canonicalId, achievement, victoryTrigger}` | The Last Needle bound |
-| `player:died` | `{cause, message}` | health reached 0 (cause e.g. `mob:waxling`, `void_unravel`) |
+| `player:died` | `{cause, message}` | health reached 0 (cause e.g. `mob:waxling`, `void_unravel`, `fall`, `lava`, `drowning`) |
 | `player:respawned` | `{}` | death-screen Respawn |
 | `dimension:entered` | `{dim, canonDim}` | session start + every travel (canonDim: `warpwold`/`cinderloom`/`nevermend`) |
 | `night:survived` | `{}` | dawn after a full overworld night without dying |
@@ -241,12 +257,15 @@ engine-block -> canon-block mapping in `public/src/systems/naming.js`
 
 ## Achievements (`public/src/systems/achievements.js`)
 
-Loads `/content/achievements.json` (60 achievements). Only triggers whose
-events exist in this build are wired — **26 of 60**: `first_block_broken`,
-`player_unpicked`, `survive_first_night`, `enter_dimension:cinderloom/
-nevermend`, `kill_entity:*` for implemented mobs (needlejack, emberspinner,
-waxling, scaldwarden, unpicked, raveler, last_needle), `collect_count:*` /
-`place_block:*` for canon ids obtainable via loot or the block mapping.
+Reads achievements through the shared ContentPack (60 achievements; direct
+fetch of `/content/achievements.json` is the no-pack fallback). Only
+triggers whose events exist in this build are wired — **31 of 60**:
+`first_block_broken`, `player_unpicked`, `survive_first_night`,
+`enter_dimension:cinderloom/nevermend`, `kill_entity:*` for implemented
+mobs (needlejack, emberspinner, waxling, scaldwarden, molthkin, unpicked,
+raveler, selvage_warden, last_needle), `collect_count:*` / `place_block:*`
+/ `place_count:*` for canon ids obtainable via loot or the block mapping
+(incl. `knotlight` via the torch mapping).
 NOT wired (no engine system yet — no stub triggers): crafting, trading,
 biome entry (engine biomes don't map onto the canon trigger biomes),
 anchors/binding, smelting, taming, depth, thrum, frays, ending choices.
@@ -256,18 +275,32 @@ masked) in the pause-menu **Achievements** screen.
 
 ## Content wiring
 
-- `/content/splashes.json` — main-menu splash pool (fetched at runtime;
-  inlined fallback list in `ui/menu.js` on fetch failure).
-- `/content/tips.json` — loading overlay shows a random canon tip, rotating
-  every 6 s while chunks stream.
-- `/content/naming.json` — canonical display names for blocks (hotbar
-  tooltips + selection label, inventory hover, F3 `Target` row) and biomes
-  (F3 `Biome` row analog mapping); engine ids stay internal. `lava` always
-  displays as "Molten Skein" (canon mandate), `portal` as "Loom-Gate".
-- `/content/deathmessages.json` — death screen + chat broadcast lines.
-- `/content/GAME_GUIDE.md` — "How to Play" (main menu + pause), rendered by
-  a small sanitizing markdown pass (headings/bold/lists; code + tables as
-  monospace blocks).
+All runtime content flows through the shared **ContentPack**
+(`public/src/systems/contentpack.js`, vendored from
+`feature/content-integrate`'s frozen loader; `pack` singleton, one
+idempotent `pack.load()` per page, deep-frozen getters that never throw).
+It loads every `/content/*.json` (+ `GAME_GUIDE.md`, a builder extension)
+and the `/ux` data files (`captions.json`, `bindings.default.json`,
+`tutorial.json`); per-file failures degrade to documented fallbacks.
+Consumers:
+
+- `pack.splash()` — main-menu splash pool, 155 lines (inlined fallback list
+  in `ui/menu.js` shown synchronously pre-load / offline).
+- `pack.tip(category?)` — loading overlay shows a random canon tip (61),
+  rotating every 6 s while chunks stream.
+- `pack.naming()` (via `systems/naming.js`) — canonical display names for
+  blocks (hotbar tooltips + selection label, inventory hover, F3 `Target`
+  row) and biomes (F3 `Biome` row analog mapping); engine ids stay
+  internal. `lava` always displays as "Molten Skein" (canon mandate),
+  `portal` as "Loom-Gate", `torch` maps to canon `knotlight`.
+- `pack.deathMessage(cause, {player})` (via `systems/deathmessages.js`) —
+  death screen + chat broadcast lines (21 causes).
+- `pack.guide()` — "How to Play" (main menu + pause), rendered by a small
+  sanitizing markdown pass (headings/bold/lists; code + tables as monospace
+  blocks); direct fetch fallback kept.
+- `pack.getAchievements()` — the achievements engine (below).
+- `pack.dialogueLine('lastNeedle','onBound')` / `('molthkin','onFelled')` —
+  boss defeat chat line.
 - F3 additions: `Target` (looked-at block display name), `Mobs` (live mob
   count).
 

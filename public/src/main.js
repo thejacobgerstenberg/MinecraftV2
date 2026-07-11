@@ -60,6 +60,7 @@ import MobManager from '../mobs/MobManager.js';
 import { CANONICAL_ID } from '../mobs/spawnRules.js';
 import { LOOT_TABLES } from '../mobs/lootTables.js';
 import { gameEvents } from './systems/events.js';
+import { pack } from './systems/contentpack.js';
 import { initAchievements } from './systems/achievements.js';
 import {
   loadNaming, blockDisplayName, biomeDisplayName, canonBlockIdFor, CANON_BLOCK_ID,
@@ -106,6 +107,15 @@ const DRY_SPAWN_RADIUS = 24; // spiral scan radius for a dry (non-liquid) spawn
 const STEP_DISTANCE = 2.2; // blocks of ground travel between footstep sounds
 const WEATHER_ROLL_S = DAY_LENGTH_S / 12; // weather machine rolls every ~2 game hours
 const SNOW_BIOMES = new Set(['Snowfield', 'Snowcap']); // biomeAt() display names
+
+// Environmental hazards (canon death causes beyond mobs/void — see
+// content/deathmessages.json). Flying (creative concession) skips all three.
+const LAVA_TICK_S = 0.5;    // molten-skein contact: LAVA_DAMAGE every 0.5 s
+const LAVA_DAMAGE = 4;
+const AIR_SECONDS = 10;     // breath while the eyes are under water…
+const DROWN_TICK_S = 1.0;   // …then DROWN_DAMAGE per second ('drowning')
+const DROWN_DAMAGE = 2;
+const FALL_SAFE_BLOCKS = 3; // landing beyond this deals (blocks − 3) 'fall' damage
 
 // Combat (mobs stage).
 const ATTACK_REACH = 4; // player melee reach vs mob hitboxes (blocks)
@@ -333,8 +343,10 @@ audioStack.attach(audio);
 // Content + achievements (page lifetime)
 // ---------------------------------------------------------------------------
 
-/** Canon naming + death-message tables (both degrade gracefully offline). */
-const contentReady = Promise.all([loadNaming(), loadDeathMessages()])
+/** Shared ContentPack + the naming/death-message adapters over it (all
+ *  degrade gracefully offline; pack.load() is idempotent so the adapters
+ *  join the same underlying load). */
+const contentReady = Promise.all([pack.load(), loadNaming(), loadDeathMessages()])
   .catch(() => {});
 
 /** "How to Play" panel — renders content/GAME_GUIDE.md. */
@@ -349,6 +361,7 @@ const help = initHelp();
 const achievements = initAchievements({
   bus: gameEvents,
   audio,
+  pack, // shared ContentPack — achievements read the same loaded snapshot
   caps: {
     killableEntityIds: new Set(Object.values(CANONICAL_ID)),
     obtainableItemIds: new Set([
@@ -1065,6 +1078,12 @@ async function bootSession(worldMeta) {
     mining: { held: false, key: null, progress: 0 },
     vmHeld: undefined, // last hotbar block mirrored into the viewmodel
     dead: false, // death screen up; player sim + damage suspended
+    // Environmental-hazard state (see environmentTick): fall tracking +
+    // lava/drowning damage cadence accumulators.
+    fallStartY: null, // highest airborne y since last grounded (null = grounded)
+    lavaAcc: 0,
+    airLeft: AIR_SECONDS,
+    drownAcc: 0,
     isDay: true, // fed to the mob manager (spawn tables) each frame
     wasDay: true, // dawn edge detector for night:survived
     nightSeen: false, // an overworld night was witnessed since last death
@@ -1448,12 +1467,17 @@ async function bootSession(worldMeta) {
           damagePlayer(detail.dmg, `mob:${detail.canonicalId}`);
         }
         break;
-      case 'bossDefeated':
+      case 'bossDefeated': {
         audio.levelup();
         if (pos) S.fx.particles.spawnBlockBreak(pos, [0.85, 0.8, 1.0]);
+        // Canon defeat line from dialogue.json (per boss); the old hardcoded
+        // string stays as the offline fallback.
+        const actor = detail.canonicalId === 'molthkin' ? 'molthkin' : 'lastNeedle';
+        const event = detail.canonicalId === 'molthkin' ? 'onFelled' : 'onBound';
         ui.chat.addMessage({
           system: true,
-          text: 'The Last Needle is bound. For a while, it will mend.',
+          text: pack.dialogueLine(actor, event)
+            ?? 'The Last Needle is bound. For a while, it will mend.',
         });
         gameEvents.emit('boss:defeated', {
           canonicalId: detail.canonicalId,
@@ -1461,6 +1485,7 @@ async function bootSession(worldMeta) {
           victoryTrigger: detail.victoryTrigger,
         });
         break;
+      }
       default:
         break; // mobSpawn / mobDespawn: quiet
     }
@@ -1492,10 +1517,93 @@ async function bootSession(worldMeta) {
     deathScreen.show(message);
   }
 
+  /** True when the player AABB overlaps any block with this engine name. */
+  function playerOverlapsBlock(name) {
+    const p = S.player.position;
+    const s = S.player.size;
+    const EPS = 1e-4;
+    const x0 = Math.floor(p.x + EPS), x1 = Math.floor(p.x + s.x - EPS);
+    const y0 = Math.floor(p.y + EPS), y1 = Math.floor(p.y + s.y - EPS);
+    const z0 = Math.floor(p.z + EPS), z1 = Math.floor(p.z + s.z - EPS);
+    for (let y = y0; y <= y1; y++) {
+      for (let z = z0; z <= z1; z++) {
+        for (let x = x0; x <= x1; x++) {
+          if (getBlockDef(S.world.getBlock(x, y, z)).name === name) return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Environmental hazards — the canon death causes the engine can already
+   * distinguish (content/deathmessages.json): 'fall' (landing tally with a
+   * 3-block grace), 'lava' (molten-skein contact, 4 dmg / 0.5 s) and
+   * 'drowning' (eyes under water past a 10 s breath, 2 dmg / s). All three
+   * are skipped while flying (creative concession, matching instant-break);
+   * 'void_unravel' and 'mob:<id>' causes are wired elsewhere.
+   */
+  function environmentTick(dt) {
+    if (G !== S || S.dead || S.travelInFlight) return;
+    const flying = S.player.flying;
+    const inLiquid = isInLiquid(S.world, { pos: S.player.position, size: S.player.size });
+
+    // Fall damage: track the highest airborne point; landing tallies it.
+    // Liquid (water or the molten skein) breaks the fall without impact.
+    if (flying || inLiquid) {
+      S.fallStartY = null;
+    } else if (!S.player.onGround) {
+      S.fallStartY = S.fallStartY == null
+        ? S.player.position.y
+        : Math.max(S.fallStartY, S.player.position.y);
+    } else {
+      if (S.fallStartY != null) {
+        const dmg = Math.floor(S.fallStartY - S.player.position.y - FALL_SAFE_BLOCKS);
+        if (dmg > 0) damagePlayer(dmg, 'fall');
+      }
+      S.fallStartY = null;
+    }
+
+    // Molten skein (engine block 'lava') contact: first touch hits at once,
+    // then on a fixed cadence while contact lasts.
+    if (!flying && playerOverlapsBlock('lava')) {
+      S.lavaAcc -= dt;
+      if (S.lavaAcc <= 0) {
+        S.lavaAcc = LAVA_TICK_S;
+        damagePlayer(LAVA_DAMAGE, 'lava');
+      }
+    } else {
+      S.lavaAcc = 0;
+    }
+
+    // Drowning: eyes inside a water block drain breath; empty breath damages
+    // once per second until the head surfaces.
+    const eye = S.player.eyePosition;
+    const eyeInWater = !flying && getBlockDef(
+      S.world.getBlock(Math.floor(eye.x), Math.floor(eye.y), Math.floor(eye.z))).name === 'water';
+    if (eyeInWater) {
+      S.airLeft -= dt;
+      if (S.airLeft <= 0) {
+        S.drownAcc -= dt;
+        if (S.drownAcc <= 0) {
+          S.drownAcc = DROWN_TICK_S;
+          damagePlayer(DROWN_DAMAGE, 'drowning');
+        }
+      }
+    } else {
+      S.airLeft = AIR_SECONDS;
+      S.drownAcc = 0;
+    }
+  }
+
   /** Death-screen Respawn: re-stitch at the knot (spawn), reset health. */
   function respawnFromDeath() {
     if (G !== S || !S.dead) return;
     S.dead = false;
+    S.fallStartY = null; // a pre-death fall never lands on the respawned body
+    S.lavaAcc = 0;
+    S.airLeft = AIR_SECONDS;
+    S.drownAcc = 0;
     S.player.respawn(); // resets position, velocity, and health
     // Announce the teleport: the server only accepts an over-budget move
     // when it lands back at the spawn anchor AND was declared as a respawn
@@ -1734,6 +1842,7 @@ async function bootSession(worldMeta) {
       // the SpectatorCamera owns WASD and the camera until toggled back.
       if (!S.dead && !S.stack.social.isSpectating()) {
         S.player.update(dt, S.controls.input, S.controls.yaw);
+        environmentTick(dt); // fall / lava / drowning hazards (canon causes)
         S.portals.update(dt); // dwell-to-travel charging + cooldown
         updateMining(dt); // hold-to-break progress (see breakTimeFor)
       }
@@ -2216,6 +2325,12 @@ async function switchDimension(dimId, opts = {}) {
   // Teardown current chunk meshes, then rebuild the world for the target dim.
   S.chunkRenderer.dispose();
   S.dim = dimId;
+  // Arrival teleport must not inherit pre-travel hazard state (a fall begun
+  // in the old dimension never lands on the arrival body).
+  S.fallStartY = null;
+  S.lavaAcc = 0;
+  S.airLeft = AIR_SECONDS;
+  S.drownAcc = 0;
   S.fx.grading.setBiome(DIM_GRADE[dimId] || 'sennmeadows');
   S.generator = new TerrainGenerator(S.worldMeta.seed, dimId);
   S.world = new World(S.generator);

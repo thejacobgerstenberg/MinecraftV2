@@ -1,6 +1,7 @@
 // Loomfall UI — "How to Play" panel (renders content/GAME_GUIDE.md).
 //
-// Pure DOM module: no three.js import. Fetches the guide markdown once and
+// Pure DOM module: no three.js import. Reads the guide markdown from the
+// shared ContentPack (pack.guide(); direct fetch kept as the fallback) and
 // renders it with a deliberately small, sanitized markdown-to-HTML pass:
 // headings (#/##/###), bold (**text**), unordered/ordered lists, plus
 // fenced code blocks and tables rendered as monospace <pre> so recipes stay
@@ -10,7 +11,9 @@
 // API:
 //   initHelp() -> { open(), close(), isOpen() }
 
-const GUIDE_URL = '/content/GAME_GUIDE.md';
+import { pack } from '../systems/contentpack.js';
+
+const GUIDE_URL = '/content/GAME_GUIDE.md'; // fallback when the pack has no guide
 
 function escapeHtml(s) {
   return s
@@ -164,9 +167,14 @@ export function initHelp() {
   async function ensureGuide() {
     if (loaded) return;
     try {
-      const res = await fetch(GUIDE_URL);
-      if (!res.ok) throw new Error(`GET ${GUIDE_URL} -> ${res.status}`);
-      const md = await res.text();
+      await pack.load(); // idempotent shared content load
+      let md = pack.guide();
+      if (md == null) {
+        // ContentPack degraded (its GAME_GUIDE.md read failed) — legacy fetch.
+        const res = await fetch(GUIDE_URL);
+        if (!res.ok) throw new Error(`GET ${GUIDE_URL} -> ${res.status}`);
+        md = await res.text();
+      }
       body.innerHTML = renderMarkdown(md); // safe: fully escaped upstream
       loaded = true;
     } catch (err) {

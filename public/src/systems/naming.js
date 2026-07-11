@@ -17,9 +17,12 @@
 // never says "lava" (see deathmessages.json's $comment), so it carries a
 // fixed display override.
 //
-// loadNaming() fetches the JSON once (browser only); every getter degrades
-// gracefully (prettified engine names) until/unless it resolves, so this
-// module stays safe to import under plain node.
+// loadNaming() reads naming.json through the shared ContentPack (one load
+// per page); every getter degrades gracefully (prettified engine names)
+// until/unless it resolves, so this module stays safe to import under
+// plain node.
+
+import { pack } from './contentpack.js';
 
 /** engine block name -> canonical naming.json block id. */
 export const CANON_BLOCK_ID = Object.freeze({
@@ -39,6 +42,7 @@ export const CANON_BLOCK_ID = Object.freeze({
   end_stone: 'hemstone',
   purpur: 'voidknot',
   snow_block: 'frostlace',
+  torch: 'knotlight', // the kept-flame light; wires place_block/place_count:knotlight
 });
 
 // Display-only overrides for engine blocks with no naming.json block id.
@@ -76,17 +80,17 @@ export function prettyName(name) {
 }
 
 /**
- * Fetch + cache public/content/naming.json. Safe to call repeatedly; safe
- * when fetch is unavailable (resolves false, display falls back).
+ * Load + index naming.json via the shared ContentPack. Safe to call
+ * repeatedly; degrades gracefully (resolves false, display falls back)
+ * when the content is unreachable.
  */
-export function loadNaming(url = '/content/naming.json') {
+export function loadNaming() {
   if (loadPromise) return loadPromise;
   loadPromise = (async () => {
     try {
-      if (typeof fetch !== 'function') return false;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`GET ${url} -> ${res.status}`);
-      const data = await res.json();
+      await pack.load();
+      const data = pack.naming();
+      if (!data) throw new Error('naming.json not in the content pack');
       blockDisplayById = {};
       for (const b of data.blocks || []) {
         if (b && b.id && b.displayName) blockDisplayById[b.id] = b.displayName;

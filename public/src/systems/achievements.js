@@ -1,4 +1,5 @@
-// Loomfall — achievements engine (content/achievements.json).
+// Loomfall — achievements engine (content/achievements.json, read through
+// the shared ContentPack when one is passed; direct fetch is the fallback).
 //
 // Listens to the game event bus (public/src/systems/events.js — event names
 // documented in docs/DEV.md), matches events against the canonical trigger
@@ -37,7 +38,7 @@ function el(tag, className, parent, text) {
   return node;
 }
 
-export function initAchievements({ bus, audio, url = '/content/achievements.json', caps = {} } = {}) {
+export function initAchievements({ bus, audio, pack = null, url = '/content/achievements.json', caps = {} } = {}) {
   const capability = {
     killableEntityIds: caps.killableEntityIds || new Set(),
     obtainableItemIds: caps.obtainableItemIds || new Set(),
@@ -140,10 +141,19 @@ export function initAchievements({ bus, audio, url = '/content/achievements.json
     if (loadPromise) return loadPromise;
     loadPromise = (async () => {
       try {
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`GET ${url} -> ${res.status}`);
-        const data = await res.json();
-        defs = Array.isArray(data.achievements) ? data.achievements : [];
+        let list;
+        if (pack) {
+          // Shared ContentPack: getters are sync after load, deep-frozen,
+          // never throw ([] before load / on failure).
+          await pack.load();
+          list = pack.getAchievements();
+        } else {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`GET ${url} -> ${res.status}`);
+          list = (await res.json()).achievements;
+        }
+        defs = Array.isArray(list) && list.length ? [...list] : [];
+        if (defs.length === 0) throw new Error('no achievement definitions available');
         byId = new Map(defs.map((d) => [d.id, d]));
         wired = new Map();
         for (const d of defs) {

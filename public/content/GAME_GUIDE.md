@@ -15,8 +15,8 @@ Loomfall uses standard first-person voxel controls. Every binding below can be c
 | Move | W / A / S / D |
 | Look | Mouse |
 | Jump | Space |
-| Sneak (slow + edge-safe, eyes dip) | C or Left Ctrl |
-| Sprint | Left Shift |
+| Sneak | Left Shift |
+| Sprint | Left Ctrl |
 | Break (pick a block loose) | Hold Left Mouse |
 | Place / Use / Interact | Right Mouse |
 | Attack | Left Mouse |
@@ -56,9 +56,9 @@ In the high passes of Warpspine Reach and the Frostlace you will find one-room t
 
 ### The Herders' Picket & Riding a Spoolmare
 
-**Spoolmares** are wild horse-shapes of loose living thread that run the Understitch Downs in herds, unspooling a fading trail behind them. Gentled slowly — approach quietly, offer raw skein, and let the mare decide — one will bear you. You will want one: a bonded spoolmare can gallop across open frays in Nevermend, stitching ground beneath its own hooves, and a mounted Mender is one of only two kinds the final arena admits.
+**Spoolmares** are loom-spun striders of the Understitch Downs — a wound spool of living thread for a body, carried high above the grass on six long thread-legs, crossing the country in slow swaying strides and unspooling a fading trail behind them. (Nobody remembers who first called them mares. The name held; the shape never did.) Gentled slowly — approach quietly, offer raw skein, and let the mare decide — one will bear you, saddled atop the spool. You will want one: a bonded spoolmare can stride out across open frays in Nevermend, stitching ground beneath its own legs, and a mounted Mender is one of only two kinds the final arena admits.
 
-The intended early path is the **Herders' Picket**, a seasonal Wickerkin camp on the open downs: a picket ring, a few skein tents, and a corral holding two to four **already-gentled spoolmares**, far easier to win over than the wild herds. The herders trade thread-sinew, hide-cloth, and tack, and a feed crate holds raw skein and a spare saddle-frame. (The Wickerkin do not ride. They keep the mares anyway, for the company. At night the herders drum softly on the picket posts, and the mares stand with their heads together like a conversation.)
+The intended early path is the **Herders' Picket**, a seasonal Wickerkin camp on the open downs: a picket ring, a few skein tents, and a corral holding two to four **already-gentled spoolmares**, far easier to win over than the wild bands. The herders trade thread-sinew, hide-cloth, and tack, and a feed crate holds raw skein and a spare saddle-frame. (The Wickerkin do not ride. They keep the mares anyway, for the company. At night the herders drum softly on the picket posts, and the mares fold their long legs and lean their spools together like a conversation.)
 
 To ride, fit your mare with a **Saddle-Frame** (`H` = Hide-Cloth, `S` = Thread-Sinew, `I` = Needle-Iron — the hide and sinew drop from Bobbin-deer, Frayed Hounds, and Needlejacks, or trade for them at the picket):
 
@@ -201,7 +201,7 @@ Armor is the one exception to the rethreading rule — the sheer quantity of thr
 
 **The Cinderloom.** The made road down is a **loom-gate**: a frame of **Cinderglass** with a living fray drawn taut across it and threaded fast into the stone — no flame needed, only the tear held open. Cinderglass forms where molten skein meets sudden cold. Frame your gate well, and never near a crumbling edge: a gate is only as sound as its frame and its fray, and a careless one may one morning open somewhere you would never have chosen to step. Bring: full Needle-Iron armor, a Mending Needle, food, Mothdust Poultices, **Frostlace for quenching**, and blocks for bridging. Down there: **Emberskein Ore** burns as its own fuel (bring some home — your furnace never goes cold again), **Slagmoths** swarm anything cold (keep moving), standing on Cinderthread slowly unmakes you (do not sit to rest, whatever your legs say), and **Waxlings** are feeble alone and murderous in a crowd — the hot tallow they slick across the Vault floors has ended more descents than the open fire, so keep half your eyes on the ground. The **Scaldwardens take nothing from you if you take nothing from them.** Your goals below: **Bindwax** (the binding material — richest in the Tallow Reliquary, and its keepers will fight and mourn for it), quenched Scorched Silk off felled Emberspinners for the mail you will one day wear, and eventually Molthkin behind the Spindlegate, for Everthread.
 
-**Nevermend.** Follow a fray the other way — far enough, wide enough — and it opens instead onto the void past the last selvage. Natural ways down turn up where the world runs thin, at the Unfinished Hem and beneath the old ghost-terrain. Bring: your best gear, stacks of building blocks (only **Voidknot**, gathered there, truly holds), plenty of Knotlights, Bindwax and a Binding Needle, and Mothdust Poultices — the void picks quietly at your seams the whole time. Rules of the drift: build your road one stitch ahead of your feet, never carry what you would grieve to lose (**Ravelers steal items and blocks and do not give them back**), give the wandering **Unpicked** a wide berth on the islands (they circle the old ruins but will not cross a ring of voidknot), bind any footing that matters, and anchor to a knotlight at every safe island. A bonded spoolmare can gallop across a fray, stitching ground beneath its own hooves.
+**Nevermend.** Follow a fray the other way — far enough, wide enough — and it opens instead onto the void past the last selvage. Natural ways down turn up where the world runs thin, at the Unfinished Hem and beneath the old ghost-terrain. Bring: your best gear, stacks of building blocks (only **Voidknot**, gathered there, truly holds), plenty of Knotlights, Bindwax and a Binding Needle, and Mothdust Poultices — the void picks quietly at your seams the whole time. Rules of the drift: build your road one stitch ahead of your feet, never carry what you would grieve to lose (**Ravelers steal items and blocks and do not give them back**), give the wandering **Unpicked** a wide berth on the islands (they circle the old ruins but will not cross a ring of voidknot), bind any footing that matters, and anchor to a knotlight at every safe island. A bonded spoolmare can stride out across a fray, stitching ground beneath its own legs.
 
 ## The Last Needle
 
