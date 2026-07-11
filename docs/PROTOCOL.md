@@ -1,7 +1,15 @@
 # Loomfall Multiplayer Protocol (v1)
 
 Transport: **WebSocket** at path `/ws` on the same HTTP server that serves the
-client and the REST API (default port 3000, `PORT` env override). Every frame
+client and the REST API (default port 3000, `PORT` env override).
+
+Deployment env vars: `PORT` (listen port), `WORLD_DIR` (saves directory,
+default `saves/`), `MAX_PLAYERS` (concurrent-socket cap, default unlimited;
+over-cap connections get `error: server_full` then close 1013), `MOTD`
+(welcome message, echoed in the `welcome` payload). `TICK_RATE` is N/A —
+the server is event-driven with no fixed tick loop.
+
+Every frame
 is a single JSON object with a `t` field naming the message type. Unknown or
 malformed frames are ignored by both sides (the server may answer with an
 `error` frame, see below). Frames larger than **65536 bytes** close the
@@ -18,7 +26,8 @@ rooms (one room per world).
 All bodies are JSON. Worlds are persisted to `saves/<id>.json`.
 
 ### `GET /api/health`
-`200 {"ok": true}` — liveness probe.
+`200 {"ok": true}` — liveness probe. `GET /healthz` is an alias (common
+orchestrator default probe path).
 
 ### `GET /api/worlds`
 `200` with an array of world summaries:
@@ -249,6 +258,9 @@ pings automatically; no client action is needed.
                "yaw": 0, "pitch": 0, "dim": "overworld" } ] }
 ```
 - `id` is the client's own session id (string, unique per server run).
+- `motd` (optional): present only when the server was started with the
+  `MOTD` env var (trimmed, capped at 256 chars); the client shows it as a
+  system chat line on join.
 - `world.edits` contains **all** dimensions so the client can switch
   dimensions without refetching.
 - `peers` lists every *other* connected player in the world, in **any**
@@ -321,7 +333,9 @@ Delivered to the whole room including the original sender.
 ```
 Advisory only; the connection stays open. Codes currently used:
 `bad_join`, `already_joined`, `bad_edit`, `bad_world`, `chat_rate`,
-`move_rejected`. (Malformed `move` frames are dropped **silently**;
+`move_rejected`, `server_full` (sent right before a 1013 close when the
+`MAX_PLAYERS` connection cap is hit). (Malformed `move` frames are dropped
+**silently**;
 rate-capped edits get no `error` frame but DO get an `editReject` rollback
 frame — one per inbound edit, so no amplification; speed-budget violations
 answer with `move_rejected` at most **once per second** per connection — so

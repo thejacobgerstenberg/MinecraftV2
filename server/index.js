@@ -21,8 +21,22 @@ import { WebSocketServer } from 'ws';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
-const SAVES_DIR = path.join(__dirname, '..', 'saves');
+// Deploy env: WORLD_DIR overrides where world saves live (container volumes).
+const SAVES_DIR = process.env.WORLD_DIR || path.join(__dirname, '..', 'saves');
 const PORT = process.env.PORT || 3000;
+// Deploy env: MAX_PLAYERS caps concurrent WebSocket connections per server
+// process (unset/invalid = unlimited). Over-cap sockets get a friendly
+// error frame and are closed with 1013 "try again later".
+const MAX_PLAYERS = (() => {
+  const n = Number(process.env.MAX_PLAYERS);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : Infinity;
+})();
+// Deploy env: MOTD is sent in the welcome payload (the client shows it as a
+// system chat line on join). Capped at 256 chars.
+const MOTD = (process.env.MOTD || '').trim().slice(0, 256) || null;
+// Deploy env note: TICK_RATE is N/A for this server — it is fully
+// event-driven (no fixed simulation tick loop); movement/edit validation is
+// wall-clock token-bucket based, so there is no tick frequency to configure.
 
 // Validation constants. Block ids are validated conservatively against the
 // contract-reserved range 0..40 (the registry may grow past 29 this phase).
@@ -267,6 +281,11 @@ app.get('/api/health', (req, res) => {
   res.json({ ok: true });
 });
 
+// Deploy-friendly alias (common orchestrator default probe path).
+app.get('/healthz', (req, res) => {
+  res.json({ ok: true });
+});
+
 function playersIn(id) {
   const room = rooms.get(id);
   return room ? room.clients.size : 0;
@@ -438,6 +457,7 @@ async function handleJoin(ws, msg) {
   send(ws, {
     t: 'welcome',
     id: player.id,
+    ...(MOTD ? { motd: MOTD } : {}),
     world: {
       id: room.world.id,
       name: room.world.name,
@@ -669,6 +689,16 @@ function handleChat(ws, msg) {
 }
 
 wss.on('connection', (ws) => {
+  // MAX_PLAYERS cap (deploy env): wss.clients already includes this socket.
+  if (wss.clients.size > MAX_PLAYERS) {
+    send(ws, {
+      t: 'error',
+      code: 'server_full',
+      message: `This server is full (${MAX_PLAYERS} players max) — please try again later.`,
+    });
+    ws.close(1013, 'server full');
+    return;
+  }
   ws.isAlive = true;
   // Global inbound rate limit: 60 msg/s sustained, burst 120. Each message
   // over the limit is dropped and counts a strike; 3 strikes close the

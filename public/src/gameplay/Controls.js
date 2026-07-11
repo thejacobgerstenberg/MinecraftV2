@@ -24,8 +24,14 @@
 //   Digit1..Digit9   — emits 'selectSlot' with index 0..8
 //   Escape / losing pointer lock — emits 'togglePause'
 //   wheel            — emits 'scroll' with +1 (down) / -1 (up)
-//   mouse left/right — emits 'break' / 'place' (only while isLocked;
-//                      contextmenu is prevented)
+//   mouse left/right — left-down emits 'break' AND 'breakStart' (only while
+//                      isLocked); left-up emits 'breakEnd' (always, so a
+//                      release after losing lock still ends the hold);
+//                      right-down emits 'place'. 'break' is the legacy
+//                      per-click event (kept for tests/QA — it drives the
+//                      instant actions: mob attack, portal collapse, flight
+//                      instant-break); 'breakStart'/'breakEnd' bracket the
+//                      hold-to-break timed mining. contextmenu is prevented.
 //
 // All key input is IGNORED while document.activeElement is an <input> or
 // <textarea> (e.g. the chat box).
@@ -34,8 +40,8 @@ const DOUBLE_TAP_MS = 300;
 const PITCH_LIMIT = Math.PI / 2 - 0.001;
 
 const EVENT_NAMES = [
-  'break', 'place', 'selectSlot', 'scroll', 'toggleInventory',
-  'togglePause', 'toggleFlight', 'toggleDebug', 'openChat',
+  'break', 'breakStart', 'breakEnd', 'place', 'selectSlot', 'scroll',
+  'toggleInventory', 'togglePause', 'toggleFlight', 'toggleDebug', 'openChat',
 ];
 
 export class Controls {
@@ -84,6 +90,7 @@ export class Controls {
     this._onKeyUp = (e) => this._handleKeyUp(e);
     this._onMouseMove = (e) => this._handleMouseMove(e);
     this._onMouseDown = (e) => this._handleMouseDown(e);
+    this._onMouseUp = (e) => this._handleMouseUp(e);
     this._onWheel = (e) => this._handleWheel(e);
     this._onContextMenu = (e) => e.preventDefault();
     this._onPointerLockChange = () => this._handlePointerLockChange();
@@ -93,14 +100,18 @@ export class Controls {
     document.addEventListener('mousemove', this._onMouseMove);
     document.addEventListener('pointerlockchange', this._onPointerLockChange);
     this.domElement.addEventListener('mousedown', this._onMouseDown);
+    // mouseup on document: a hold must end even if the cursor/lock moved off
+    // the element between press and release.
+    document.addEventListener('mouseup', this._onMouseUp);
     this.domElement.addEventListener('wheel', this._onWheel, { passive: true });
     this.domElement.addEventListener('contextmenu', this._onContextMenu);
   }
 
   // ── events ────────────────────────────────────────────────────────────
 
-  /** Subscribe to one of: break, place, selectSlot(i), scroll(dir),
-   *  toggleInventory, togglePause, toggleFlight, toggleDebug, openChat. */
+  /** Subscribe to one of: break, breakStart, breakEnd, place, selectSlot(i),
+   *  scroll(dir), toggleInventory, togglePause, toggleFlight, toggleDebug,
+   *  openChat. */
   on(name, cb) {
     if (!this._listeners.has(name)) this._listeners.set(name, new Set());
     this._listeners.get(name).add(cb);
@@ -254,8 +265,17 @@ export class Controls {
 
   _handleMouseDown(e) {
     if (!this.isLocked) return;
-    if (e.button === 0) this._emit('break');
-    else if (e.button === 2) this._emit('place');
+    if (e.button === 0) {
+      this._emit('break');      // legacy per-click event (instant actions)
+      this._emit('breakStart'); // hold-to-break begins
+    } else if (e.button === 2) {
+      this._emit('place');
+    }
+  }
+
+  _handleMouseUp(e) {
+    // Deliberately NOT gated on isLocked (see constructor comment).
+    if (e.button === 0) this._emit('breakEnd');
   }
 
   _handleWheel(e) {
@@ -278,6 +298,7 @@ export class Controls {
     document.removeEventListener('mousemove', this._onMouseMove);
     document.removeEventListener('pointerlockchange', this._onPointerLockChange);
     this.domElement.removeEventListener('mousedown', this._onMouseDown);
+    document.removeEventListener('mouseup', this._onMouseUp);
     this.domElement.removeEventListener('wheel', this._onWheel);
     this.domElement.removeEventListener('contextmenu', this._onContextMenu);
     this._listeners.clear();

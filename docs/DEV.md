@@ -45,7 +45,7 @@ object — there are no test doubles.** The same lifecycle applies to
 | `__game.version` | string | game version, e.g. `"0.1.0"` |
 | `__game.player` | `Player` | `position` (AABB min corner / feet), `velocity`, `onGround`, `flying`, `health`, `respawn()`, `toggleFlight()` |
 | `__game.world` | `World` | `getBlock(x,y,z)`, `setBlock(x,y,z,id)`, `dirtyChunks`. **Replaced on dimension switch** |
-| `__game.controls` | `Controls` | `yaw`, `pitch`, `sensitivity`, `input` flags, `_debugSetLocked(true)` test hook (makes `isLocked` true so mouse break/place fire headlessly), `_emit(name, ...)` fires the same production handlers the DOM events use (`'break'`, `'place'`, `'togglePause'`, `'toggleInventory'`, `'openChat'`, `'toggleDebug'`, `'selectSlot'`, `'scroll'`, `'toggleFlight'`) |
+| `__game.controls` | `Controls` | `yaw`, `pitch`, `sensitivity`, `input` flags, `_debugSetLocked(true)` test hook (makes `isLocked` true so mouse break/place fire headlessly), `_emit(name, ...)` fires the same production handlers the DOM events use (`'break'` — per-click instant actions: mob attack, portal collapse, flight instant-break; `'breakStart'`/`'breakEnd'` — bracket the hold-to-break timed mining; `'place'`, `'togglePause'`, `'toggleInventory'`, `'openChat'`, `'toggleDebug'`, `'selectSlot'`, `'scroll'`, `'toggleFlight'`) |
 | `__game.inventory` | `Inventory` | `slots[9]`, `selected`, `selectedBlock`, `select(i)`, `cycle(dir)`, `setSlot(i,id)` |
 | `__game.net` | `NetClient` | `selfId`, `connected`, `sendChat/sendEdit/sendMove`, `close()` |
 | `__game.chunkRenderer` | `ChunkRenderer` | `stats` -> `{chunksLoaded, queueLength}`; `materials.opaque.map.image` is the **live atlas canvas** (sample pixels to verify texture-pack hot-swap). **Replaced on dimension switch** |
@@ -85,8 +85,16 @@ window.__game.controls._debugSetLocked(true);
 const c = window.__game.controls;
 c.yaw = 0; c.pitch = -0.8; c._applyCameraRotation();
 
-// Break / place through the production path (same handlers as mousedown)
-window.__game.controls._emit('break');
+// Break / place through the production path (same handlers as mousedown).
+// 'break' fires the per-click instant actions (mob attack, portal collapse,
+// flight instant-break). On foot, breaking is TIMED: hold via breakStart,
+// wait breakTimeFor(hardness) seconds of sim time, then breakEnd —
+// min(1.5, 0.15 + 0.5*hardness)s (0.5 -> 0.4s, 1.5 -> 0.9s, 3+ -> 1.5s;
+// hardness < 0 unbreakable). While flying, _emit('break') breaks instantly.
+window.__game.controls._emit('break');      // instant actions / flight break
+window.__game.controls._emit('breakStart'); // begin hold-to-break
+// ... wait for the progress bar ... then:
+window.__game.controls._emit('breakEnd');
 window.__game.controls._emit('place');
 
 // Open the pause menu through the production path
@@ -167,7 +175,7 @@ whole build is a dev build; deviation from the spec's gating note).
 | `getDimension()` | copy of the `DIMENSIONS[dim]` record (`{id, name, fog, skyType, portalBlock}`) |
 | `getFps()` | 1 s rolling average (same number as F3) |
 | `getCameraFov()` | live camera fov |
-| `recordTicks(n)` | Promise of `n` per-tick samples `{tick, pos, vel, onGround, pose, breakProgress, targetBlock, heldCount, itemEntities}` taken on the sim's **50 ms tick**. Caveats: `pose` is always `'standing'` (no pose system), `breakProgress` is always 0 (breaking is instant), `heldCount` is `1`/`null` (creative — no stack counts), `itemEntities` is always `[]` (no item entities). Ticks pause with the sim (pause menu / inventory), so the promise stalls while paused; it rejects if the session ends |
+| `recordTicks(n)` | Promise of `n` per-tick samples `{tick, pos, vel, onGround, pose, breakProgress, targetBlock, heldCount, itemEntities}` taken on the sim's **50 ms tick**. Caveats: `pose` is `'standing'` or `'sneaking'` (no other poses), `breakProgress` is the live hold-to-break accumulator (0..1), `heldCount` is `1`/`null` (creative — no stack counts), `itemEntities` is always `[]` (no item entities). Ticks pause with the sim (pause menu / inventory), so the promise stalls while paused; it rejects if the session ends |
 | `prngSample(kind, seed, n)` | first n outputs as decimal strings. `'legacy'` = exact `java.util.Random(seed).nextInt()` sequence and `'xoroshiro'` = exact xoroshiro128++ (incl. `'state:<s0>,<s1>'` raw-state form) — both match the QA plan's golden vectors (QA-S2-06). Extra kind `'noise2d'` samples the **engine's actual** `makeNoise2D(seed)` at a fixed lattice — the golden-vector probe for Loomfall's own worldgen noise (the engine uses neither java-Random nor xoroshiro). Implementation: `public/src/qa/prng.js` |
 
 Spec items **not implemented** (the engine has no equivalent): screens/`getScreen`, poses, game modes, block states/light levels, entities/item drops, health/hunger records, net-stats/TPS mirrors, `setSetting`/`tp`/`give`/`setBlock` mutators (use `__game.world.setBlock` + `__game.net.sendEdit` directly, or `__game.player.position` for teleports — note that in multiplayer a direct position write past the 25 b/s speed budget is REJECTED server-side (`error: move_rejected`): peers keep seeing the old spot until the player walks back, respawns, or changes dimension, because the server has no unconditional resync grace, see docs/PROTOCOL.md §7 rule 6), atlas hashes, audio probes.

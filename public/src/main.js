@@ -62,6 +62,21 @@ const NAME_KEY = 'loomfall.name';
 const DAY_LENGTH_S = 600; // full day/night cycle: 10 minutes
 const START_TIME_OF_DAY = 0.42; // late morning, so new worlds open in daylight
 const REACH = 5.0; // block interaction raycast distance (server cap stays 7)
+
+// Timed block breaking (hold left mouse). Hardness -> seconds mapping:
+//   seconds = min(1.5, 0.15 + 0.5 * hardness); hardness < 0 = unbreakable.
+// So: 0.5 -> 0.4s, 1.5 -> 0.9s, hardness >= 2.7 hits the 1.5s cap ("3+ ->
+// 1.5s"). Flight mode breaks instantly (creative-feel concession).
+const BREAK_TIME_BASE_S = 0.15;
+const BREAK_TIME_PER_HARDNESS_S = 0.5;
+const BREAK_TIME_MAX_S = 1.5;
+
+/** Seconds of held left-click needed to break a block def (Infinity = never). */
+function breakTimeFor(def) {
+  if (def.hardness < 0) return Infinity;
+  return Math.min(BREAK_TIME_MAX_S,
+    BREAK_TIME_BASE_S + BREAK_TIME_PER_HARDNESS_S * def.hardness);
+}
 const BASE_SENSITIVITY = 0.002; // radians per pixel at settings.sensitivity=1
 const MAX_DT = 0.05; // clamp frame gaps to 50 ms
 const QA_TICK_S = 0.05; // __qa tick length (20 ticks/s, matches the QA plan)
@@ -721,6 +736,9 @@ async function bootSession(worldMeta) {
       biomeCheckAt: 0,
     },
     mobs,
+    // Hold-to-break state: held while the left button is down; key/progress
+    // track the block being mined (see updateMining / breakTimeFor).
+    mining: { held: false, key: null, progress: 0 },
     dead: false, // death screen up; player sim + damage suspended
     isDay: true, // fed to the mob manager (spawn tables) each frame
     wasDay: true, // dawn edge detector for night:survived
@@ -818,7 +836,9 @@ async function bootSession(worldMeta) {
   });
 
   // --- Controls events ---------------------------------------------------------
-  controls.on('break', onBreak);
+  controls.on('break', onBreak); // per-click instant actions (attack/portal/fly)
+  controls.on('breakStart', () => { S.mining.held = true; });
+  controls.on('breakEnd', () => { S.mining.held = false; resetMining(); });
   controls.on('place', onPlace);
   controls.on('selectSlot', (i) => {
     if (!gameplayActive()) return;
@@ -872,6 +892,10 @@ async function bootSession(worldMeta) {
     system: true,
     text: `Joined "${welcome.world.name}" — T to chat, E for blocks, F3 for debug`,
   });
+  // Server MOTD (deploy env), shown once as a system line on join.
+  if (typeof welcome.motd === 'string' && welcome.motd) {
+    ui.chat.addMessage({ system: true, text: welcome.motd });
+  }
 
   applyDimensionEnvironment(S.dim);
   publishHooks();
@@ -899,6 +923,10 @@ async function bootSession(worldMeta) {
     const inp = S.controls.input;
     inp.forward = inp.back = inp.left = inp.right = false;
     inp.jump = inp.sprint = inp.sneak = inp.sneakOrDescend = false;
+    // Any UI takeover (chat/inventory/pause/death) also releases the hold-
+    // to-break (the eventual real mouseup still emits a harmless breakEnd).
+    S.mining.held = false;
+    resetMining();
   }
 
   function recordEdit(dimId, x, y, z, id) {
@@ -1051,29 +1079,16 @@ async function bootSession(worldMeta) {
     audio.play(`mob.${family}.idle`, { pos: { ...mob.position }, volume: 0.5 });
   }
 
-  function onBreak() {
-    if (!gameplayActive()) return;
-    // Mob hitboxes take priority over blocks (reach 4 vs block reach 6).
-    if (tryAttackMob()) return;
-    const t = computeTarget();
-    if (!t.hit) return;
-    const id = S.world.getBlock(t.x, t.y, t.z);
-    const def = getBlockDef(id);
-    const center = { x: t.x + 0.5, y: t.y + 0.5, z: t.z + 0.5 };
-    if (id === PORTAL_BLOCK) {
-      // Breaking any portal block collapses the whole connected fill
-      // (each cleared cell goes through the synced edit path).
-      S.portals.collapseAt(t.x, t.y, t.z);
-      S.fx.particles.spawnBlockBreak(center, blockDebrisColor(S, id));
-      audio.blockBreak(id, center);
-      ui.hud.setBreakProgress(1);
-      setTimeout(() => ui.hud.setBreakProgress(null), 140);
-      return;
-    }
-    if (def.hardness < 0) return; // bedrock & co are unbreakable
-    S.world.setBlock(t.x, t.y, t.z, 0);
-    recordEdit(S.dim, t.x, t.y, t.z, 0);
-    S.net.sendEdit(t.x, t.y, t.z, 0);
+  /**
+   * Actually break the block at (x,y,z): synced edit + debris + sound +
+   * achievement events + portal-frame collapse. Runs when timed mining
+   * completes, or instantly while flying (creative-feel concession).
+   */
+  function performBlockBreak(x, y, z, id, def) {
+    const center = { x: x + 0.5, y: y + 0.5, z: z + 0.5 };
+    S.world.setBlock(x, y, z, 0);
+    recordEdit(S.dim, x, y, z, 0);
+    S.net.sendEdit(x, y, z, 0);
     // Debris burst tinted with the broken block's atlas tile + break sound.
     S.fx.particles.spawnBlockBreak(center, blockDebrisColor(S, id));
     audio.blockBreak(id, center);
@@ -1087,10 +1102,88 @@ async function bootSession(worldMeta) {
       if (canonId) gameEvents.emit('item:collected', { itemId: canonId, count: 1 });
     }
     // Breaking a frame block (obsidian/end stone) collapses adjacent fills.
-    if (id in FRAME_TARGETS) S.portals.handleFrameBreak(t.x, t.y, t.z);
-    // Instant break for now: brief full-bar flash.
+    if (id in FRAME_TARGETS) S.portals.handleFrameBreak(x, y, z);
+    // Brief full-bar flash, then hide (unless a new hold is in progress).
     ui.hud.setBreakProgress(1);
-    setTimeout(() => ui.hud.setBreakProgress(null), 140);
+    setTimeout(() => {
+      if (G === S && !S.mining.key) ui.hud.setBreakProgress(null);
+    }, 140);
+  }
+
+  /**
+   * Legacy per-click 'break' event (mousedown; also QA's
+   * controls._emit('break')). Handles the INSTANT actions only:
+   * mob attack, portal collapse, and flight instant-break. Timed mining of
+   * normal blocks is driven by breakStart/breakEnd + updateMining below —
+   * a tap no longer breaks a block on foot.
+   */
+  function onBreak() {
+    if (!gameplayActive()) return;
+    // Mob hitboxes take priority over blocks (reach 4 vs block reach 5).
+    if (tryAttackMob()) return;
+    const t = computeTarget();
+    if (!t.hit) return;
+    const id = S.world.getBlock(t.x, t.y, t.z);
+    const def = getBlockDef(id);
+    if (id === PORTAL_BLOCK) {
+      // Breaking any portal block collapses the whole connected fill
+      // (each cleared cell goes through the synced edit path).
+      const center = { x: t.x + 0.5, y: t.y + 0.5, z: t.z + 0.5 };
+      S.portals.collapseAt(t.x, t.y, t.z);
+      S.fx.particles.spawnBlockBreak(center, blockDebrisColor(S, id));
+      audio.blockBreak(id, center);
+      ui.hud.setBreakProgress(1);
+      setTimeout(() => ui.hud.setBreakProgress(null), 140);
+      return;
+    }
+    if (def.hardness < 0) return; // bedrock & co are unbreakable
+    // Creative-feel concession (documented): flight mode breaks instantly.
+    if (S.player.flying) performBlockBreak(t.x, t.y, t.z, id, def);
+  }
+
+  /** Reset the hold-to-break accumulator (release / retarget / interrupt). */
+  function resetMining() {
+    if (S.mining.key !== null) {
+      S.mining.key = null;
+      S.mining.progress = 0;
+      ui.hud.setBreakProgress(null);
+    }
+  }
+
+  /**
+   * Hold-to-break: per-frame progress accumulation while the left button is
+   * held (breakStart..breakEnd). Retargeting or releasing resets progress;
+   * completion runs performBlockBreak. Skipped entirely while flying (the
+   * 'break' click already broke instantly). Hardness -> seconds mapping:
+   * breakTimeFor() below.
+   */
+  function updateMining(dt) {
+    if (!S.mining.held || S.player.flying || !gameplayActive()) {
+      resetMining();
+      return;
+    }
+    const t = computeTarget();
+    if (!t.hit) { resetMining(); return; }
+    const id = S.world.getBlock(t.x, t.y, t.z);
+    const def = getBlockDef(id);
+    const need = breakTimeFor(def);
+    if (id === 0 || id === PORTAL_BLOCK || !Number.isFinite(need)) {
+      resetMining(); // air, portal (click-collapses), or unbreakable
+      return;
+    }
+    const key = `${t.x},${t.y},${t.z}`;
+    if (S.mining.key !== key) { // fresh target (or first frame of the hold)
+      S.mining.key = key;
+      S.mining.progress = 0;
+    }
+    S.mining.progress += dt / need;
+    if (S.mining.progress >= 1) {
+      performBlockBreak(t.x, t.y, t.z, id, def);
+      S.mining.key = null; // keep holding to start on the next block behind
+      S.mining.progress = 0;
+    } else {
+      ui.hud.setBreakProgress(S.mining.progress);
+    }
   }
 
   function onPlace() {
@@ -1145,8 +1238,8 @@ async function bootSession(worldMeta) {
       pos: { x: p.x + S.player.size.x / 2, y: p.y, z: p.z + S.player.size.z / 2 },
       vel: { x: v.x / 20, y: v.y / 20, z: v.z / 20 }, // blocks/tick per the spec
       onGround: S.player.onGround,
-      pose: 'standing', // pose system not implemented (docs/DEV.md)
-      breakProgress: 0, // breaking is instant in this build
+      pose: S.player.sneaking ? 'sneaking' : 'standing',
+      breakProgress: S.mining.progress, // hold-to-break accumulator (0..1)
       targetBlock,
       heldCount: S.inventory.selectedBlock ? 1 : null, // creative: no stack counts
       itemEntities: [], // no item entities in this build
@@ -1181,6 +1274,7 @@ async function bootSession(worldMeta) {
       if (!S.dead) {
         S.player.update(dt, S.controls.input, S.controls.yaw);
         S.portals.update(dt); // dwell-to-travel charging + cooldown
+        updateMining(dt); // hold-to-break progress (see breakTimeFor)
       }
       // __qa sim ticks (50 ms cadence; recorders sample at tick resolution).
       S.tickAcc += dt;

@@ -105,7 +105,13 @@ async function waitForServer() {
 async function main() {
   child = spawn(process.execPath, ['server/index.js'], {
     cwd: ROOT,
-    env: { ...process.env, PORT: String(PORT) },
+    // Deploy env coverage: MOTD passthrough + MAX_PLAYERS connection cap.
+    env: {
+      ...process.env,
+      PORT: String(PORT),
+      MOTD: '  Welcome to the Loomfall test loom!  ',
+      MAX_PLAYERS: '4',
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   child.stderr.on('data', (d) => process.stderr.write(`[server-err] ${d}`));
@@ -113,6 +119,10 @@ async function main() {
   check('server boots and /api/health responds', await waitForServer());
   const health = await (await fetch(`${BASE}/api/health`)).json();
   check('health payload is {ok:true}', health.ok === true, JSON.stringify(health));
+  const healthz = await fetch(`${BASE}/healthz`);
+  const healthzBody = await healthz.json();
+  check('GET /healthz alias responds 200 {ok:true}',
+    healthz.status === 200 && healthzBody.ok === true, JSON.stringify(healthzBody));
 
   // --- REST: create / list / get -----------------------------------------
   const createRes = await fetch(`${BASE}/api/worlds`, {
@@ -148,6 +158,9 @@ async function main() {
     typeof A.welcome.id === 'string' && A.welcome.world.id === worldId &&
     A.welcome.world.seed === 424242 && Array.isArray(A.welcome.peers) &&
     A.welcome.peers.length === 0);
+  check('welcome carries the MOTD env passthrough (trimmed)',
+    A.welcome.motd === 'Welcome to the Loomfall test loom!',
+    JSON.stringify(A.welcome.motd));
 
   const B = await connectClient(worldId, 'Bob');
   const bSeesA = B.welcome.peers.some((p) => p.id === A.welcome.id && p.name === 'Alice' && p.dim === 'overworld');
@@ -246,6 +259,34 @@ async function main() {
     A2.welcome.world.edits.overworld['3,68,-2'] === 3 &&
     A2.welcome.world.edits.nether['1,50,1'] === 22);
   await closeClient(A2);
+
+  // --- MAX_PLAYERS connection cap (spawned with MAX_PLAYERS=4) ----------------
+  {
+    const open = (name) => new Promise((resolve, reject) => {
+      const ws = new WebSocket(WS_URL);
+      const sock = { ws, name, msgs: [], closed: null };
+      ws.on('open', () => resolve(sock));
+      ws.on('message', (raw) => { try { sock.msgs.push(JSON.parse(raw.toString())); } catch { /* */ } });
+      ws.on('close', (code, reason) => { sock.closed = { code, reason: reason.toString() }; });
+      ws.on('error', reject);
+    });
+    const four = [];
+    for (let i = 0; i < 4; i++) four.push(await open(`filler${i}`));
+    await sleep(200);
+    check('MAX_PLAYERS: 4 concurrent sockets are allowed (cap = 4)',
+      four.every((s) => s.ws.readyState === WebSocket.OPEN && !s.closed));
+    const fifth = await open('overflow');
+    await sleep(400);
+    const fullErr = fifth.msgs.find((m) => m.t === 'error' && m.code === 'server_full');
+    check('MAX_PLAYERS: 5th socket gets a friendly server_full error',
+      !!fullErr && /full/.test(fullErr.message), JSON.stringify(fifth.msgs));
+    check('MAX_PLAYERS: 5th socket is closed with 1013 "server full"',
+      !!fifth.closed && fifth.closed.code === 1013,
+      JSON.stringify(fifth.closed));
+    for (const s of four) {
+      await new Promise((r) => { if (s.closed) return r(); s.ws.on('close', r); s.ws.close(); });
+    }
+  }
 }
 
 async function cleanup() {
