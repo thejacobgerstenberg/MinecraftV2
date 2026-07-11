@@ -1,0 +1,58 @@
+/* =========================================================================
+   Loomfall UX — reduced-motion propagation rules (ux/options/motion.css)
+
+   The tri-state reducedMotion option (options.schema.json) maps to a root
+   attribute set by options-store.js:
+     (no attribute)                       -> "system": base.css's
+        @media (prefers-reduced-motion: reduce) collapse applies as-is.
+     html[data-lf-reduced-motion="on"]    -> force the collapse even when
+        the OS does not request it (block below — mirrors base.css).
+     html[data-lf-reduced-motion="off"]   -> opt out: the user wants motion
+        even though the OS requests reduce.
+
+   AUTHORING RULE for every animation in ux/ (contract §5) — three parts:
+
+     .thing            { animation: my-anim 400ms var(--lf-ease); }
+     @media (prefers-reduced-motion: reduce) {
+       .thing          { animation: none; }
+     }
+     @media (prefers-reduced-motion: reduce) {
+       html[data-lf-reduced-motion="off"] .thing {
+         animation: my-anim 400ms var(--lf-ease) !important;
+       }
+     }
+   (Force-off is global below; per-animation opt-out must restate its own
+   full animation with !important so it outweighs base.css's global
+   0.01ms-duration collapse — !important + higher specificity wins.)
+
+   GAME SHAKE / PARTICLES RULE (documented, binding on the game shell):
+   JS-driven motion — screen shake, particle bursts, camera bob, block-break
+   jitter — cannot be gated by CSS. The game shell must consult
+   motionReduced() from ux/options/options-store.js (forced attribute wins,
+   else the OS media query) before triggering any of them, and re-check on
+   every "lf-options-change" event. No shake, no particle spawns, and
+   damage feedback falls back to the statbars flash + hurt overlay opacity
+   step when motionReduced() is true.
+   ========================================================================= */
+
+/* Force-ON: mirror base.css's media-query collapse via the attribute. */
+html[data-lf-reduced-motion="on"] *,
+html[data-lf-reduced-motion="on"] *::before,
+html[data-lf-reduced-motion="on"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* Force-OFF restores TRANSITIONS globally (safe: they are token-timed and
+   short). Keyframe ANIMATIONS cannot be globally restored to their authored
+   durations — each animation opts back in per the authoring rule above. */
+@media (prefers-reduced-motion: reduce) {
+  html[data-lf-reduced-motion="off"] *,
+  html[data-lf-reduced-motion="off"] *::before,
+  html[data-lf-reduced-motion="off"] *::after {
+    transition-duration: var(--lf-dur-med) !important;
+    scroll-behavior: smooth !important;
+  }
+}

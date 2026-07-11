@@ -1,0 +1,308 @@
+<!-- Loomfall UX — Onboarding coach-mark demo (<lf-tutorial>).
+     Serve over http (module imports are CORS-blocked on file://):
+       python3 -m http.server  # from the repo root
+       open http://localhost:8000/ux/onboarding/demo.html -->
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Loomfall — Onboarding (lf-tutorial demo)</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23221B33'/%3E%3Ccircle cx='8' cy='8' r='4.5' fill='none' stroke='%23F2C14E' stroke-width='1.4' stroke-dasharray='2.5 1.5'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="../../ui-kit/tokens.css" />
+  <link rel="stylesheet" href="../../ui-kit/base.css" />
+  <link rel="stylesheet" href="../../ui-kit/components/button.css" />
+  <link rel="stylesheet" href="../../ui-kit/components/modal.css" />
+  <link rel="stylesheet" href="../../ui-kit/components/toggle.css" />
+  <link rel="stylesheet" href="../../ui-kit/components/inventory.css" />
+  <link rel="stylesheet" href="../../ui-kit/components/hotbar.css" />
+  <link rel="stylesheet" href="../../ui-kit/components/statbars.css" />
+  <link rel="stylesheet" href="../../ui-kit/components/chat.css" />
+  <link rel="stylesheet" href="../../ui-kit/components/crosshair.css" />
+  <link rel="stylesheet" href="tutorial.css" />
+  <style>
+    body {
+      margin: 0;
+      padding: var(--lf-space-5);
+      background: var(--lf-color-bg-root);
+      color: var(--lf-color-text-body);
+      font-family: var(--lf-font-ui);
+    }
+    .demo-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--lf-space-3);
+      flex-wrap: wrap;
+      margin-bottom: var(--lf-space-3);
+    }
+    .demo-header h1 {
+      margin: 0;
+      font-size: var(--lf-text-xl);
+      color: var(--lf-color-text-heading);
+    }
+    .demo-controls {
+      display: flex;
+      gap: var(--lf-space-2);
+      flex-wrap: wrap;
+    }
+    .demo-note {
+      margin: 0 0 var(--lf-space-4);
+      font-size: var(--lf-text-sm);
+      color: var(--lf-color-text-dim);
+      max-width: 80ch;
+    }
+    /* Mock game viewport carrying the data-lf-anchor HUD hooks. */
+    .demo-stage {
+      position: relative;
+      height: 420px;
+      border: var(--lf-border-hem);
+      border-radius: var(--lf-radius-lg);
+      overflow: hidden;
+      background:
+        linear-gradient(
+          to bottom,
+          var(--lf-ramp-warpwold-0) 0%,
+          var(--lf-ramp-warpwold-1) 55%,
+          var(--lf-ramp-warpwold-2) 55%,
+          var(--lf-ramp-warpwold-3) 100%
+        );
+      margin-bottom: var(--lf-space-4);
+    }
+    .demo-stage lf-statbars {
+      position: absolute;
+      top: var(--lf-space-3);
+      left: var(--lf-space-3);
+    }
+    .demo-topright {
+      position: absolute;
+      top: var(--lf-space-3);
+      right: var(--lf-space-3);
+      display: flex;
+      gap: var(--lf-space-2);
+    }
+    .demo-stage lf-crosshair {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+    }
+    .demo-stage lf-chat {
+      position: absolute;
+      left: var(--lf-space-3);
+      bottom: 72px;
+      width: 300px;
+    }
+    .demo-stage lf-hotbar {
+      position: absolute;
+      left: 50%;
+      bottom: var(--lf-space-3);
+      transform: translateX(-50%);
+    }
+    /* Narrow viewports: scale the 9-slot mock hotbar so it fits inside the
+       stage instead of being clipped — the tutorial spotlight follows the
+       scaled getBoundingClientRect, so it frames the whole bar. */
+    @media (max-width: 720px) {
+      .demo-stage lf-hotbar {
+        transform: translateX(-50%) scale(0.75);
+        transform-origin: bottom center;
+      }
+    }
+    @media (max-width: 460px) {
+      .demo-stage lf-hotbar {
+        transform: translateX(-50%) scale(0.58);
+        transform-origin: bottom center;
+      }
+    }
+    /* Mock death screen (appears on the on_first_death sim event). */
+    .demo-death {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: var(--lf-space-3);
+      background: var(--lf-color-screen-dim);
+      text-align: center;
+    }
+    .demo-death[hidden] { display: none; }
+    .demo-death h2 {
+      margin: 0;
+      font-size: var(--lf-text-2xl);
+      color: var(--lf-color-error);
+    }
+    .demo-death p {
+      margin: 0;
+      color: var(--lf-color-text-body);
+    }
+    .demo-sim h2 {
+      margin: 0 0 var(--lf-space-2);
+      font-size: var(--lf-text-lg);
+      color: var(--lf-color-text-heading);
+    }
+    .demo-sim-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--lf-space-2);
+      margin-bottom: var(--lf-space-3);
+    }
+    .demo-status {
+      font-size: var(--lf-text-sm);
+      color: var(--lf-color-text-dim);
+      border: var(--lf-border-hem);
+      border-radius: var(--lf-radius-md);
+      background: var(--lf-color-bg-panel);
+      padding: var(--lf-space-2) var(--lf-space-3);
+      min-height: 1.4em;
+    }
+    .demo-kbd-note {
+      margin-top: var(--lf-space-3);
+      font-size: var(--lf-text-sm);
+      color: var(--lf-color-text-dim);
+    }
+    .demo-kbd-note kbd {
+      font-family: var(--lf-font-mono);
+      border: 1px solid var(--lf-color-border-hem);
+      border-radius: var(--lf-radius-sm);
+      padding: 0 var(--lf-space-1);
+      background: var(--lf-color-bg-raised);
+    }
+  </style>
+</head>
+<body>
+  <header class="demo-header">
+    <h1>Onboarding — coach-mark tutorial</h1>
+    <div class="demo-controls">
+      <lf-button id="reset-btn" size="sm">Reset tutorial</lf-button>
+      <lf-button id="theme-btn" size="sm">Toggle theme</lf-button>
+    </div>
+  </header>
+
+  <p class="demo-note">
+    The mock HUD below carries the contract's <code>data-lf-anchor</code> hooks
+    (hotbar, statbars, healthbar, hungerbar, crosshair, chat, inventory-button,
+    settings-button, pause-button, deathscreen-respawn). The buttons underneath
+    dispatch the same <code>lf-game-event</code> window events the game shell
+    emits (&sect;4 of the architecture contract) — click them in order to walk
+    all 22 beats, or out of order to see forward jumps. The overlay waits for
+    each beat's gate event, spotlights the anchored element with a stitched
+    hem, and dims everything else.
+  </p>
+
+  <div class="demo-stage" aria-label="Mock game viewport">
+    <lf-statbars data-lf-anchor="statbars" health="14" hunger="16"></lf-statbars>
+    <div class="demo-topright">
+      <lf-button size="icon" aria-label="Open skein (inventory)" data-lf-anchor="inventory-button">&#x2637;</lf-button>
+      <lf-button size="icon" aria-label="Settings" data-lf-anchor="settings-button">&#x2699;</lf-button>
+      <lf-button size="icon" aria-label="Pause" data-lf-anchor="pause-button">&#x23F8;</lf-button>
+    </div>
+    <lf-crosshair data-lf-anchor="crosshair"></lf-crosshair>
+    <lf-chat data-lf-anchor="chat">
+      <p data-system data-time="06:00">A new thread wakes in Warp Meadow</p>
+    </lf-chat>
+    <lf-hotbar data-lf-anchor="hotbar" selected="0" label="Hotbar">
+      <lf-item-slot item="Thrumwood Bole" count="3"></lf-item-slot>
+      <lf-item-slot item="Warpsod" count="12"></lf-item-slot>
+      <lf-item-slot item="Knotlight"></lf-item-slot>
+    </lf-hotbar>
+    <div class="demo-death" id="death-panel" hidden>
+      <h2>You were unpicked.</h2>
+      <p>Pulled loose from the pattern, for a moment.</p>
+      <lf-button variant="primary" data-lf-anchor="deathscreen-respawn" id="respawn-btn">Re-knot</lf-button>
+    </div>
+  </div>
+
+  <section class="demo-sim">
+    <h2>Simulated game events</h2>
+    <div class="demo-sim-grid" id="sim-grid"></div>
+    <div class="demo-status" id="status-line" role="status" aria-live="polite">
+      Tutorial armed — waiting for on_world_start.
+    </div>
+    <p class="demo-kbd-note">
+      Keyboard path: <kbd>Tab</kbd> reaches the coach-mark buttons
+      (Skip step / Skip tutorial), <kbd>Esc</kbd> skips the current step, and
+      on the final journal page any key closes. The skip-confirm dialog traps
+      focus and swallows its own <kbd>Esc</kbd>.
+    </p>
+  </section>
+
+  <lf-tutorial src="tutorial.json" autostart></lf-tutorial>
+
+  <script type="module">
+    import './tutorial.js'; // also registers lf-button, lf-modal, lf-toggle
+    import '../../ui-kit/components/hotbar.js';
+    import '../../ui-kit/components/statbars.js';
+    import '../../ui-kit/components/chat.js';
+    import '../../ui-kit/components/crosshair.js';
+
+    const tutorial = document.querySelector('lf-tutorial');
+    const statusLine = document.getElementById('status-line');
+    const deathPanel = document.getElementById('death-panel');
+    const grid = document.getElementById('sim-grid');
+
+    // healthbar / hungerbar anchors live on the statbars' internal rows
+    // (attributes on existing elements — the demo owns this mock HUD).
+    const statbars = document.querySelector('lf-statbars');
+    statbars.querySelector('.lf-statbars__row--health')
+      ?.setAttribute('data-lf-anchor', 'healthbar');
+    statbars.querySelector('.lf-statbars__row--hunger')
+      ?.setAttribute('data-lf-anchor', 'hungerbar');
+
+    // Build one simulation button per beat, in canonical order, from the
+    // same flow file the overlay loads. Identical detail shape to the real
+    // game shell: { type: <onboarding event id> }.
+    fetch('tutorial.json')
+      .then((r) => r.json())
+      .then((flow) => {
+        for (const beat of flow.beats) {
+          const btn = document.createElement('lf-button');
+          btn.setAttribute('size', 'sm');
+          btn.setAttribute('action', beat.gateEvent);
+          btn.textContent = beat.gateEvent;
+          grid.appendChild(btn);
+        }
+      });
+
+    grid.addEventListener('lf-action', (e) => {
+      const type = e.detail && e.detail.action;
+      if (!type) return;
+      // The mock death screen exists only while "dead", so the
+      // deathscreen-respawn anchor is real when its beat fires.
+      if (type === 'on_first_death') deathPanel.hidden = false;
+      if (type === 'on_respawn') deathPanel.hidden = true;
+      window.dispatchEvent(new CustomEvent('lf-game-event', { detail: { type } }));
+      statusLine.textContent = `Dispatched lf-game-event { type: "${type}" }`;
+    });
+
+    // The mock respawn button also fires the real event, like the game would.
+    document.getElementById('respawn-btn').addEventListener('lf-action', () => {
+      deathPanel.hidden = true;
+      window.dispatchEvent(
+        new CustomEvent('lf-game-event', { detail: { type: 'on_respawn' } })
+      );
+    });
+
+    tutorial.addEventListener('lf-tutorial-step', (e) => {
+      statusLine.textContent =
+        `Showing beat ${e.detail.index + 1} of 22 — ${e.detail.id}`;
+    });
+    tutorial.addEventListener('lf-tutorial-done', (e) => {
+      statusLine.textContent =
+        `Tutorial done — reason: ${e.detail.reason}, ` +
+        `don't show again: ${e.detail.dontShowAgain}`;
+    });
+
+    document.getElementById('reset-btn').addEventListener('lf-action', () => {
+      deathPanel.hidden = true;
+      tutorial.reset();
+      statusLine.textContent = 'Tutorial reset — waiting for on_world_start.';
+    });
+
+    document.getElementById('theme-btn').addEventListener('lf-action', () => {
+      const html = document.documentElement;
+      const toLight = html.getAttribute('data-theme') !== 'light';
+      html.setAttribute('data-theme', toLight ? 'light' : 'dark');
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,270 @@
+<!-- Loomfall UX — Keybinds demo.
+     Serve over http (module imports are CORS-blocked on file://):
+       python3 -m http.server  # from the repo root
+       open http://localhost:8000/ux/keybinds/demo.html -->
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Loomfall — Key Bindings (lf-keybinds demo)</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23221B33'/%3E%3Crect x='3' y='5' width='10' height='6' rx='1' fill='none' stroke='%23F2C14E' stroke-width='1.4'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="../../ui-kit/tokens.css" />
+  <link rel="stylesheet" href="../../ui-kit/base.css" />
+  <link rel="stylesheet" href="../../ui-kit/components/button.css" />
+  <link rel="stylesheet" href="../../ui-kit/components/slider.css" />
+  <link rel="stylesheet" href="../../ui-kit/components/toggle.css" />
+  <link rel="stylesheet" href="../../ui-kit/components/dropdown.css" />
+  <link rel="stylesheet" href="../../ui-kit/components/modal.css" />
+  <link rel="stylesheet" href="../../ui-kit/components/toast.css" />
+  <link rel="stylesheet" href="../../ui-kit/components/settings-shell.css" />
+  <link rel="stylesheet" href="keybinds.css" />
+  <style>
+    body {
+      margin: 0;
+      padding: var(--lf-space-5);
+      background: var(--lf-color-bg-root);
+      color: var(--lf-color-text-body);
+      font-family: var(--lf-font-ui);
+    }
+    .demo-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--lf-space-3);
+      flex-wrap: wrap;
+      margin-bottom: var(--lf-space-4);
+    }
+    .demo-header h1 {
+      margin: 0;
+      font-size: var(--lf-text-xl);
+      color: var(--lf-color-text-heading);
+    }
+    .demo-controls {
+      display: flex;
+      gap: var(--lf-space-2);
+      flex-wrap: wrap;
+    }
+    .demo-note {
+      margin: 0 0 var(--lf-space-4);
+      font-size: var(--lf-text-sm);
+      color: var(--lf-color-text-dim);
+      max-width: 72ch;
+    }
+    .demo-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.7fr) minmax(280px, 1fr);
+      gap: var(--lf-space-4);
+      align-items: start;
+    }
+    @media (max-width: 980px) {
+      /* minmax(0,1fr): let the settings shell shrink below its min-content
+         so keybinds.css's .lf-keybinds__scroller owns horizontal scrolling
+         instead of widening the page body. */
+      .demo-layout { grid-template-columns: minmax(0, 1fr); }
+    }
+    .demo-card {
+      background: var(--lf-color-bg-panel);
+      border: var(--lf-border-hem);
+      border-radius: var(--lf-radius-md);
+      padding: var(--lf-space-4);
+    }
+    .demo-card h2 {
+      margin: 0 0 var(--lf-space-2);
+      font-size: var(--lf-text-md);
+      color: var(--lf-color-text-heading);
+    }
+    .demo-side {
+      display: flex;
+      flex-direction: column;
+      gap: var(--lf-space-4);
+    }
+    .demo-card textarea {
+      width: 100%;
+      min-height: 130px;
+      resize: vertical;
+      box-sizing: border-box;
+      font-family: var(--lf-font-mono);
+      font-size: var(--lf-text-xs);
+      color: var(--lf-color-input-text);
+      background: var(--lf-color-bg-input);
+      border: var(--lf-border-hem);
+      border-radius: var(--lf-radius-sm);
+      padding: var(--lf-space-2);
+    }
+    .demo-card pre {
+      margin: 0;
+      max-height: 280px;
+      overflow: auto;
+      font-family: var(--lf-font-mono);
+      font-size: var(--lf-text-xs);
+      line-height: 1.5;
+      color: var(--lf-color-input-text);
+      background: var(--lf-color-bg-input);
+      border: var(--lf-border-hem);
+      border-radius: var(--lf-radius-sm);
+      padding: var(--lf-space-2);
+    }
+    .demo-row {
+      display: flex;
+      gap: var(--lf-space-2);
+      flex-wrap: wrap;
+      margin-top: var(--lf-space-2);
+    }
+    /* Demo stage: widen THIS shell instance so all keybind columns are
+       visible without scrolling (page-level override — ui-kit untouched). */
+    lf-settings-shell {
+      display: block;
+      max-width: 900px;
+    }
+    lf-settings-shell .lf-settings-shell__pane {
+      max-height: 620px;
+    }
+  </style>
+</head>
+<body>
+  <header class="demo-header">
+    <h1>Key Bindings — <code>&lt;lf-keybinds&gt;</code></h1>
+    <div class="demo-controls">
+      <!-- §4 simulation control: dispatches the canonical lf-options-change
+           event exactly as the options store will (uiScale preview). -->
+      <lf-button id="sim-scale" action="sim-scale">Simulate lf-options-change (uiScale 1.25)</lf-button>
+      <lf-button id="theme-toggle" action="theme">Toggle light / dark</lf-button>
+    </div>
+  </header>
+
+  <p class="demo-note">
+    <strong>Keyboard path:</strong> Tab to any binding, press <kbd>Enter</kbd> to
+    start capture, then press the new key (<kbd>Escape</kbd> cancels,
+    <kbd>Backspace</kbd> clears). Mouse buttons and the wheel are also
+    capturable into keyboard slots. Gamepad capture is a documented polling
+    stub. Assigning a key that is already bound highlights both rows (dashed
+    hem + fray-knot glyph), raises a warning toast, and offers Swap or
+    Unbind &amp; Assign. Changes persist to <code>localStorage
+    "loomfall.bindings"</code> and emit <code>lf-bindings-change</code>.
+  </p>
+
+  <div class="demo-layout">
+    <lf-settings-shell heading="Settings" active="controls">
+      <section data-category="Controls">
+        <lf-keybinds></lf-keybinds>
+      </section>
+      <section data-category="About">
+        <p>
+          This demo docks <code>&lt;lf-keybinds&gt;</code> into the ui-kit
+          settings shell. The Done button and <kbd>Escape</kbd> emit
+          <code>lf-back</code> (logged in the event log); a capture in
+          progress swallows its own Escape first.
+        </p>
+      </section>
+    </lf-settings-shell>
+
+    <div class="demo-side">
+      <div class="demo-card">
+        <h2>Export / import (schema shape)</h2>
+        <label class="lf-visually-hidden" for="io-text">Bindings JSON</label>
+        <textarea id="io-text" spellcheck="false"
+          placeholder='{"version":1,"bindings":{...}}'></textarea>
+        <div class="demo-row">
+          <lf-button id="export-btn" action="export">Export to textarea</lf-button>
+          <lf-button id="import-btn" variant="primary" action="import">Import from textarea</lf-button>
+        </div>
+      </div>
+
+      <div class="demo-card">
+        <h2>Live bindings map (updates on lf-bindings-change)</h2>
+        <pre id="json-view" aria-label="Current bindings JSON">…</pre>
+      </div>
+
+      <div class="demo-card">
+        <h2>Event log (window-level)</h2>
+        <pre id="event-log" aria-label="Event log">(no events yet)</pre>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import '../../ui-kit/components/settings-shell.js';
+    import './keybinds.js';
+
+    const kb = document.querySelector('lf-keybinds');
+    const jsonView = document.getElementById('json-view');
+    const eventLog = document.getElementById('event-log');
+    const ioText = document.getElementById('io-text');
+    const logLines = [];
+
+    function log(line) {
+      logLines.unshift(`${new Date().toLocaleTimeString()}  ${line}`);
+      eventLog.textContent = logLines.slice(0, 8).join('\n');
+    }
+
+    function refreshJson() {
+      if (kb.bindings) jsonView.textContent = JSON.stringify(kb.exportBindings(), null, 2);
+    }
+
+    // Consume the canonical events at window level (contract §4).
+    window.addEventListener('lf-bindings-change', (e) => {
+      const { action, slot, code } = e.detail;
+      log(`lf-bindings-change  ${action}.${slot} = ${JSON.stringify(code)}`);
+      refreshJson();
+    });
+    window.addEventListener('lf-options-change', (e) => {
+      log(`lf-options-change  ${e.detail.key} = ${JSON.stringify(e.detail.value)}`);
+    });
+    document.querySelector('lf-settings-shell').addEventListener('lf-back', () => {
+      log('lf-back  (host would pop the Settings screen)');
+    });
+
+    // Export / import via textarea (demo-owned wiring around the panel API).
+    document.getElementById('export-btn').addEventListener('lf-action', () => {
+      ioText.value = JSON.stringify(kb.exportBindings(), null, 2);
+      log('exported bindings to textarea');
+    });
+    document.getElementById('import-btn').addEventListener('lf-action', () => {
+      let doc;
+      try {
+        doc = JSON.parse(ioText.value);
+      } catch (err) {
+        log(`import failed: ${err.message}`);
+        let rack = document.querySelector('lf-toast-rack');
+        if (!rack) {
+          rack = document.createElement('lf-toast-rack');
+          document.body.appendChild(rack);
+        }
+        rack.show({
+          status: 'error', heading: 'Import failed',
+          message: 'Textarea is not valid JSON.', duration: 6000,
+        });
+        return;
+      }
+      const res = kb.importBindings(doc);
+      log(res.ok ? 'import applied' : `import rejected: ${res.errors[0]}`);
+    });
+
+    // §4 simulation: emit lf-options-change exactly as the options store
+    // will, and apply the uiScale side effect the store owns (§5.2).
+    let scaled = false;
+    document.getElementById('sim-scale').addEventListener('lf-action', () => {
+      scaled = !scaled;
+      const value = scaled ? 1.25 : 1;
+      document.documentElement.style.setProperty('--lf-ui-scale', String(value));
+      document.documentElement.style.fontSize = 'calc(16px * var(--lf-ui-scale))';
+      window.dispatchEvent(new CustomEvent('lf-options-change', {
+        detail: { key: 'uiScale', value, options: { uiScale: value } },
+      }));
+      document.getElementById('sim-scale').querySelector('.lf-button__label').textContent =
+        `Simulate lf-options-change (uiScale ${scaled ? 1 : 1.25})`;
+    });
+
+    document.getElementById('theme-toggle').addEventListener('lf-action', () => {
+      const root = document.documentElement;
+      root.dataset.theme = root.dataset.theme === 'light' ? 'dark' : 'light';
+    });
+
+    // Bootstrap: factory defaults from the architect-validated file.
+    const res = await fetch('./bindings.default.json');
+    kb.defaults = await res.json();
+    refreshJson();
+    log('defaults loaded (27 actions)');
+  </script>
+</body>
+</html>

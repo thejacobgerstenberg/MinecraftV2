@@ -1,0 +1,221 @@
+/* =========================================================================
+   Loomfall UX — options demo page styles (ux/options/demo.css)
+   Tokens only. Demo-page chrome — nothing here ships in game markup.
+   ========================================================================= */
+
+body {
+  padding: var(--lf-space-5);
+}
+
+.demo-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--lf-space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--lf-space-4);
+}
+
+.demo-header h1 {
+  font-size: var(--lf-text-xl);
+  color: var(--lf-color-text-heading);
+}
+
+.demo-kbd-note {
+  font-size: var(--lf-text-sm);
+  color: var(--lf-color-text-dim);
+  max-width: 72ch;
+  margin-bottom: var(--lf-space-4);
+}
+
+.demo-kbd-note kbd {
+  font-family: var(--lf-font-mono);
+  font-size: var(--lf-text-xs);
+  padding: 0 var(--lf-space-1);
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-sm);
+  background: var(--lf-color-bg-raised);
+}
+
+.demo-layout {
+  display: flex;
+  gap: var(--lf-space-5);
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.demo-layout > lf-settings-shell {
+  flex: 1 1 460px;
+  min-width: 340px;
+}
+
+/* Demo-page layout choice: show the whole docked panel instead of the
+   shell's 420px internal scroll, so screenshots capture every control.
+   (Page-level override — ui-kit files are untouched.) */
+.demo-layout > lf-settings-shell .lf-settings-shell__pane {
+  max-height: none;
+}
+
+.demo-aside {
+  flex: 1 1 380px;
+  min-width: 320px;
+  display: grid;
+  gap: var(--lf-space-4);
+}
+
+.demo-card {
+  background: var(--lf-color-bg-panel);
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-lg);
+  padding: var(--lf-space-4);
+  display: grid;
+  gap: var(--lf-space-3);
+}
+
+.demo-card > h2 {
+  font-size: var(--lf-text-sm);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--lf-color-text-dim);
+}
+
+.demo-row {
+  display: flex;
+  gap: var(--lf-space-2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* ---- Live options JSON ------------------------------------------------ */
+.demo-json {
+  font-family: var(--lf-font-mono);
+  font-size: var(--lf-text-xs);
+  line-height: var(--lf-leading);
+  color: var(--lf-color-text-body);
+  background: var(--lf-color-bg-input);
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-md);
+  padding: var(--lf-space-3);
+  margin: 0;
+  overflow-x: auto;
+}
+
+/* ---- FOV wireframe ----------------------------------------------------- */
+.demo-fov svg {
+  width: 100%;
+  max-width: 260px;
+  color: var(--lf-color-text-dim);
+}
+
+.demo-fov .demo-fov__cone {
+  stroke: var(--lf-brand-primary);
+}
+
+.demo-fov .demo-fov__deg {
+  font-family: var(--lf-font-mono);
+  font-size: 14px;
+  fill: var(--lf-color-text-heading);
+}
+
+/* ---- UI-scale sample (rem-derived, follows --lf-ui-scale) -------------- */
+.demo-scale-sample {
+  font-size: 1rem;               /* 1rem = 16px * uiScale */
+  padding: 0.75rem 1rem;
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-md);
+  background: var(--lf-color-bg-raised);
+  color: var(--lf-color-text-body);
+  max-width: 36rem;
+}
+
+.demo-scale-sample strong {
+  color: var(--lf-color-text-heading);
+}
+
+/* ---- Motion samples ----------------------------------------------------
+   Authored per the motion.css triple rule: base animation, media-reduce
+   off, forced-off opt-back-in. Force-ON is handled globally by motion.css. */
+.demo-bob {
+  width: var(--lf-space-5);
+  height: var(--lf-space-5);
+  border-radius: var(--lf-radius-sm);
+  background: var(--lf-accent-knotlight);
+  box-shadow: 0 0 var(--lf-space-2) var(--lf-accent-knotlight);
+  animation: demo-bob 1.6s var(--lf-ease) infinite;
+}
+
+@keyframes demo-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(calc(-1 * var(--lf-space-2))); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .demo-bob { animation: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-lf-reduced-motion="off"] .demo-bob {
+    animation: demo-bob 1.6s var(--lf-ease) infinite !important;
+  }
+}
+
+.demo-shake-card {
+  padding: var(--lf-space-3);
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-md);
+  background: var(--lf-color-bg-raised);
+  font-size: var(--lf-text-sm);
+}
+
+.demo-shake-card[data-shaking] {
+  animation: demo-shake 400ms var(--lf-ease);
+}
+
+@keyframes demo-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(calc(-1 * var(--lf-space-1))); }
+  40% { transform: translateX(var(--lf-space-1)); }
+  60% { transform: translateX(calc(-1 * var(--lf-space-1))); }
+  80% { transform: translateX(var(--lf-space-1)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .demo-shake-card[data-shaking] { animation: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-lf-reduced-motion="off"] .demo-shake-card[data-shaking] {
+    animation: demo-shake 400ms var(--lf-ease) !important;
+  }
+}
+
+/* ---- Subtitles mock ---------------------------------------------------- */
+.demo-caption {
+  font-size: var(--lf-text-sm);
+  color: var(--lf-color-text-body);
+  background: var(--lf-color-bg-input);
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-md);
+  padding: var(--lf-space-2) var(--lf-space-3);
+  max-width: 40ch;
+}
+
+.demo-caption[hidden] {
+  display: none;
+}
+
+/* ---- Event log --------------------------------------------------------- */
+.demo-log {
+  font-family: var(--lf-font-mono);
+  font-size: var(--lf-text-xs);
+  color: var(--lf-color-text-dim);
+  display: grid;
+  gap: var(--lf-space-1);
+  max-height: 12em;
+  overflow-y: auto;
+}
+
+.demo-log li::before {
+  content: "» ";
+  color: var(--lf-brand-primary);
+}

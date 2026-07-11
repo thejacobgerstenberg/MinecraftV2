@@ -1,0 +1,297 @@
+<!-- Loomfall UX — Sound captions demo.
+     Serve over http (module imports are CORS-blocked on file://):
+       python3 -m http.server  # from the repo root
+       open http://localhost:8000/ux/captions/demo.html -->
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Loomfall — Sound Captions (lf-captions demo)</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23221B33'/%3E%3Cpath d='M4 6h8M4 8.5h6M4 11h7' stroke='%23F2C14E' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="../../ui-kit/tokens.css" />
+  <link rel="stylesheet" href="../../ui-kit/base.css" />
+  <link rel="stylesheet" href="../../ui-kit/components/button.css" />
+  <link rel="stylesheet" href="../../ui-kit/components/toggle.css" />
+  <link rel="stylesheet" href="../../ui-kit/components/dropdown.css" />
+  <link rel="stylesheet" href="captions.css" />
+  <style>
+    body {
+      margin: 0;
+      padding: var(--lf-space-5);
+      padding-bottom: 200px; /* room for the fixed caption region */
+      background: var(--lf-color-bg-root);
+      color: var(--lf-color-text-body);
+      font-family: var(--lf-font-ui);
+    }
+    .demo-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--lf-space-3);
+      flex-wrap: wrap;
+      margin-bottom: var(--lf-space-4);
+    }
+    .demo-header h1 {
+      margin: 0;
+      font-size: var(--lf-text-xl);
+      color: var(--lf-color-text-heading);
+    }
+    .demo-controls {
+      display: flex;
+      align-items: center;
+      gap: var(--lf-space-3);
+      flex-wrap: wrap;
+    }
+    .demo-note {
+      margin: 0 0 var(--lf-space-4);
+      font-size: var(--lf-text-sm);
+      color: var(--lf-color-text-dim);
+      max-width: 80ch;
+    }
+    .demo-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.8fr) minmax(280px, 1fr);
+      gap: var(--lf-space-4);
+      align-items: start;
+    }
+    @media (max-width: 980px) {
+      /* minmax(0,1fr): let cards shrink below min-content so long event-log
+         lines scroll inside the <pre> instead of widening the page body. */
+      .demo-layout { grid-template-columns: minmax(0, 1fr); }
+      .demo-side { min-width: 0; }
+    }
+    .demo-card {
+      background: var(--lf-color-bg-panel);
+      border: var(--lf-border-hem);
+      border-radius: var(--lf-radius-md);
+      padding: var(--lf-space-4);
+    }
+    .demo-card h2 {
+      margin: 0 0 var(--lf-space-2);
+      font-size: var(--lf-text-md);
+      color: var(--lf-color-text-heading);
+    }
+    .demo-card h3 {
+      margin: var(--lf-space-3) 0 var(--lf-space-2);
+      font-size: var(--lf-text-sm);
+      color: var(--lf-color-text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .demo-row {
+      display: flex;
+      gap: var(--lf-space-2);
+      flex-wrap: wrap;
+    }
+    .demo-card pre {
+      margin: 0;
+      max-height: 340px;
+      overflow: auto;
+      font-family: var(--lf-font-mono);
+      font-size: var(--lf-text-xs);
+      line-height: 1.5;
+      color: var(--lf-color-input-text);
+      background: var(--lf-color-bg-input);
+      border: var(--lf-border-hem);
+      border-radius: var(--lf-radius-sm);
+      padding: var(--lf-space-2);
+    }
+    .demo-side {
+      display: flex;
+      flex-direction: column;
+      gap: var(--lf-space-4);
+    }
+    .demo-controls lf-dropdown { min-width: 180px; }
+  </style>
+</head>
+<body>
+  <header class="demo-header">
+    <h1>Sound Captions — <code>&lt;lf-captions&gt;</code></h1>
+    <div class="demo-controls">
+      <lf-toggle id="subtitles-toggle" label="Subtitles" checked></lf-toggle>
+      <lf-toggle id="motion-toggle" label="Force reduced motion"></lf-toggle>
+      <lf-dropdown id="corner-select" label="Corner" value="bottom-left">
+        <option value="bottom-left">Bottom left</option>
+        <option value="bottom-right">Bottom right</option>
+        <option value="top-left">Top left</option>
+        <option value="top-right">Top right</option>
+      </lf-dropdown>
+      <lf-button id="theme-toggle" action="theme">Toggle light / dark</lf-button>
+    </div>
+  </header>
+
+  <p class="demo-note">
+    <strong>Keyboard path:</strong> every simulation control below is a
+    ui-kit widget — <kbd>Tab</kbd> between them, <kbd>Enter</kbd>/<kbd>Space</kbd>
+    to fire. The caption overlay itself is pointer-transparent, never takes
+    focus, and mirrors every line into a polite <code>aria-live</code> region
+    (with spoken direction: &ldquo;&hellip;, to the left&rdquo;). Each button
+    dispatches the contract §4 <code>lf-audio-event</code> on
+    <code>window</code> with the exact detail shape the game shell will emit
+    — wiring the real game means replacing only the emitter side. Max 3
+    lines; higher priority evicts lower (alerts replace ambient); repeated
+    sounds refresh a single line; loops stay until their
+    <code>ended</code> event, then linger.
+  </p>
+
+  <div class="demo-layout">
+    <div class="demo-card">
+      <h2>Simulate audio events (contract §4: <code>lf-audio-event</code>)</h2>
+
+      <h3>Actions</h3>
+      <div class="demo-row">
+        <lf-button data-sim='{"name":"break.stone","volume":0.8}'>Break stone</lf-button>
+        <lf-button data-sim='{"name":"break.glass","volume":0.8}'>Break glass</lf-button>
+        <lf-button data-sim='{"name":"place.wood","volume":0.8}'>Place wood</lf-button>
+        <lf-button data-sim='{"name":"step.grass","volume":0.4}'>Step on grass (spam me)</lf-button>
+        <lf-button data-sim='{"name":"pop","volume":0.6}'>Item pickup</lf-button>
+        <lf-button data-sim='{"name":"door.open","direction":"right","volume":0.7}'>Door opens (right)</lf-button>
+      </div>
+
+      <h3>Mobs (directional)</h3>
+      <div class="demo-row">
+        <lf-button data-sim='{"name":"mob.grazer.idle","direction":"left","volume":0.5}'>Grazer idle ◀</lf-button>
+        <lf-button data-sim='{"name":"mob.groaner.hurt","direction":"right","volume":0.8}'>Groaner hurt ▶</lf-button>
+        <lf-button data-sim='{"name":"mob.screecher.idle","direction":"front","volume":0.7}'>Screecher ahead ▲</lf-button>
+        <lf-button data-sim='{"name":"mob.trader.death","direction":"right","volume":0.8}'>Trader dies ▶</lf-button>
+        <lf-button data-sim='{"name":"splash","direction":"left","volume":0.6}'>Splash ◀</lf-button>
+      </div>
+
+      <h3>Alerts (replace lower priority)</h3>
+      <div class="demo-row">
+        <lf-button variant="primary" data-sim='{"name":"mob.exploder.idle","direction":"behind","volume":0.9}'>Exploder hiss ▼ behind</lf-button>
+        <lf-button variant="primary" data-sim='{"name":"hurt","volume":1}'>Player hurt</lf-button>
+        <lf-button variant="primary" data-sim='{"name":"explosion","direction":"behind","volume":1}'>Explosion ▼ behind</lf-button>
+        <lf-button variant="primary" data-sim='{"name":"thunder","direction":"left","volume":1}'>Thunder ◀</lf-button>
+        <lf-button data-sim='{"name":"thunder.distant","direction":"right","volume":0.5}'>Distant thunder ▶</lf-button>
+        <lf-button data-sim='{"name":"boss.lastneedle.telegraph","direction":"front","volume":1}'>Boss telegraph ▲ (reserved key)</lf-button>
+      </div>
+
+      <h3>Loops (sticky until ended) &amp; music pseudo-keys</h3>
+      <div class="demo-row">
+        <lf-button data-sim='{"name":"wind","loop":true,"volume":0.35}'>Wind loop start</lf-button>
+        <lf-button data-sim='{"name":"wind","ended":true}'>Wind loop stop</lf-button>
+        <lf-button data-sim='{"name":"rain","loop":true,"volume":0.7}'>Rain loop start</lf-button>
+        <lf-button data-sim='{"name":"rain","ended":true}'>Rain loop stop</lf-button>
+        <lf-button data-sim='{"name":"music.calm","loop":true,"volume":0.7}'>♪ music.calm</lf-button>
+        <lf-button data-sim='{"name":"music.mysterious","loop":true,"volume":0.7}'>♪ music.mysterious</lf-button>
+        <lf-button data-sim='{"name":"music.calm","ended":true}' id="music-stop">Stop music</lf-button>
+      </div>
+
+      <h3>Edge cases</h3>
+      <div class="demo-row">
+        <lf-button id="overflow-btn">Overflow test: 3 low + 1 alert</lf-button>
+        <lf-button data-sim='{"name":"totally.unknown.key","volume":1}'>Unknown key (ignored)</lf-button>
+        <lf-button data-sim='{"name":"explosion","volume":0}'>volume: 0 (skipped)</lf-button>
+        <lf-button id="clear-btn" variant="danger">Clear captions</lf-button>
+      </div>
+    </div>
+
+    <div class="demo-side">
+      <div class="demo-card">
+        <h2>Event log (window-level)</h2>
+        <pre id="event-log" aria-label="Event log">(no events yet)</pre>
+      </div>
+      <div class="demo-card">
+        <h2>Live region mirror</h2>
+        <pre id="live-mirror" aria-hidden="true">(nothing announced yet)</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- The real overlay: fixed to the chosen viewport corner. -->
+  <lf-captions corner="bottom-left" max-lines="3"></lf-captions>
+
+  <script type="module">
+    import '../../ui-kit/components/button.js';
+    import '../../ui-kit/components/toggle.js';
+    import '../../ui-kit/components/dropdown.js';
+    import './captions.js';
+
+    const captionsEl = document.querySelector('lf-captions');
+    const eventLog = document.getElementById('event-log');
+    const liveMirror = document.getElementById('live-mirror');
+    const logLines = [];
+
+    function log(line) {
+      logLines.unshift(`${new Date().toLocaleTimeString()}  ${line}`);
+      eventLog.textContent = logLines.slice(0, 12).join('\n');
+    }
+
+    // Load the authored caption table (validates against captions.schema.json).
+    captionsEl.captions = await (await fetch('./captions.json')).json();
+    log(`captions.json loaded (${captionsEl.captions.length} entries)`);
+
+    // §4 emitter used by every simulation button.
+    function simulate(detail) {
+      window.dispatchEvent(new CustomEvent('lf-audio-event', { detail }));
+      log(`lf-audio-event  ${JSON.stringify(detail)}`);
+    }
+
+    for (const btn of document.querySelectorAll('lf-button[data-sim]')) {
+      const detail = JSON.parse(btn.dataset.sim);
+      btn.addEventListener('lf-action', () => simulate(detail));
+    }
+    // "Stop music" ends whichever music pseudo-key might be looping.
+    document.getElementById('music-stop').addEventListener('lf-action', () => {
+      simulate({ name: 'music.mysterious', ended: true });
+    });
+
+    // Overflow test: fill the 3-line budget with low-priority captions, then
+    // fire an alert — the lowest-priority line is evicted to make room.
+    document.getElementById('overflow-btn').addEventListener('lf-action', () => {
+      simulate({ name: 'music.calm', loop: true, volume: 0.7 });   // priority 1
+      simulate({ name: 'step.grass', volume: 0.4 });               // priority 2
+      simulate({ name: 'pop', volume: 0.6 });                      // priority 3
+      simulate({ name: 'hurt', volume: 1 });                       // priority 10 -> evicts music
+    });
+
+    document.getElementById('clear-btn').addEventListener('lf-action', () => {
+      captionsEl.clear();
+    });
+
+    // Observe the overlay's own events (bubble up from the element).
+    window.addEventListener('lf-show', (e) => {
+      const d = e.detail;
+      log(`lf-show     "${d.text}" [${d.category}${d.direction ? ', ' + d.direction : ''}]${d.refreshed ? ' (refreshed)' : ''}`);
+      liveMirror.textContent = captionsEl.querySelector('.lf-captions__live').textContent;
+    });
+    window.addEventListener('lf-dismiss', (e) => {
+      if (e.target.tagName !== 'LF-CAPTIONS') return;
+      log(`lf-dismiss  ${e.detail.sound ?? '(all)'} (${e.detail.reason})`);
+    });
+
+    // Corner picker drives the component's public attribute.
+    document.getElementById('corner-select').addEventListener('lf-change', (e) => {
+      captionsEl.setAttribute('corner', e.detail.value);
+    });
+
+    // Subtitles toggle: per contract §5 the options shell unmounts the
+    // overlay entirely when subtitles=false. We do the same here AND emit the
+    // canonical lf-options-change the options store would.
+    document.getElementById('subtitles-toggle').addEventListener('lf-change', (e) => {
+      const on = e.detail.value;
+      if (on && !captionsEl.isConnected) document.body.appendChild(captionsEl);
+      else if (!on && captionsEl.isConnected) captionsEl.remove();
+      window.dispatchEvent(new CustomEvent('lf-options-change', {
+        detail: { key: 'subtitles', value: on, options: { subtitles: on } },
+      }));
+      log(`subtitles ${on ? 'mounted' : 'unmounted'}`);
+    });
+    window.addEventListener('lf-options-change', (e) => {
+      log(`lf-options-change  ${e.detail.key} = ${JSON.stringify(e.detail.value)}`);
+    });
+
+    // Forced reduced-motion override (§5): html[data-lf-reduced-motion="on"].
+    document.getElementById('motion-toggle').addEventListener('lf-change', (e) => {
+      if (e.detail.value) document.documentElement.setAttribute('data-lf-reduced-motion', 'on');
+      else document.documentElement.removeAttribute('data-lf-reduced-motion');
+    });
+
+    document.getElementById('theme-toggle').addEventListener('lf-action', () => {
+      const root = document.documentElement;
+      root.dataset.theme = root.dataset.theme === 'light' ? 'dark' : 'light';
+    });
+  </script>
+</body>
+</html>

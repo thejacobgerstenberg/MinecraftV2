@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Loomfall UX — Options &amp; Accessibility demo</title>
+<link rel="icon" href="data:,">
+
+<!-- §6 order: tokens -> base -> every composed component css -> area css -->
+<link rel="stylesheet" href="../../ui-kit/tokens.css">
+<link rel="stylesheet" href="../../ui-kit/base.css">
+<link rel="stylesheet" href="../../ui-kit/components/button.css">
+<link rel="stylesheet" href="../../ui-kit/components/slider.css">
+<link rel="stylesheet" href="../../ui-kit/components/toggle.css">
+<link rel="stylesheet" href="../../ui-kit/components/dropdown.css">
+<link rel="stylesheet" href="../../ui-kit/components/settings-shell.css">
+<link rel="stylesheet" href="../../ui-kit/components/toast.css">
+<link rel="stylesheet" href="../../ui-kit/components/statbars.css">
+<link rel="stylesheet" href="../../ui-kit/components/inventory.css">
+<link rel="stylesheet" href="access-options.css">
+<link rel="stylesheet" href="cvd.css">
+<link rel="stylesheet" href="motion.css">
+<link rel="stylesheet" href="demo.css">
+</head>
+<body>
+
+<header class="demo-header">
+  <h1>Options &amp; Accessibility</h1>
+  <lf-button variant="secondary" size="sm" action="toggle-theme" id="theme-toggle">Switch to light theme</lf-button>
+</header>
+
+<p class="demo-kbd-note">
+  Keyboard path: <kbd>Tab</kbd> to the category rail (<kbd>↑</kbd>/<kbd>↓</kbd> rove,
+  <kbd>Enter</kbd> activates), then <kbd>Tab</kbd> into the panel. Sliders:
+  <kbd>←</kbd>/<kbd>→</kbd>, <kbd>Home</kbd>/<kbd>End</kbd>. Dropdowns:
+  <kbd>Enter</kbd> opens, <kbd>↑</kbd>/<kbd>↓</kbd> rove, <kbd>Esc</kbd> closes
+  without leaving the screen. Toggle: <kbd>Enter</kbd>/<kbd>Space</kbd>.
+  <kbd>Esc</kbd> anywhere in the shell = Done (emits <code>lf-back</code>).
+</p>
+
+<div class="demo-layout">
+
+  <!-- The real component: panel docked into the kit settings shell. -->
+  <lf-settings-shell heading="Options" active="accessibility">
+    <section data-category="Accessibility">
+      <lf-access-options></lf-access-options>
+    </section>
+  </lf-settings-shell>
+
+  <aside class="demo-aside" aria-label="Live previews and simulation">
+
+    <section class="demo-card">
+      <h2>Live options (schema shape)</h2>
+      <pre class="demo-json" id="opts-json" aria-live="off">{}</pre>
+    </section>
+
+    <section class="demo-card demo-fov">
+      <h2>FOV preview</h2>
+      <svg viewBox="0 0 220 124" role="img" aria-label="Top-down camera field-of-view wireframe">
+        <circle cx="110" cy="104" r="92" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="3 5" opacity="0.5"></circle>
+        <rect x="46" y="34" width="12" height="12" fill="none" stroke="currentColor" opacity="0.7"></rect>
+        <rect x="104" y="16" width="12" height="12" fill="none" stroke="currentColor" opacity="0.7"></rect>
+        <rect x="158" y="48" width="12" height="12" fill="none" stroke="currentColor" opacity="0.7"></rect>
+        <line id="fov-left" class="demo-fov__cone" x1="110" y1="104" x2="55" y2="30" stroke-width="2"></line>
+        <line id="fov-right" class="demo-fov__cone" x1="110" y1="104" x2="165" y2="30" stroke-width="2"></line>
+        <path id="fov-arc" class="demo-fov__cone" d="" fill="none" stroke-width="1.5"></path>
+        <text id="fov-deg" class="demo-fov__deg" x="110" y="120" text-anchor="middle">75°</text>
+      </svg>
+    </section>
+
+    <section class="demo-card">
+      <h2>UI scale preview</h2>
+      <p class="demo-scale-sample">
+        This card is sized in <strong>rem</strong>, so it follows
+        <code>--lf-ui-scale</code> live while you drag the UI Scale slider —
+        currently <strong id="scale-readout">1×</strong>.
+      </p>
+    </section>
+
+    <section class="demo-card">
+      <h2>Motion preview</h2>
+      <div class="demo-row">
+        <div class="demo-bob" aria-hidden="true"></div>
+        <p class="demo-shake-card" id="shake-card">Knotlight bob (looping) and this shake card follow the Reduced Motion setting.</p>
+      </div>
+      <lf-statbars id="statbars" health="14" armor="8" hunger="16"></lf-statbars>
+      <div class="demo-row">
+        <lf-button variant="secondary" size="sm" action="damage" id="btn-damage">Take damage (flash)</lf-button>
+        <lf-button variant="secondary" size="sm" action="shake" id="btn-shake">Trigger shake</lf-button>
+      </div>
+    </section>
+
+    <section class="demo-card">
+      <h2>Status &amp; selection cues (react to colorblind mode)</h2>
+      <lf-toast status="info" heading="Droplet" message="Rain reaches the warp-meadow."></lf-toast>
+      <lf-toast status="success" heading="Stitch-check" message="Anchor knotted. Respawn set."></lf-toast>
+      <lf-toast status="warn" heading="Fray-knot" message="Dreamdye draining — night approaches."></lf-toast>
+      <lf-toast status="error" heading="Frayed-X" message="Your skein cannot hold that stitch."></lf-toast>
+      <div class="demo-row">
+        <lf-item-slot item="Thrumwood" count="12"></lf-item-slot>
+        <lf-item-slot item="Warp Sprout" count="4" rarity="uncommon"></lf-item-slot>
+        <lf-item-slot item="Hemstone" count="2" rarity="rare"></lf-item-slot>
+        <lf-item-slot item="Knotlight" count="3" rarity="epic" selected></lf-item-slot>
+      </div>
+    </section>
+
+    <section class="demo-card">
+      <h2>Subtitles preview (captions overlay mock)</h2>
+      <p class="demo-caption" id="caption-mock" hidden>◗ Rain patters on the thrumwood canopy (behind)</p>
+      <p class="demo-caption" id="caption-off">Subtitles are off — the captions overlay is unmounted.</p>
+    </section>
+
+    <section class="demo-card">
+      <h2>Event bus (§4 simulation)</h2>
+      <div class="demo-row">
+        <lf-button variant="secondary" size="sm" action="reset" id="btn-reset">Reset to defaults</lf-button>
+        <lf-button variant="secondary" size="sm" action="preset-low-vision" id="btn-low-vision">Preset: low vision</lf-button>
+        <lf-button variant="secondary" size="sm" action="preset-photosensitive" id="btn-photo">Preset: photosensitive</lf-button>
+        <lf-button variant="secondary" size="sm" action="redispatch" id="btn-redispatch">Re-dispatch lf-options-change</lf-button>
+      </div>
+      <ol class="demo-log" id="event-log" aria-label="lf-options-change event log"></ol>
+    </section>
+
+  </aside>
+</div>
+
+<script type="module">
+  // Composites import their JS deps: settings-shell pulls button/slider/
+  // toggle/dropdown; access-options pulls slider/toggle/dropdown + store.
+  import '../../ui-kit/components/settings-shell.js';
+  import '../../ui-kit/components/toast.js';
+  import '../../ui-kit/components/statbars.js';
+  import '../../ui-kit/components/inventory.js';
+  import './access-options.js';
+  import { getStore, motionReduced } from './options-store.js';
+
+  const store = getStore();
+  const $ = (sel) => document.querySelector(sel);
+
+  /* ---- live options JSON + event log ---- */
+  const log = $('#event-log');
+  function addLog(text) {
+    const li = document.createElement('li');
+    li.textContent = text;
+    log.prepend(li);
+    while (log.children.length > 10) log.lastChild.remove();
+  }
+
+  const FLAT_VOLUME = { 'volumes.master': 'volumeMaster', 'volumes.sfx': 'volumeSfx', 'volumes.music': 'volumeMusic' };
+
+  window.addEventListener('lf-options-change', (e) => {
+    const { key, value, options } = e.detail;
+    $('#opts-json').textContent = JSON.stringify(options, null, 2);
+    if (key === null) addLog('lf-options-change (load/reset)');
+    else if (FLAT_VOLUME[key]) addLog(`lf-options-change ${key}=${value} → GameAudio {${FLAT_VOLUME[key]}: ${value}}`);
+    else addLog(`lf-options-change ${key}=${JSON.stringify(value)}`);
+    applyPreviews(options);
+  });
+
+  /* ---- previews reacting to options ---- */
+  function applyPreviews(o) {
+    updateFov(o.fov);
+    $('#scale-readout').textContent = `${o.uiScale}×`;
+    $('#caption-mock').hidden = !o.subtitles;
+    $('#caption-off').hidden = o.subtitles;
+  }
+
+  function updateFov(fov) {
+    const cx = 110, cy = 104, r = 92, arcR = 30;
+    const a = (fov * Math.PI) / 360; // half-angle in radians
+    const sin = Math.sin(a), cos = Math.cos(a);
+    const set = (id, x, y) => {
+      const el = $(id);
+      el.setAttribute('x2', x.toFixed(1));
+      el.setAttribute('y2', y.toFixed(1));
+    };
+    set('#fov-left', cx - sin * r, cy - cos * r);
+    set('#fov-right', cx + sin * r, cy - cos * r);
+    $('#fov-arc').setAttribute(
+      'd',
+      `M ${(cx - sin * arcR).toFixed(1)} ${(cy - cos * arcR).toFixed(1)} ` +
+        `A ${arcR} ${arcR} 0 0 1 ${(cx + sin * arcR).toFixed(1)} ${(cy - cos * arcR).toFixed(1)}`
+    );
+    $('#fov-deg').textContent = `${fov}°`;
+  }
+
+  // Live wireframe while dragging the FOV slider (lf-input bubbles).
+  document.addEventListener('lf-input', (e) => {
+    const host = e.target instanceof HTMLElement ? e.target.closest('[data-opt]') : null;
+    if (host && host.dataset.opt === 'fov') updateFov(e.detail.value);
+  });
+
+  /* ---- motion samples ---- */
+  const statbars = $('#statbars');
+  $('#btn-damage').addEventListener('lf-action', () => {
+    const cur = Number(statbars.getAttribute('health') || 20);
+    statbars.damage(cur <= 4 ? 14 : cur - 4);
+    addLog(`statbars.damage() — motionReduced()=${motionReduced()}`);
+  });
+  const shakeCard = $('#shake-card');
+  shakeCard.addEventListener('animationend', () => delete shakeCard.dataset.shaking);
+  $('#btn-shake').addEventListener('lf-action', () => {
+    // Game-shake rule: JS-driven motion consults motionReduced() first.
+    if (motionReduced()) {
+      addLog('shake suppressed — motionReduced()=true');
+      return;
+    }
+    delete shakeCard.dataset.shaking;
+    void shakeCard.offsetWidth; // restart animation
+    shakeCard.dataset.shaking = '';
+  });
+
+  /* ---- §4 simulation buttons (same event shapes the game shell uses) ---- */
+  $('#btn-reset').addEventListener('lf-action', () => store.reset());
+  $('#btn-low-vision').addEventListener('lf-action', () => {
+    store.set('uiScale', 1.3);
+    store.set('subtitles', true);
+  });
+  $('#btn-photo').addEventListener('lf-action', () => store.set('reducedMotion', 'on'));
+  $('#btn-redispatch').addEventListener('lf-action', () => {
+    window.dispatchEvent(
+      new CustomEvent('lf-options-change', { detail: { key: null, value: null, options: store.options } })
+    );
+  });
+
+  /* ---- shell chrome ---- */
+  document.querySelector('lf-settings-shell').addEventListener('lf-back', () => {
+    addLog('lf-back — a real shell would pop one screen level');
+  });
+
+  const themeBtn = $('#theme-toggle');
+  themeBtn.addEventListener('lf-action', () => {
+    const root = document.documentElement;
+    const light = root.getAttribute('data-theme') === 'light';
+    root.setAttribute('data-theme', light ? 'dark' : 'light');
+    // Relabel through the rendered label span — replacing the host's
+    // textContent would wipe lf-button's internal structure.
+    themeBtn.querySelector('.lf-button__label').textContent =
+      light ? 'Switch to light theme' : 'Switch to dark theme';
+  });
+
+  // Initial paint (the store dispatched its load event before these
+  // listeners existed).
+  $('#opts-json').textContent = JSON.stringify(store.options, null, 2);
+  applyPreviews(store.options);
+</script>
+</body>
+</html>
