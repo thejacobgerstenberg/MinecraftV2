@@ -993,6 +993,11 @@ async function bootSession(worldMeta) {
     if (G !== S || !S.dead) return;
     S.dead = false;
     S.player.respawn(); // resets position, velocity, and health
+    // Announce the teleport: the server only accepts an over-budget move
+    // when it lands back at the spawn anchor AND was declared as a respawn
+    // (there is no unconditional resync grace — see PROTOCOL.md §7 rule 6).
+    S.net.sendRespawn();
+    S.net.sendMove(S.player.position, S.controls.yaw, S.controls.pitch);
     ui.hud.setHealth(S.player.health);
     gameEvents.emit('player:respawned', {});
     safeLock();
@@ -1603,6 +1608,13 @@ async function switchDimension(dimId, opts = {}) {
 
   applyDimensionEnvironment(dimId);
   S.net.setDimension(dimId);
+  // Overwrite the pending move NOW (same tick): setDimension folds the switch
+  // into the next outgoing move, but the last queued position predates the
+  // travel — flushing that stale position with the new dim would burn the
+  // dimension-change grace on the WRONG spot and get the real arrival point
+  // rejected as an over-budget move (the server has no resync grace). The
+  // arrival position also becomes the server-side respawn anchor.
+  S.net.sendMove(S.player.position, S.controls.yaw, S.controls.pitch);
   S.peers.setDimension(dimId);
   // Mobs: despawn everyone, switch to the destination's spawn tables (the
   // manager normalizes engine ids internally; its world proxy already

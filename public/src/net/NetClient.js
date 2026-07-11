@@ -149,6 +149,13 @@ export class NetClient {
     }
   }
 
+  /** Announce a respawn (immediate). The server only accepts the following
+   * teleport-sized move if it lands at the spawn anchor (PROTOCOL.md §4), so
+   * call this whenever the local player re-stitches at their spawn point. */
+  sendRespawn() {
+    this._send({ t: 'respawn' });
+  }
+
   /** Immediate block edit in the current dimension. */
   sendEdit(x, y, z, blockId) {
     this._send({ t: 'edit', x, y, z, block: blockId, dim: this._dim });

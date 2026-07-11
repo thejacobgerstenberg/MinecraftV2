@@ -4,7 +4,9 @@
 // exercises every hardening measure from the security audit:
 //   S0  DoS: 64 KiB frame cap (close 1009) + global msg rate limit (close 1008)
 //   S1  REST lockdown: PUT /api/worlds/:id removed (404)
-//   S1  speed/teleport validation (grace on join + dimension change)
+//   S1  speed/teleport validation (grace ONLY on join, dimension change, and
+//       announced respawn into the spawn anchor — no unconditional resync;
+//       includes the benign-first-move-then-teleport regression)
 //   S1  edit reach cap (7 blocks), edit bounds, cross-dimension binding
 //   S1  edit rate cap (20/s token bucket)
 //   S2  bedrock floor (no edits at y=0)
@@ -234,11 +236,68 @@ async function testSpeedHack() {
   return { A, B, worldId };
 }
 
-async function testReachAndBounds(ctx) {
-  const { A, B } = ctx;
-  // Re-anchor A deterministically (its position after the speed test depends
-  // on where the budget ran out): wait out the grace cooldown, teleport-resync.
+/**
+ * The teleport hole the resync grace used to leave open: a client whose
+ * FIRST move is benign (within budget, so it never consumed the join grace
+ * in the old code) must still have a later 500-block jump rejected — even
+ * after the old 2 s "resync" cooldown has elapsed. Also locks the explicit
+ * respawn signal: an over-budget move is accepted ONLY when announced via
+ * `{t:'respawn'}` AND landing at the spawn anchor (the first-move position).
+ */
+async function testTeleportAfterBenignFirstMove(ctx) {
+  const { B, worldId } = ctx;
+  const C = await connectClient(worldId, 'Blinker');
+
+  // Benign first move: takes the within-budget path (anchor = (1, 1)).
+  sendJson(C, { t: 'move', x: 1, y: 80, z: 1 });
+  await waitFor(B, (m) => m.t === 'move' && m.id === C.id && m.x === 1);
+
+  // The 500-block jump must be rejected; the sync move after it passes.
+  sendJson(C, { t: 'move', x: 501, y: 80, z: 1 });
+  sendJson(C, { t: 'move', x: 2, y: 80, z: 1 });
+  await waitFor(B, (m) => m.t === 'move' && m.id === C.id && m.x === 2);
+  check('S1 500-block teleport after a benign first move is rejected',
+    !B.msgs.some((m) => m.t === 'move' && m.id === C.id && m.x === 501));
+
+  // Waiting out the old 2 s resync cooldown must NOT re-open the hole.
   await sleep(2100);
+  sendJson(C, { t: 'move', x: 502, y: 80, z: 1 });
+  sendJson(C, { t: 'move', x: 3, y: 80, z: 1 });
+  await waitFor(B, (m) => m.t === 'move' && m.id === C.id && m.x === 3);
+  check('S1 teleport is still rejected after any cooldown (no resync grace)',
+    !B.msgs.some((m) => m.t === 'move' && m.id === C.id && m.x === 502));
+
+  // Announced respawn INTO the anchor: drain the budget with a 20-block walk,
+  // then declare a respawn and jump back to the anchor -> accepted.
+  sendJson(C, { t: 'move', x: 3, y: 80, z: 21 });
+  await waitFor(B, (m) => m.t === 'move' && m.id === C.id && m.z === 21);
+  sendJson(C, { t: 'respawn' });
+  sendJson(C, { t: 'move', x: 1, y: 80, z: 1 });
+  const returned = await waitForCount(
+    B, (m) => m.t === 'move' && m.id === C.id && m.x === 1 && m.z === 1, 2);
+  check('S1 announced respawn back to the spawn anchor is accepted', returned);
+
+  // Announced respawn to anywhere ELSE stays rejected (signal is not a
+  // general-purpose teleport).
+  sendJson(C, { t: 'respawn' });
+  sendJson(C, { t: 'move', x: 900, y: 80, z: 900 });
+  sendJson(C, { t: 'move', x: 2, y: 80, z: 2 });
+  await waitFor(B, (m) => m.t === 'move' && m.id === C.id && m.x === 2 && m.z === 2);
+  check('S1 announced respawn cannot teleport anywhere but the anchor',
+    !B.msgs.some((m) => m.t === 'move' && m.id === C.id && m.x === 900));
+
+  await closeClient(C);
+}
+
+async function testReachAndBounds(ctx) {
+  const { B } = ctx;
+  // Re-anchor deterministically (A's position after the speed test depends on
+  // where the budget ran out). The old trick — wait 2 s and "teleport-resync"
+  // — is gone by design (no unconditional resync grace), so use a fresh
+  // connection whose first move lands at the edit site.
+  await closeClient(ctx.A);
+  const A = await connectClient(ctx.worldId, 'Speedy2');
+  ctx.A = A;
   sendJson(A, { t: 'move', x: 3, y: 80, z: 3 });
   await waitFor(B, (m) => m.t === 'move' && m.id === A.id && m.x === 3);
 
@@ -474,6 +533,7 @@ async function main() {
   await testDosNormalRateSurvives();
   await testRestPutRemoved();
   const ctx = await testSpeedHack();
+  await testTeleportAfterBenignFirstMove(ctx);
   await testReachAndBounds(ctx);
   await testCrossDimension(ctx);
   await closeClient(ctx.A);

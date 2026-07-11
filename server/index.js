@@ -5,7 +5,7 @@
 //   saves/<id>.json. Writes happen ONLY through validated WebSocket edits —
 //   there is deliberately no REST write/PUT endpoint (see docs/PROTOCOL.md §7).
 // - WebSocket endpoint at /ws hosting one "room" per world with
-//   join / move / edit / chat traffic. All inbound traffic is validated and
+//   join / move / respawn / edit / chat traffic. All inbound traffic is validated and
 //   rate-limited server-side; the server is authoritative for player
 //   position, dimension, names, and world edits. See docs/PROTOCOL.md for the
 //   full message reference and the security/limits table.
@@ -50,8 +50,14 @@ const MAX_MOVE_SPEED = 25;
 const MAX_FALL_SPEED = 90;
 /** Movement budgets accrue up to this many seconds of allowance (burst). */
 const MOVE_BURST_S = 1;
-/** Min interval between grace teleports (join / dimension travel / respawn resync). */
+/** Min interval between dimension-change grace teleports (anti dim-flapping). */
 const GRACE_COOLDOWN_MS = 2000;
+/** Horizontal radius around the recorded spawn anchor within which an
+ * announced-respawn move is accepted (spawn is deterministic; 8 covers
+ * throttling drift between the respawn and the next outgoing move). */
+const RESPAWN_RADIUS = 8;
+/** Min interval between move_rejected notices to a violating sender. */
+const MOVE_REJECT_NOTICE_MS = 1000;
 /** Server-side edit reach cap; client reach is 6, +1 covers eye/latency slack. */
 const MAX_REACH = 7;
 /** World edit + movement horizontal bound. */
@@ -413,7 +419,11 @@ async function handleJoin(ws, msg) {
     // Anti-cheat / rate-limit state (server-side only; never serialized —
     // peerSnapshot picks its fields explicitly).
     pendingGrace: true, // the first move after join is a free teleport
+    pendingRespawn: false, // set by a `respawn` frame; honored only INTO the anchor
+    anchorX: 0, // spawn anchor: join spawn / dimension entry point (see handleMove)
+    anchorZ: 0,
     lastTeleportAt: 0,
+    lastMoveRejectAt: 0,
     ctrlBudget: makeBucket(MAX_MOVE_SPEED * MOVE_BURST_S, MAX_MOVE_SPEED),
     fallBudget: makeBucket(MAX_FALL_SPEED * MOVE_BURST_S, MAX_FALL_SPEED),
     editBucket: makeBucket(EDIT_RATE.burst, EDIT_RATE.perSec),
@@ -448,10 +458,22 @@ async function handleJoin(ws, msg) {
  *    (horizontal + upward, 25 b/s sustained, 25-block burst) and "fall"
  *    (downward, 90 b/s — free fall legitimately reaches ~81 b/s);
  *  - a move that exceeds its budget is DROPPED (the server keeps the last
- *    valid position) unless a grace teleport applies: the first move after
- *    join, a dimension change, or a resync at most once per
- *    GRACE_COOLDOWN_MS (covers client-side respawn, which has no wire
- *    signal). Grace teleports refill both budgets.
+ *    valid position and notifies the sender with `error: move_rejected`,
+ *    throttled to 1/s) unless one of the EXPLICIT grace teleports applies:
+ *      1. the first move after join (the client computes its own spawn);
+ *      2. a dimension change, at most once per GRACE_COOLDOWN_MS (portal
+ *         travel remaps coordinates; the cooldown stops dim-flap teleports);
+ *      3. an announced respawn (`{t:'respawn'}` frame), honored ONLY into
+ *         the recorded spawn anchor (horizontal distance <= RESPAWN_RADIUS).
+ *    Grace teleports refill both budgets. There is deliberately NO
+ *    unconditional "resync" grace: an over-budget move that matches no rule
+ *    above is never accepted or broadcast, no matter how long the sender
+ *    waits (security checklist: a 500-block teleport is never seen by peers).
+ *
+ * The spawn anchor is the last position the player legitimately (re)spawned
+ * at: the first move after join, updated by every dimension-change grace
+ * (the arrival point is the new spawn column — the client sets
+ * `player.spawn` there, see main.js switchDimension).
  */
 function handleMove(ws, msg) {
   const { player, room } = ws;
@@ -478,13 +500,45 @@ function handleMove(ws, msg) {
   if (withinBudget && !dimChanged) {
     player.ctrlBudget.tokens = Math.max(0, player.ctrlBudget.tokens - ctrl);
     player.fallBudget.tokens = Math.max(0, player.fallBudget.tokens - down);
-  } else if (player.pendingGrace || now - player.lastTeleportAt >= GRACE_COOLDOWN_MS) {
-    // Grace teleport: join spawn, dimension travel, or respawn resync.
-    player.lastTeleportAt = now;
+  } else {
+    // Over budget (or a dimension change, which is always teleport-like).
+    // Only the explicit, bounded graces documented above apply.
+    let grace = false;
+    if (player.pendingGrace) {
+      grace = true; // rule 1: first move after join
+    } else if (dimChanged) {
+      // rule 2: dimension travel, rate-limited against dim-flapping
+      grace = now - player.lastTeleportAt >= GRACE_COOLDOWN_MS;
+    } else if (player.pendingRespawn &&
+               Math.hypot(x - player.anchorX, z - player.anchorZ) <= RESPAWN_RADIUS) {
+      // rule 3: announced respawn, and ONLY back into the spawn anchor —
+      // useless for teleport cheating (equivalent to legitimately dying),
+      // hence no cooldown (denying a real respawn would desync the client).
+      grace = true;
+      player.pendingRespawn = false;
+    }
+    if (!grace) {
+      // Violation: keep the last authoritative position. Tell the sender
+      // (throttled) so a desynced client is observable in its console.
+      if (now - player.lastMoveRejectAt >= MOVE_REJECT_NOTICE_MS) {
+        player.lastMoveRejectAt = now;
+        send(ws, {
+          t: 'error',
+          code: 'move_rejected',
+          message: `move exceeds the speed budget; server keeps `
+            + `(${player.x.toFixed(1)}, ${player.y.toFixed(1)}, ${player.z.toFixed(1)})`,
+        });
+      }
+      return;
+    }
+    if (player.pendingGrace || dimChanged) player.lastTeleportAt = now;
     player.ctrlBudget.tokens = player.ctrlBudget.capacity;
     player.fallBudget.tokens = player.fallBudget.capacity;
-  } else {
-    return; // speed/teleport violation: keep the last authoritative position
+  }
+  if (player.pendingGrace || dimChanged) {
+    // (Re)anchor the respawn point: join spawn or dimension entry point.
+    player.anchorX = x;
+    player.anchorZ = z;
   }
   player.pendingGrace = false;
 
@@ -536,6 +590,18 @@ function handleEdit(ws, msg) {
   markDirty(room);
   broadcast(room, { t: 'edit', id: player.id, x, y, z, block, dim },
     { dim, except: player.id });
+}
+
+/**
+ * Respawn announcement: the client declares that its NEXT over-budget move
+ * is a respawn teleport. The grace is only honored INTO the recorded spawn
+ * anchor (see handleMove rule 3), so the signal cannot be abused to teleport
+ * anywhere else — spamming it grants nothing a legitimate death would not.
+ * The flag persists until consumed by a matching move (a respawn close to
+ * the death spot may produce an ordinary within-budget move instead).
+ */
+function handleRespawn(ws) {
+  ws.player.pendingRespawn = true;
 }
 
 /**
@@ -599,6 +665,7 @@ wss.on('connection', (ws) => {
 
     switch (msg.t) {
       case 'move': handleMove(ws, msg); break;
+      case 'respawn': handleRespawn(ws); break;
       case 'edit': handleEdit(ws, msg); break;
       case 'chat': handleChat(ws, msg); break;
       default: break; // unknown types ignored

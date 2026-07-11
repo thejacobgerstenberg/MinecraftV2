@@ -145,12 +145,19 @@ pings automatically; no client action is needed.
   server-side token buckets: *controllable* motion (horizontal + upward,
   **25 blocks/s** sustained, 25-block burst — creative sprint-fly is 20 b/s)
   and *fall* motion (downward, **90 blocks/s**, covering free fall which
-  peaks near 81 b/s). A move exceeding its budget is **silently dropped**:
-  the server keeps — and keeps broadcasting — the last valid position.
-  Exceptions ("grace teleports", which refill both budgets): the **first
-  move after join**, a **dimension change**, and a **resync** at most once
-  per 2 s (this covers client-side respawn, which has no wire signal; it
-  also caps a cheater at one teleport per 2 s instead of unlimited).
+  peaks near 81 b/s). A move exceeding its budget is **dropped**: the server
+  keeps — and keeps broadcasting — the last valid position, and notifies the
+  sender with `error: move_rejected` (throttled to one notice per second).
+  The only exceptions ("grace teleports", which refill both budgets) are:
+  the **first move after join** (the client computes its own spawn), a
+  **dimension change** at most once per 2 s (portal travel remaps
+  coordinates; the cooldown blocks dim-flap teleporting), and an
+  **announced respawn** — a `respawn` frame followed by a move landing at
+  the player's *spawn anchor* (horizontal distance ≤ 8). The spawn anchor is
+  the first-move position, updated by every dimension-change grace (the
+  arrival point is the new spawn column). There is **no** unconditional
+  resync: an over-budget move that matches no rule above is never accepted
+  or broadcast, no matter how long the sender waits.
 - **Dimension changes:** a `move` whose `dim` differs from the sender's
   stored dimension performs the switch. The server updates its record and
   broadcasts a fresh **`peer-join`** (carrying the new `dim` and position)
@@ -159,6 +166,26 @@ pings automatically; no client action is needed.
   otherwise update its position/dimension (and hide it locally if it is now
   in another dimension). No `peer-leave` is sent for dimension changes —
   `peer-leave` always means the socket is gone.
+
+### `respawn`
+```json
+{ "t": "respawn" }
+```
+- Announces that the sender's next teleport-sized `move` is a **respawn**.
+  The server flags the connection; the next over-budget move is accepted
+  **only if** it lands within **8 blocks** (horizontal) of the sender's
+  *spawn anchor* — the position of the first move after join, updated on
+  every dimension change (main.js moves `player.spawn` to the arrival
+  column at exactly those moments).
+- The flag persists until consumed by a matching move: a respawn close to
+  the death spot legitimately produces an ordinary within-budget move, so
+  the flag must not expire, and denying a repeat respawn could permanently
+  desync an honest client. There is deliberately **no cooldown**: the grace
+  is anchored, so spamming it grants nothing a legitimate death would not
+  (a bounce back to spawn).
+- Clients send this from the death screen's Respawn action
+  (`NetClient.sendRespawn()`), immediately before the first post-respawn
+  move.
 
 ### `edit`
 ```json
@@ -260,9 +287,11 @@ Delivered to the whole room including the original sender.
 { "t": "error", "code": "bad_edit", "message": "block id out of range" }
 ```
 Advisory only; the connection stays open. Codes currently used:
-`bad_join`, `already_joined`, `bad_edit`, `bad_world`, `chat_rate`.
-(Rejected `move` frames and rate-capped edits are dropped **silently** —
-no error frame — so a flood cannot use the server as an amplifier.)
+`bad_join`, `already_joined`, `bad_edit`, `bad_world`, `chat_rate`,
+`move_rejected`. (Malformed `move` frames and rate-capped edits are dropped
+**silently**; speed-budget violations answer with `move_rejected` at most
+**once per second** per connection — so a flood cannot use the server as an
+amplifier, but a desynced client can see why its position froze.)
 
 ---
 
@@ -283,6 +312,8 @@ no error frame — so a flood cannot use the server as an amplifier.)
 - `setDimension(dim)` — folds into the next outgoing `move`; if a position
   is already known, a move is scheduled immediately so the switch propagates
   without waiting for player input.
+- `sendRespawn()` — immediate; announces that the next move is a respawn
+  teleport back to the spawn anchor (see the `respawn` message in §4).
 - `sendEdit(x, y, z, blockId)` — immediate (uses the current dimension).
 - `sendChat(text)` — immediate.
 - Outgoing frames are queued until the socket is open, then flushed after
@@ -306,7 +337,7 @@ regression test in `tests/security.test.mjs`, run via `npm test`):
 | 3 | REST writes | `PUT /api/worlds/:id` **removed** (was an unauthenticated bulk write); REST JSON bodies capped at 64 kB | `404` |
 | 4 | Identity | `id`/`name` on broadcasts are always the server-minted values; client-supplied `id`/`name` fields on `move`/`edit`/`chat` are ignored | spoofed fields never propagate |
 | 5 | Move coords | finite numbers; `\|x\|,\|z\| <= 30,000,000`; `-64 <= y <= 512` | frame dropped |
-| 6 | Move speed | **25 blocks/s** sustained (horizontal+up, 25-block burst), **90 blocks/s** down (free fall); dt measured server-side; grace teleport on join / dimension change / resync (max 1 per 2 s, covers respawn) | move dropped, server keeps last valid position |
+| 6 | Move speed | **25 blocks/s** sustained (horizontal+up, 25-block burst), **90 blocks/s** down (free fall); dt measured server-side; grace teleports ONLY on join (first move), dimension change (max 1 per 2 s), and announced respawn into the spawn anchor (±8 blocks); **no unconditional resync** | move dropped + `error: move_rejected` (throttled 1/s), server keeps last valid position |
 | 7 | Edit shape | integer coords, block `0..40`, `0 <= y < 128`, `\|x\|,\|z\| <= 30,000,000` | `error: bad_edit` |
 | 8 | Bedrock | **no edit at `y === 0`** (bedrock layer is always y=0 in every dimension; the server does not run worldgen, so the whole layer is protected) | `error: bad_edit` |
 | 9 | Edit dimension | bound to the **server-tracked** dimension; a `dim` field must match it | `error: bad_edit` |
@@ -316,8 +347,23 @@ regression test in `tests/security.test.mjs`, run via `npm test`):
 | 13 | Chat | strip control chars, cap 256, HTML-escape `&<>"'` on broadcast (name too); **3 msgs / 2 s** | over-limit dropped + `error: chat_rate` to sender |
 | 14 | Consistency | same-cell edits resolve **last-writer-wins**; all observers converge | n/a (locked by tests) |
 
-Known residual (accepted, documented): because client respawn has no wire
-signal, an over-budget move is accepted as a resync teleport at most once per
-2 s (rule 6). A cheater is therefore limited to one in-world teleport every
-2 s with nothing broadcast in between — bounded griefing, not full
-prevention. All other movement remains capped at the rates above.
+The old "resync" grace (an over-budget move accepted at most once per 2 s,
+which used to cover client respawn) is **gone**: respawn now has an explicit
+wire signal (`respawn`, §4) whose grace is only honored back into the
+player's recorded spawn anchor, so an arbitrary teleport move is never
+accepted or broadcast — not on the first try, and not after any cooldown.
+
+Known residuals (accepted, documented):
+
+- A cheater can still *announce a respawn* and bounce back to their spawn
+  anchor at will — identical in effect to legitimately dying, so it grants
+  no new capability.
+- A **dimension-change** move remains a grace teleport (max 1 per 2 s):
+  portal travel remaps coordinates, and the server cannot verify the
+  mapping without running worldgen. Flapping dimensions therefore relocates
+  a cheater at most once per 2 s, and only ever surfaces to peers as
+  `peer-join` upserts (never as a silent same-dimension `move` jump).
+- A client that teleports itself *without* dying or changing dimension
+  (e.g. a QA harness writing `player.position` directly) simply desyncs:
+  the server keeps broadcasting its last valid position and answers with
+  `move_rejected` until the client walks back or respawns/travels.
