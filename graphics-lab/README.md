@@ -79,8 +79,14 @@ produced the screenshots below.
 | ![warpwold rain](./screenshots/23-warpwold-rain.png) | Rain over warpwold: the TWO stacked weather cloud layers thickened dark + fast (parallax drift in opposite directions), wind-tilted streaks, ambient motes thinned by the weather. |
 | ![underwater caustics](./screenshots/24-underwater-caustics.png) | UnderwaterFX from inside the lake: the cellular caustic web dappling submerged block tops (one merged additive mesh), sun-aligned light shafts hanging from the surface. |
 | ![photo mode](./screenshots/25-photomode.png) | Photo mode (`P`): free-fly compose camera with cinematic letterbox + vignette overlay; `captureStill()` renders 2560×1440 stills through the full PostFX chain. |
+| ![real worldgen day](./screenshots/26-realworld-day.png) | Integration proof (day): the builder's REAL `TerrainGenerator` (vendored byte-exact from `feat/voxel-sandbox-game` @ `98c7ea9`), 4×4 chunks = 64×128×64, fed through the `GraphicsStack` facade at quality high — everything on. 34 draw calls / ~198k tris; world geometry is 2 of those calls. |
+| ![real worldgen night](./screenshots/27-realworld-night.png) | Integration proof (night): same real overworld slice at t=0.85 — stars, moonlight key, auto night bloom. The builder palette has NO torch block and the overworld generator places zero emissive blocks, so this is what unlit builder nights look like (FINDINGS #4). |
+| ![real worldgen cinderloom](./screenshots/28-realworld-cinderloom.png) | Integration proof (nether → cinderloom sky): inside the builder's real nether cavern under a glowstone ceiling blob, ~400 lights derived from real emissive blocks (registered on the ADJACENT AIR cell — FINDINGS #5). Lava ocean maps to glowstone (FINDINGS #3/#6); the orange band is dusk sky through the slice's open sides. |
+| ![real worldgen nevermend](./screenshots/29-realworld-nevermend.png) | Integration proof (end → nevermend sky): the builder's real end island under the aurora curtains, water/underwater features disabled (floating islands over void — FINDINGS #10); the drop at frame right is the real island edge. |
 
 ## Module catalog
+
+**Integration facade:** [`integrate.js`](./integrate.js) exports `GraphicsStack` — ONE composition of everything below (7-statement adoption, proven against the builder's real worldgen); the ordered adoption checklist + findings live in [`INTEGRATION.md`](./INTEGRATION.md).
 
 All modules are native ES modules importing the bare specifier `three`.
 Shared `ctx` shape (see "Integration guide" for the demo's exact object):
