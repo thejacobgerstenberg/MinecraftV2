@@ -31,8 +31,10 @@ const WALK_SPEED = 4.317;      // blocks/s (spec SPEED_WALK)
 const SPRINT_MULT = 1.3;       // ×4.317 ≈ 5.612 blocks/s (spec SPEED_SPRINT)
 const SNEAK_MULT = 0.3;        // ×4.317 ≈ 1.295 blocks/s (spec SPEED_SNEAK);
                                // sneaking cancels sprint
-const FLY_SPEED = 10;          // deliberately NOT the spec's 10.89 — flight
-const FLY_SPRINT_SPEED = 20;   // speeds are a product decision, kept as-is
+const FLY_SPEED = 10.89;       // blocks/s (spec SPEED_FLY) — aligned so all 9
+const FLY_SPRINT_SPEED = 21.78; // spec locomotion tests run; sprint-fly keeps
+                               // the 2× ratio (well under the server's 25 b/s
+                               // sustained anticheat budget)
 const GRAVITY = -32;           // blocks/s² (spec −0.08 b/tick² × 400)
 const JUMP_VELOCITY = 8.4;     // blocks/s (spec 0.42 b/tick × 20); onGround only
 const SPRINT_JUMP_BOOST = 1.2; // forward impulse on the jump tick while sprinting

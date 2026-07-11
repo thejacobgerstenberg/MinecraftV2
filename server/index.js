@@ -58,7 +58,7 @@ const EDIT_RATE = { perSec: 20, burst: 20 };
 /** Chat rate per connection (sliding window). */
 const CHAT_RATE = { msgs: 3, perMs: 2000 };
 /** Max sustained "controllable" movement speed (horizontal + upward), b/s.
- * Creative sprint-fly is 20 b/s; 25 leaves headroom for jitter. */
+ * Creative sprint-fly is 21.78 b/s; 25 leaves headroom for jitter. */
 const MAX_MOVE_SPEED = 25;
 /** Max sustained downward speed, b/s (free fall peaks around 81 b/s). */
 const MAX_FALL_SPEED = 90;

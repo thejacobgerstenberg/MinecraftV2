@@ -111,7 +111,7 @@ The pause menu also has a **Travel** row that jumps between dimensions directly 
 npm test
 ```
 
-Runs all 8 suites in `tests/` (plain Node, no framework, CI-ready):
+Runs all 9 suites (plain Node, no framework, CI-ready) — the 8 legacy suites in `tests/` plus the adopted `tests-plus/` spec suites under `node --test` (`npm run test:plus` runs just the latter):
 
 - `worldgen` — deterministic terrain: same seed, same world; biome/height invariants
 - `mesher` — chunk meshing: face culling, AO, geometry counts
@@ -121,6 +121,7 @@ Runs all 8 suites in `tests/` (plain Node, no framework, CI-ready):
 - `net` — the live WebSocket protocol against a real server (join, move, edit, chat)
 - `security` — 42-check hardening regression: rate limits, reach/bounds/speed validation, sanitization
 - `desync` — server edit rejects + client rollback (no ghost blocks)
+- `tests-plus/` — adopted deep suites (node:test): physics **spec pins** (gravity −32 b/s², jump 8.4 b/s, walk 4.317 / sprint 5.612 / sneak 1.295 / fly 10.89 b/s, terminal −78.4 b/s, auto-step 0.6, reach 6), plus meshing, raycast, worldgen determinism, save/load, and protocol anticheat
 
 ## Project structure
 

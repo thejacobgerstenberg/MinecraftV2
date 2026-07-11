@@ -9,7 +9,7 @@
     "start": "node server/index.js",
     "dev": "node server/index.js",
     "test": "node tests/run-all.mjs",
-    "test:plus": "node --test --test-concurrency=1 tests-plus/",
+    "test:plus": "node --test --test-concurrency=1 tests-plus/*.test.mjs",
     "test:legacy": "node tests/run-all.mjs"
   },
   "engines": {

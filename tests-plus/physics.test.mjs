@@ -13,10 +13,9 @@
 // is continuous (blocks/s^2, dt-integrated) with constants DERIVED from the
 // tick-based spec via SIM_HZ = 20 (b/tick -> b/s = *20 ; b/tick^2 -> b/s^2 =
 // *400): the spec-alignment pass reconciled gravity/jump/terminal/walk/
-// sprint/sneak, added STEP_HEIGHT 0.6 auto-step, and unified reach at 6, so
-// the former SPEC-DELTA skips now RUN and PASS. ONE documented KNOWN-SKIP
-// remains: SPEED_FLY (spec 10.89) — flight speeds are intentionally kept at
-// 10/20 b/s as a product decision.
+// sprint/sneak, added STEP_HEIGHT 0.6 auto-step, and unified reach at 6, and
+// a follow-up flipped flight to the spec's SPEED_FLY 10.89 (sprint-fly keeps
+// the 2x ratio: 21.78), so ALL NINE former SPEC-DELTA skips now RUN and PASS.
 //
 // FEATURE-DETECT / SKIP GUARD: on the feature/ci branch the game tree
 // (public/src/...) is absent, so every real module is dynamic-imported inside
@@ -261,7 +260,7 @@ if (loadError) {
   //   WALK   = 4.317              (spec SPEED_WALK)
   //   SPRINT = 4.317*1.3 ~= 5.612 (spec SPEED_SPRINT)
   //   SNEAK  = 4.317*0.3 ~= 1.295 (spec SPEED_SNEAK; sneak cancels sprint)
-  //   FLY    = 10 / 20 sprint     (KNOWN-SKIP: spec 10.89, kept by choice)
+  //   FLY    = 10.89 / 21.78 sprint (spec SPEED_FLY; sprint-fly keeps 2x)
   // On ground / flying, velocity snaps to the wish dir, so steady-state
   // displacement/dt equals the target speed exactly.
   // =========================================================================
@@ -298,13 +297,13 @@ if (loadError) {
       `code sneak ${v} != spec SPEED_SNEAK ${SPEC.SPEED_SNEAK}`);
   });
 
-  test('fly speed: 10 b/s, sprint-fly 20 b/s (regression pin) + simulation', () => {
+  test('fly speed: 10.89 b/s, sprint-fly 21.78 b/s (regression pin) + simulation', () => {
     const v = flySpeed({});
-    assert.ok(Math.abs(v - 10) < 0.02, `fly speed ${v} should pin to 10 b/s`);
+    assert.ok(Math.abs(v - 10.89) < 0.02, `fly speed ${v} should pin to 10.89 b/s`);
     const vs = flySpeed({ sprint: true });
-    assert.ok(Math.abs(vs - 20) < 0.03, `sprint-fly speed ${vs} should pin to 20 b/s`);
+    assert.ok(Math.abs(vs - 21.78) < 0.03, `sprint-fly speed ${vs} should pin to 21.78 b/s`);
   });
-  test('fly speed: SPEC DELTA — spec SPEED_FLY 10.89', { skip: 'KNOWN-SKIP (documented): flight speeds intentionally stay 10/20 b/s — product decision from the spec-alignment pass ("flight speeds unchanged"); spec wants 10.89. Test kept, not deleted.' }, () => {
+  test('fly speed: SPEC — SPEED_FLY 10.89', () => {
     const v = flySpeed({});
     assert.ok(Math.abs(v - SPEC.SPEED_FLY) < 0.001,
       `code fly ${v} != spec SPEED_FLY ${SPEC.SPEED_FLY}`);

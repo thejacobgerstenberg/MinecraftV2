@@ -152,7 +152,7 @@ pings automatically; no client action is needed.
 - **Speed validation.** The server tracks each player's authoritative
   position and charges every accepted move's displacement against two
   server-side token buckets: *controllable* motion (horizontal + upward,
-  **25 blocks/s** sustained, 25-block burst — creative sprint-fly is 20 b/s)
+  **25 blocks/s** sustained, 25-block burst — creative sprint-fly is 21.78 b/s)
   and *fall* motion (downward, **90 blocks/s**, covering free fall which
   peaks near 81 b/s). A move exceeding its budget is **dropped**: the server
   keeps — and keeps broadcasting — the last valid position, and notifies the

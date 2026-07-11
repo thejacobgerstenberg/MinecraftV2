@@ -16,12 +16,11 @@ const ROOT = path.resolve(TESTS_DIR, '..');
 const TESTS_PLUS_DIR = path.join(ROOT, 'tests-plus');
 
 // Documented deliberate skips inside tests-plus (kept as skipped tests, not
-// deleted — see docs/TEST_ADOPTION.md). Printed with the summary so the skip
-// count is never mistaken for rot.
-const KNOWN_SKIPS = [
-  'tests-plus/physics.test.mjs — "fly speed: SPEC DELTA — spec SPEED_FLY 10.89": ' +
-  'flight speeds intentionally stay 10/20 b/s (product decision); the spec value is 10.89.',
-];
+// deleted). Printed with the summary so the skip count is never mistaken for
+// rot. Currently EMPTY: the last one (fly-speed spec delta) was retired when
+// flight was aligned to the spec's SPEED_FLY 10.89 — all 9 physics spec tests
+// now run.
+const KNOWN_SKIPS = [];
 
 function runOne(file) {
   return new Promise((resolve) => {
