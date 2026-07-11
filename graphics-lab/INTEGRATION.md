@@ -78,7 +78,7 @@ await gfx.init({ domElement: document.body, volumeProvider,                  // 
                  waterLevel: SEA_LEVEL });
 gfx.setTimeOfDay(0.35);                                                      // 5
 gfx.start();                                                                 // 6  (throwaway; replaced in 1b)
-window.gfx = gfx;                                                            // 7  (debug hook, optional)
+window.gfx = gfx;                                                            // 7  (REQUIRED — the verify-integration.mjs gate probes through window.gfx)
 ```
 
 That renders the builder's real terrain through the full stack in its own

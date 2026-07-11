@@ -94,6 +94,8 @@ produced the screenshots below.
 
 **Emitter doc:** [`EMITTERS.md`](./EMITTERS.md) — the builder-facing one-pager for the above: derive lights from `blocks.js` `emissive` values, the adjacent-air rule explained, and what to wire when a torch id is added.
 
+**Acceptance gate:** [`verify-integration.mjs`](./verify-integration.mjs) + [`VERIFY-INTEGRATION.md`](./VERIFY-INTEGRATION.md) — the post-integration acceptance gate: `node graphics-lab/verify-integration.mjs` boots the REAL game headless, plays through the menu into a world and probes that the stack genuinely renders the frame (fog Δ, RT writes, water motion, pack-swap pixels); every probe goes through the `window.gfx` named-global convention, so `window.gfx = gfx` (INTEGRATION.md Step 1, statement 7) is REQUIRED for a green gate.
+
 All modules are native ES modules importing the bare specifier `three`.
 Shared `ctx` shape (see "Integration guide" for the demo's exact object):
 `{ camera, renderer, scene, elapsed, timeOfDay (0..1), sunDir: THREE.Vector3,
