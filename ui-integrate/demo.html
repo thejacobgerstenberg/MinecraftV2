@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Loomfall UI Integrate — Before/After HUD Proof</title>
+  <!-- Inline favicon so the harness sees no favicon 404. -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23F2C14E'/%3E%3C/svg%3E" />
+
+  <!-- Classic script runs before the deferred module. The vendor menu module
+       fetches /content/*.json at import (splashes, tips) and falls back
+       gracefully on 404 — but the 404 still logs to the console. Serve those
+       endpoints locally from an in-page stub so the proof runs console-clean;
+       every other request passes through to the network untouched. -->
+  <script>
+    (function () {
+      var STUBS = {
+        '/content/splashes.json': { splashes: ['Every thread returns.', 'Bind responsibly.'] },
+        '/content/tips.json': { tips: [{ text: 'Pull a thread, see what happens.' }] },
+        '/content/naming.json': { blocks: [], biomes: [] },
+      };
+      var _fetch = window.fetch ? window.fetch.bind(window) : null;
+      window.fetch = function (input, init) {
+        var url = typeof input === 'string' ? input : (input && input.url) || '';
+        try { url = new URL(url, location.href).pathname; } catch (e) {}
+        if (Object.prototype.hasOwnProperty.call(STUBS, url)) {
+          return Promise.resolve(new Response(JSON.stringify(STUBS[url]), {
+            status: 200, headers: { 'Content-Type': 'application/json' },
+          }));
+        }
+        return _fetch ? _fetch(input, init) : Promise.reject(new Error('no fetch'));
+      };
+    })();
+  </script>
+
+  <!-- BEFORE baseline: the builder's bespoke stylesheet. In AFTER mode the
+       HudKit injects ui-kit/tokens.css + base.css + brand-theme.css on top. -->
+  <link rel="stylesheet" href="./vendor-game/css/style.css" />
+
+  <style>
+    /* ---- Demo harness layout only (no color decisions live here; those
+       come from style.css BEFORE and the lf tokens + brand-theme AFTER). ---- */
+    /* Transparent root: the ONLY opaque backdrop is the world <canvas>, so the
+       contrast sampler's ancestor walk falls through to the real world pixel
+       (via worldColorAt) for HUD-over-world text instead of hitting an opaque
+       page background. Widgets/menu cards carry their own local surfaces. */
+    html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+
+    /* The "live world" the HUD text sits over — a real raster we can read
+       pixels from (getImageData) so R1 contrast is computed on rendered
+       world pixels, exactly as the rubric asks. */
+    #demo-world {
+      position: fixed; inset: 0; z-index: 0; display: block;
+      width: 100vw; height: 100vh;
+    }
+
+    /* A small corner ribbon so each screenshot is self-labelling. */
+    #demo-mode-tag {
+      position: fixed; top: 8px; right: 10px; z-index: 200;
+      font: 700 12px/1 ui-monospace, monospace; letter-spacing: 0.14em;
+      text-transform: uppercase; padding: 6px 10px; border-radius: 6px;
+      color: #fff; background: rgba(0,0,0,0.55); pointer-events: none;
+      text-shadow: 0 1px 1px #000;
+    }
+
+    /* Menu: drop the module's fullscreen backdrop and present the main
+       screen as a centered TITLE CARD over the world, so the in-game HUD
+       (debug / hotbar / health / chat / crosshair) stays visible around it.
+       The card carries its own translucent dark plate — that is the real
+       surface the menu text sits on, and the contrast sampler reads it via
+       normal ancestor-background resolution. */
+    .menu-backdrop { display: none !important; }
+    .menu-screen { align-items: flex-start !important; pointer-events: none; }
+    .menu-main-wrap {
+      margin-top: 22px !important;
+      background: rgba(16, 19, 34, 0.82);
+      border: 1px solid rgba(96, 84, 140, 0.45);
+      border-radius: 16px;
+      padding: 22px 40px 28px !important;
+      box-shadow: 0 18px 50px rgba(0,0,0,0.5);
+      pointer-events: auto;
+    }
+    .menu-buttons { pointer-events: auto; }
+    .menu-footer {
+      background: rgba(16, 19, 34, 0.8);
+      padding: 4px 9px; border-radius: 6px;
+    }
+    /* Keep the interactive buttons compact so the card doesn't swamp the HUD. */
+    .menu-buttons .vx-btn { padding: 9px 18px; }
+
+    /* ---- AFTER: HUD placement for the adopted lf-* elements. The game shell
+       normally owns HUD layout; the demo mirrors the builder's positions so the
+       lf hotbar/statbars/chat land where their bespoke counterparts sat.
+       (lf-crosshair[fixed] and lf-debug-overlay already self-position.) ---- */
+    lf-hotbar {
+      position: fixed !important; left: 50%; bottom: 22px;
+      transform: translateX(-50%); z-index: 14;
+    }
+    lf-statbars {
+      position: fixed !important; left: 50%; bottom: 104px;
+      transform: translateX(-50%); z-index: 14; display: flex;
+    }
+    lf-chat {
+      position: fixed !important; left: 14px; bottom: 150px;
+      width: min(460px, 40vw); z-index: 14; display: block;
+    }
+    lf-debug-overlay { z-index: 14; }
+    lf-crosshair[fixed] { z-index: 13; }
+
+    /* Constrain the brand wordmark SVG (AFTER) — its viewBox is 740x240 with
+       no intrinsic px size, so bound it to a HUD-appropriate height. */
+    #game-title svg { height: 66px; width: auto; display: block; margin: 0 auto; }
+  </style>
+</head>
+<body>
+  <canvas id="demo-world" aria-hidden="true"></canvas>
+  <div id="demo-mode-tag">loading…</div>
+  <!-- The builder's menu adopts this #game-title (as index.html would provide);
+       AFTER, adoptWordmark() swaps its text for the brand wordmark SVG. -->
+  <h1 id="game-title">LOOMFALL</h1>
+
+  <script type="module">
+    import { initHUD } from './vendor-game/src/ui/hud.js';
+    import { initHotbar } from './vendor-game/src/ui/hotbar.js';
+    import { initInventory } from './vendor-game/src/ui/inventory.js';
+    import { initChat } from './vendor-game/src/ui/chat.js';
+    import { initDebug } from './vendor-game/src/ui/debug.js';
+    import { initMenus } from './vendor-game/src/ui/menu.js';
+    import { CREATIVE_BLOCKS, getBlockDef } from './vendor-game/src/blocks/blocks.js';
+    import HudKit from './integrate.js';
+    import * as rubric from './rubric.js';
+
+    /* ------------------------------------------------------------------ */
+    /* Error collection (surface console.error / pageerror to the harness) */
+    /* ------------------------------------------------------------------ */
+    const errors = [];
+    const _consoleError = console.error.bind(console);
+    console.error = (...args) => { errors.push(args.map(String).join(' ')); _consoleError(...args); };
+    window.addEventListener('error', (e) => {
+      errors.push('window.error: ' + (e.message || (e.error && e.error.message) || String(e)));
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      errors.push('unhandledrejection: ' + (e.reason && (e.reason.message || String(e.reason))));
+    });
+
+    /* ------------------------------------------------------------------ */
+    /* Mode                                                               */
+    /* ------------------------------------------------------------------ */
+    const params = new URLSearchParams(location.search);
+    const mode = params.get('mode') === 'after' ? 'after' : 'before';
+    document.getElementById('demo-mode-tag').textContent =
+      mode === 'after' ? 'AFTER · HudKit brand + lf-*' : 'BEFORE · bespoke style.css';
+
+    /* ------------------------------------------------------------------ */
+    /* World raster — a readable gameplay backdrop (bright sky so HUD-over-  */
+    /* world text has a genuinely challenging background to contrast against) */
+    /* ------------------------------------------------------------------ */
+    const world = document.getElementById('demo-world');
+    const wctx = world.getContext('2d', { willReadFrequently: true });
+    function paintWorld() {
+      const w = world.width = window.innerWidth;
+      const h = world.height = window.innerHeight;
+      // Sky: bright at the top (challenges the top-left debug readout).
+      const sky = wctx.createLinearGradient(0, 0, 0, h * 0.62);
+      sky.addColorStop(0, '#bfe0f2');
+      sky.addColorStop(0.55, '#8fb9dd');
+      sky.addColorStop(1, '#6f93b8');
+      wctx.fillStyle = sky; wctx.fillRect(0, 0, w, h);
+      // Sun glow upper-left.
+      const sun = wctx.createRadialGradient(w * 0.22, h * 0.16, 10, w * 0.22, h * 0.16, 260);
+      sun.addColorStop(0, 'rgba(255,250,220,0.95)');
+      sun.addColorStop(1, 'rgba(255,250,220,0)');
+      wctx.fillStyle = sun; wctx.fillRect(0, 0, w, h);
+      // Ground: rolling grass toward the bottom (where the hotbar sits).
+      const gy = h * 0.62;
+      const grass = wctx.createLinearGradient(0, gy, 0, h);
+      grass.addColorStop(0, '#5f8f3f');
+      grass.addColorStop(1, '#33582a');
+      wctx.fillStyle = grass;
+      wctx.beginPath();
+      wctx.moveTo(0, gy);
+      for (let x = 0; x <= w; x += 40) {
+        wctx.lineTo(x, gy + Math.sin(x / 130) * 16 - 6);
+      }
+      wctx.lineTo(w, h); wctx.lineTo(0, h); wctx.closePath(); wctx.fill();
+      // A couple of blocky hills for texture.
+      wctx.fillStyle = 'rgba(40,70,30,0.5)';
+      for (let i = 0; i < 6; i++) {
+        const bx = (i * 233) % w, by = gy + 30 + (i % 3) * 26;
+        wctx.fillRect(bx, by, 120, 60);
+      }
+    }
+    paintWorld();
+
+    /** Read the composited world pixel behind a client-space point. */
+    function readWorldPixel(x, y) {
+      x = Math.max(0, Math.min(world.width - 1, Math.round(x)));
+      y = Math.max(0, Math.min(world.height - 1, Math.round(y)));
+      const d = wctx.getImageData(x, y, 1, 1).data;
+      return { r: d[0], g: d[1], b: d[2], a: 1 };
+    }
+    /** worldColorAt(el): the rendered world pixel behind the element center. */
+    function worldColorAt(el) {
+      const rect = el.getBoundingClientRect();
+      if (!rect.width || !rect.height) return null;
+      const x = rect.left + Math.min(rect.width / 2, 24);
+      const y = rect.top + rect.height / 2;
+      return readWorldPixel(x, y);
+    }
+    const sampleOpts = { worldColorAt, worldColor: { r: 143, g: 185, b: 221, a: 1 } };
+
+    /* ------------------------------------------------------------------ */
+    /* Init the REAL builder widgets                                       */
+    /* ------------------------------------------------------------------ */
+    const menus = initMenus({
+      getWorlds: () => [
+        { name: 'Warpwold Reach', seed: 'loom-88', createdAt: Date.now() - 86400000 },
+      ],
+      packsList: [{ id: 'default', name: 'Default' }, { id: 'thrum', name: 'Thrumweave' }],
+      travelDims: [],
+      onPlayWorld() {}, onCreateWorld() {}, onSettingsChange() {},
+      onResume() {}, onQuitToTitle() {}, onHowToPlay() {},
+    });
+    const hud = initHUD();
+    const hotbar = initHotbar({});
+    const chat = initChat({});
+    const debug = initDebug();
+    const inventoryUI = initInventory({});
+
+    const ui = { hud, hotbar, chat, debug, menus, inventory: inventoryUI, inventoryUI };
+
+    /* ------------------------------------------------------------------ */
+    /* AFTER: adopt the brand palette + lf-* components (before driving      */
+    /* data, so every bridged update mirrors into the mounted lf elements).  */
+    /* ------------------------------------------------------------------ */
+    let kit = null;
+    async function adoptAfter() {
+      kit = HudKit.init({
+        root: document,
+        ui,
+        theme: 'dark',
+        assetBase: '../',                 // -> ../ui-kit/tokens.css (repo root)
+        themeHref: './brand-theme.css',   // brand-theme.css lives beside the page
+        wordmarkHref: './vendor-game/brand/wordmark-dark.svg',
+      });
+      kit.applyTheme();
+      // lf-hotbar cells (<lf-item-slot>) are styled by inventory.css; link it
+      // so the AFTER hotbar slots + selection frame render fully.
+      const invCss = document.createElement('link');
+      invCss.rel = 'stylesheet';
+      invCss.href = '../ui-kit/components/inventory.css';
+      document.head.appendChild(invCss);
+
+      kit.adoptWordmark();
+      kit.adoptCrosshair();
+      kit.adoptStatbars({ getHealth: () => 14 });
+      kit.adoptHotbar();
+      kit.adoptDebug();
+      kit.adoptChat();
+
+      // Wait for the lf custom elements to upgrade so bridged state renders.
+      await Promise.all(
+        ['lf-crosshair', 'lf-statbars', 'lf-item-slot', 'lf-hotbar',
+         'lf-debug-overlay', 'lf-chat']
+          .map((t) => customElements.whenDefined(t).catch(() => {}))
+      );
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Drive every widget with representative data                         */
+    /* ------------------------------------------------------------------ */
+    function driveData() {
+      menus.showMain();
+
+      hud.showCrosshair(true);
+      hud.setHealth(14);
+      hud.setBreakProgress(0.4);
+
+      hotbar.setSlots(CREATIVE_BLOCKS.slice(0, 9));
+      hotbar.setSelected(2);
+
+      chat.addMessage({ name: 'Wren', text: 'nice weave!' });
+      chat.addMessage({ system: true, text: 'Loomfall 0.1.0 — warpwold thread stabilised' });
+
+      inventoryUI.setBlocks(CREATIVE_BLOCKS);
+
+      // Debug fields: the bespoke overlay FORMATS structured pos/chunk objects,
+      // whereas the lf-debug-overlay renders pre-formatted STRINGS. Feed each
+      // the shape it expects so both read cleanly.
+      debug.setVisible(true);
+      const dbgCommon = {
+        fps: 72, dim: 'warpwold', biome: 'meadow', facing: 'north',
+        target: getBlockDef(CREATIVE_BLOCKS[2]).name,
+        mobs: 3, tris: 184203, calls: 412, chunks: 196,
+      };
+      if (mode === 'after') {
+        debug.setData({ ...dbgCommon, pos: 'X 128  Y 71  Z -204', chunk: '8, -13' });
+      } else {
+        debug.setData({ ...dbgCommon, pos: { x: 128.0, y: 71.0, z: -204.0 }, chunk: { cx: 8, cz: -13 } });
+      }
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Harness API                                                         */
+    /* ------------------------------------------------------------------ */
+    // The selection cue lives on the STYLED element: the bespoke .hb-slot in
+    // BEFORE, the inner .lf-item-slot__cell (dashed knotlight outline) in AFTER.
+    function selectedSlot() {
+      return mode === 'after'
+        ? document.querySelector('lf-hotbar lf-item-slot[selected] .lf-item-slot__cell')
+        : document.querySelector('.hb-slot--selected');
+    }
+    function neighborSlot() {
+      if (mode === 'after') {
+        return document.querySelector('lf-hotbar lf-item-slot:not([selected]) .lf-item-slot__cell');
+      }
+      return document.querySelector('.hb-slot:not(.hb-slot--selected)');
+    }
+
+    window.uiProof = {
+      mode,
+      HudKit: null,          // set below to the live kit (AFTER)
+      errors,
+      ready: false,
+      setMode(m) {
+        const p = new URLSearchParams(location.search);
+        p.set('mode', m === 'after' ? 'after' : 'before');
+        location.search = p.toString();
+      },
+      getComputed(sel) {
+        const el = document.querySelector(sel);
+        if (!el) return null;
+        const cs = getComputedStyle(el);
+        return {
+          selector: sel,
+          color: cs.color,
+          backgroundColor: cs.backgroundColor,
+          textShadow: cs.textShadow,
+          fontFamily: cs.fontFamily,
+        };
+      },
+      sampleTextContrast() {
+        return rubric.sampleTextContrast(document, sampleOpts);
+      },
+      sampleColorblind() {
+        return rubric.sampleSelectionColorblind(selectedSlot(), neighborSlot(), sampleOpts);
+      },
+      score() {
+        return rubric.score({
+          root: document,
+          themed: mode === 'after',
+          selectedSlot: selectedSlot(),
+          neighborSlot: neighborSlot(),
+          opts: sampleOpts,
+        });
+      },
+    };
+
+    /* ------------------------------------------------------------------ */
+    /* Boot                                                               */
+    /* ------------------------------------------------------------------ */
+    (async () => {
+      if (mode === 'after') await adoptAfter();
+      driveData();
+      window.uiProof.HudKit = kit;
+      // Settle a frame so custom elements finish rendering before scoring.
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      window.uiProof.ready = true;
+    })();
+
+    window.addEventListener('resize', paintWorld);
+  </script>
+</body>
+</html>

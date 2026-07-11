@@ -69,8 +69,15 @@ export class HudKit {
    *   (ui.hud, ui.hotbar, ui.chat, ui.debug, ui.inventory, ui.menus).
    *   Optional — when omitted, the caller drives the lf elements directly.
    * @param {('dark'|'light')} [opts.theme='dark'] data-theme to set on <html>.
-   * @param {string} [opts.assetBase='./'] Path where ui-kit/ + brand-theme.css
-   *   + vendor-game/ live, relative to the page (must end with '/').
+   * @param {string} [opts.assetBase='./'] Path where ui-kit/ lives, relative
+   *   to the page (must end with '/'). Used for tokens/base + lf component JS/CSS.
+   * @param {string} [opts.themeHref] Explicit href for brand-theme.css. Needed
+   *   when brand-theme.css does NOT live under assetBase (e.g. ui-kit/ is at the
+   *   repo root but brand-theme.css sits beside the page). Defaults to
+   *   `${assetBase}brand-theme.css`.
+   * @param {string} [opts.wordmarkHref] Explicit href for the brand wordmark
+   *   SVG fetched by adoptWordmark(). Defaults to
+   *   `${assetBase}vendor-game/brand/wordmark-dark.svg`.
    */
   constructor(opts = {}) {
     this.root = opts.root || (typeof document !== 'undefined' ? document : null);
@@ -79,6 +86,14 @@ export class HudKit {
     let base = opts.assetBase == null ? './' : String(opts.assetBase);
     if (base && !base.endsWith('/')) base += '/';
     this.assetBase = base;
+    // brand-theme.css and the wordmark asset may live off the assetBase root
+    // (ui-kit/ at repo root vs. brand-theme.css beside the page). Allow both to
+    // be pinned independently; fall back to assetBase-relative defaults.
+    this.themeHref = opts.themeHref != null ? String(opts.themeHref) : base + 'brand-theme.css';
+    this.wordmarkHref =
+      opts.wordmarkHref != null
+        ? String(opts.wordmarkHref)
+        : base + 'vendor-game/brand/wordmark-dark.svg';
 
     /** @type {Map<string, {revert:Function}>} active adoptions, keyed by name. */
     this._adoptions = new Map();
@@ -148,7 +163,8 @@ export class HudKit {
     // Order matters: tokens -> base -> brand overlay (overlay must win).
     this._linkCss(b + 'ui-kit/tokens.css');
     this._linkCss(b + 'ui-kit/base.css');
-    this._linkCss(b + 'brand-theme.css');
+    // brand-theme.css may live off the assetBase root — use the resolved href.
+    this._linkCss(this.themeHref);
     safe(() => {
       const doc = this._doc;
       if (doc && doc.documentElement) doc.documentElement.dataset.theme = this.theme;
@@ -244,7 +260,7 @@ export class HudKit {
       // Prefer the saved brand asset; fall back to an inline token-colored SVG.
       safe(() => {
         if (typeof fetch === 'function') {
-          fetch(this.assetBase + 'vendor-game/brand/wordmark-dark.svg')
+          fetch(this.wordmarkHref)
             .then((r) => (r && r.ok ? r.text() : Promise.reject(new Error('no svg'))))
             .then((txt) => mount(txt))
             .catch(() => mount(INLINE_WORDMARK));
