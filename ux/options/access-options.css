@@ -40,6 +40,17 @@ lf-access-options lf-dropdown {
 
 lf-access-options lf-dropdown .lf-dropdown__trigger {
   min-width: 0;
+  /* Squeeze guard: when the docking context gets too narrow for
+     "Label: Value ⌄" on one line, wrap the value under the label instead
+     of letting flex crush it to 0px (the kit gives the value flex:1 +
+     overflow:hidden, so its automatic minimum size is zero). No effect at
+     comfortable widths — wrapping only happens when the line can't fit. */
+  flex-wrap: wrap;
+}
+
+lf-access-options lf-dropdown .lf-dropdown__triggervalue {
+  /* Keep the selected value readable before the kit's ellipsis kicks in. */
+  min-width: min(12ch, 100%);
 }
 
 /* The toggle face is inline-flex (content-sized) in the kit; cap it to the

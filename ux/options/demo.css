@@ -55,6 +55,29 @@ body {
   max-height: none;
 }
 
+/* Narrow-viewport docking fix: the kit shell keeps its fixed 168px rail
+   beside the pane at every width (ui-kit follow-up — settings-shell.css
+   has no narrow-width stacking), which leaves the pane ~124px at a 390px
+   viewport and collapses the dropdown trigger values to 0. Stack the rail
+   above the pane so controls get the full shell width.
+   (Page-level override — ui-kit files are untouched.) */
+@media (max-width: 560px) {
+  .demo-layout > lf-settings-shell .lf-settings-shell__body {
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .demo-layout > lf-settings-shell .lf-settings-shell__rail {
+    flex: none;
+    flex-direction: row;
+    flex-wrap: wrap;
+    border-right: 0;
+    border-bottom: var(--lf-border-hem);
+    padding-right: 0;
+    padding-bottom: var(--lf-space-3);
+  }
+}
+
 .demo-aside {
   flex: 1 1 380px;
   min-width: 320px;

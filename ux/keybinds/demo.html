@@ -119,6 +119,26 @@
     lf-settings-shell .lf-settings-shell__pane {
       max-height: 620px;
     }
+    /* Narrow-viewport docking fix (same pattern as ux/options/demo.css):
+       the kit shell keeps its fixed 168px rail beside the pane at every
+       width (ui-kit follow-up), leaving the pane ~124px at 390px. Stack
+       the rail above the pane so the keybind scroller gets the full shell
+       width. (Page-level override — ui-kit untouched.) */
+    @media (max-width: 560px) {
+      lf-settings-shell .lf-settings-shell__body {
+        flex-direction: column;
+        min-height: 0;
+      }
+      lf-settings-shell .lf-settings-shell__rail {
+        flex: none;
+        flex-direction: row;
+        flex-wrap: wrap;
+        border-right: 0;
+        border-bottom: var(--lf-border-hem);
+        padding-right: 0;
+        padding-bottom: var(--lf-space-3);
+      }
+    }
   </style>
 </head>
 <body>
