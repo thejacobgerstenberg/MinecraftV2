@@ -1,0 +1,429 @@
+<!--
+  audio/demo.html — interactive test page for the Web Audio engine.
+
+  NOTE: This page uses native ES-module imports (`import AudioEngine from "./engine.js"`).
+  Browsers refuse module imports from the file:// protocol, so it MUST be served
+  over HTTP. From the repo root run:   node audio/server.mjs
+  then open  http://localhost:8080/demo.html  (see audio/server.mjs for the port).
+-->
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MinecraftV2 — Web Audio Engine Demo</title>
+
+<style>
+  :root {
+    --bg: #14161a;
+    --panel: #1c1f26;
+    --panel-2: #232733;
+    --edge: #0c0d10;
+    --line: #333a47;
+    --ink: #e7e9ee;
+    --ink-dim: #98a0af;
+    --accent: #6bd06b;
+    --accent-2: #4a9dff;
+    --warn: #ff6b6b;
+    --gold: #f4c04a;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 600px at 50% -10%, #20242c 0%, var(--bg) 60%);
+    color: var(--ink);
+    font-family: ui-monospace, "SFMono-Regular", "Cascadia Code", Menlo, Consolas, monospace;
+    line-height: 1.4;
+    padding: 24px 18px 64px;
+  }
+
+  .wrap { max-width: 940px; margin: 0 auto; }
+
+  header h1 {
+    margin: 0 0 4px;
+    font-size: 22px;
+    letter-spacing: 0.5px;
+    text-shadow: 0 2px 0 var(--edge);
+  }
+  header h1 .pix { color: var(--accent); }
+  header p { margin: 0 0 18px; color: var(--ink-dim); font-size: 13px; }
+
+  .panel {
+    background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
+    border: 1px solid var(--line);
+    border-top-color: #3d4557;
+    border-radius: 8px;
+    padding: 16px;
+    margin: 0 0 18px;
+    box-shadow: 0 2px 0 var(--edge), inset 0 1px 0 rgba(255,255,255,0.03);
+  }
+
+  .panel h2 {
+    margin: 0 0 12px;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--gold);
+  }
+
+  .group { margin: 0 0 16px; }
+  .group:last-child { margin-bottom: 0; }
+  .group h3 {
+    margin: 0 0 8px;
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 8px;
+  }
+
+  button.snd, button.mus {
+    appearance: none;
+    cursor: pointer;
+    font: inherit;
+    font-size: 13px;
+    color: var(--ink);
+    background: linear-gradient(180deg, #2b3240 0%, #222836 100%);
+    border: 1px solid #414a5c;
+    border-bottom-color: #10131a;
+    border-radius: 6px;
+    padding: 9px 10px;
+    text-align: left;
+    transition: transform 0.05s ease, background 0.12s ease, border-color 0.12s ease;
+  }
+  button.snd:hover, button.mus:hover { background: linear-gradient(180deg, #333c4d 0%, #29303f 100%); border-color: #55627a; }
+  button.snd:active, button.mus:active { transform: translateY(1px); }
+  button.snd .k { color: var(--accent); }
+  button.snd.loop { border-color: #4a5a44; }
+  button.snd.loop.on {
+    background: linear-gradient(180deg, #2f4a2f 0%, #253c25 100%);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px rgba(107,208,107,0.25), 0 0 12px rgba(107,208,107,0.18);
+  }
+  button.snd.loop.on .k { color: #d6ffd6; }
+
+  .sliders { display: flex; flex-direction: column; gap: 12px; }
+  .slider-row { display: grid; grid-template-columns: 90px 1fr 52px; align-items: center; gap: 12px; }
+  .slider-row label { font-size: 12px; color: var(--ink-dim); text-transform: uppercase; letter-spacing: 1px; }
+  .slider-row output { font-size: 12px; text-align: right; color: var(--accent-2); font-variant-numeric: tabular-nums; }
+
+  input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 6px; border-radius: 4px;
+    background: #10131a; border: 1px solid #2b3240; outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 16px; height: 16px; border-radius: 4px;
+    background: linear-gradient(180deg, #7ee07e, #4fae4f);
+    border: 1px solid #2c5a2c; cursor: pointer;
+    box-shadow: 0 1px 0 var(--edge);
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 4px;
+    background: linear-gradient(180deg, #7ee07e, #4fae4f);
+    border: 1px solid #2c5a2c; cursor: pointer;
+  }
+
+  .pos-row { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; }
+  .pos-check { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .pos-check input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+  .pos-x { display: grid; grid-template-columns: 80px 220px 60px; align-items: center; gap: 12px; flex: 1 1 340px; }
+  .pos-x label { font-size: 12px; color: var(--ink-dim); }
+  .pos-x output { font-size: 12px; color: var(--accent-2); font-variant-numeric: tabular-nums; }
+  .hint { font-size: 11px; color: var(--ink-dim); margin-top: 10px; }
+
+  .music-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  button.mus.calm { border-color: #3f5a7a; }
+  button.mus.nether { border-color: #6a3a3a; background: linear-gradient(180deg, #3a2630 0%, #2c1e26 100%); }
+  button.mus.stop { border-color: #5a5a5a; }
+  .seed-row { display: flex; align-items: center; gap: 8px; margin-left: auto; font-size: 12px; color: var(--ink-dim); }
+  .seed-row input {
+    width: 96px; font: inherit; font-size: 13px; color: var(--ink);
+    background: #10131a; border: 1px solid #2b3240; border-radius: 6px; padding: 7px 8px;
+  }
+
+  .status {
+    position: sticky; bottom: 0;
+    margin-top: 8px;
+    font-size: 12px;
+    background: var(--edge);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 9px 12px;
+    color: var(--ink-dim);
+    min-height: 18px;
+    word-break: break-word;
+  }
+  .status.ok { color: var(--accent); }
+  .status.err { color: var(--warn); border-color: #5a2c2c; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1><span class="pix">▚</span> MinecraftV2 — Web Audio Engine Demo</h1>
+    <p>Click anything to start audio (browsers require a user gesture). Everything below is synthesized live — no samples.</p>
+  </header>
+
+  <section class="panel">
+    <h2>Mix</h2>
+    <div class="sliders">
+      <div class="slider-row">
+        <label for="vol-master">Master</label>
+        <input type="range" id="vol-master" min="0" max="1" step="0.01" value="0.9" />
+        <output id="out-master">0.90</output>
+      </div>
+      <div class="slider-row">
+        <label for="vol-sfx">SFX</label>
+        <input type="range" id="vol-sfx" min="0" max="1" step="0.01" value="0.9" />
+        <output id="out-sfx">0.90</output>
+      </div>
+      <div class="slider-row">
+        <label for="vol-music">Music</label>
+        <input type="range" id="vol-music" min="0" max="1" step="0.01" value="0.7" />
+        <output id="out-music">0.70</output>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Sound Effects</h2>
+    <div id="sfx-groups"></div>
+    <p class="hint">Tip: <b>wind</b> and <b>cave</b> are looping ambiences — click to start, click again to stop.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Positional Demo</h2>
+    <div class="pos-row">
+      <label class="pos-check">
+        <input type="checkbox" id="pos-enabled" />
+        Positional (3D panning)
+      </label>
+      <div class="pos-x">
+        <label for="pos-x">X position</label>
+        <input type="range" id="pos-x" min="-24" max="24" step="1" value="0" />
+        <output id="out-pos-x">0</output>
+      </div>
+    </div>
+    <p class="hint">
+      When enabled, the listener sits at the origin and each SFX plays through a PannerNode at
+      (x, 0, 0). Slide X negative for left, positive for right.
+    </p>
+  </section>
+
+  <section class="panel">
+    <h2>Music</h2>
+    <div class="music-row">
+      <button class="mus calm" id="mus-calm" type="button">▶ Start Calm</button>
+      <button class="mus nether" id="mus-nether" type="button">▶ Start Nether</button>
+      <button class="mus stop" id="mus-stop" type="button">■ Stop Music</button>
+      <span class="seed-row">
+        <label for="mus-seed">seed</label>
+        <input type="number" id="mus-seed" value="1234" step="1" />
+      </span>
+    </div>
+    <p class="hint">Generative &amp; seeded — same seed reproduces the same evolving track.</p>
+  </section>
+
+  <div class="status" id="status">Ready. Interact to initialize the audio engine.</div>
+</div>
+
+<script type="module">
+  // Import the engine as an ES module. Must be served over HTTP (see server.mjs).
+  import AudioEngine from "./engine.js";
+
+  // ---- SFX registry layout (matches audio/sfx/index.js keys) -------------
+  const GROUPS = [
+    { title: "Blocks — Break", names: ["break.stone", "break.wood", "break.dirt", "break.grass", "break.sand", "break.glass"] },
+    { title: "Blocks — Place", names: ["place.stone", "place.wood", "place.dirt", "place.grass", "place.sand", "place.glass"] },
+    { title: "Footsteps",      names: ["step.stone", "step.wood", "step.dirt", "step.grass", "step.sand", "step.glass"] },
+    { title: "Environment",    names: ["splash", "wind", "cave", "portal"] },
+    { title: "UI",             names: ["ui.click", "hurt", "pop"] },
+  ];
+  const LOOPS = new Set(["wind", "cave"]); // toggle buttons with working stop()
+
+  // ---- Elements ----------------------------------------------------------
+  const $ = (id) => document.getElementById(id);
+  const statusEl = $("status");
+
+  const volMaster = $("vol-master");
+  const volSfx = $("vol-sfx");
+  const volMusic = $("vol-music");
+  const outMaster = $("out-master");
+  const outSfx = $("out-sfx");
+  const outMusic = $("out-music");
+
+  const posEnabled = $("pos-enabled");
+  const posX = $("pos-x");
+  const outPosX = $("out-pos-x");
+
+  const seedInput = $("mus-seed");
+
+  // ---- Engine (lazily created on first gesture) --------------------------
+  let engine = null;
+  const loopHandles = new Map(); // name -> handle for active loops
+
+  function setStatus(msg, kind) {
+    statusEl.textContent = msg;
+    statusEl.className = "status" + (kind ? " " + kind : "");
+  }
+
+  function fail(where, err) {
+    console.error("[demo] " + where + ":", err);
+    setStatus(where + ": " + (err && err.message ? err.message : String(err)), "err");
+  }
+
+  // Create the engine on first interaction and resume its AudioContext.
+  async function ensureEngine() {
+    if (!engine) {
+      engine = new AudioEngine();
+      // Apply the current slider values to the freshly built buses.
+      engine.setMasterVolume(Number(volMaster.value));
+      engine.setSfxVolume(Number(volSfx.value));
+      engine.setMusicVolume(Number(volMusic.value));
+    }
+    await engine.resume();
+    return engine;
+  }
+
+  // ---- Build SFX button grid ---------------------------------------------
+  let buttonCount = 0;
+  const groupsHost = $("sfx-groups");
+
+  for (const group of GROUPS) {
+    const section = document.createElement("div");
+    section.className = "group";
+
+    const h3 = document.createElement("h3");
+    h3.textContent = group.title;
+    section.appendChild(h3);
+
+    const grid = document.createElement("div");
+    grid.className = "grid";
+
+    for (const name of group.names) {
+      const isLoop = LOOPS.has(name);
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "snd" + (isLoop ? " loop" : "");
+      btn.dataset.name = name;
+      btn.innerHTML = isLoop
+        ? '<span class="k">' + name + "</span> · loop"
+        : '<span class="k">' + name + "</span>";
+
+      if (isLoop) {
+        btn.addEventListener("click", () => toggleLoop(name, btn));
+      } else {
+        btn.addEventListener("click", () => playOneShot(name));
+      }
+
+      grid.appendChild(btn);
+      buttonCount++;
+    }
+
+    section.appendChild(grid);
+    groupsHost.appendChild(section);
+  }
+
+  // ---- Playback helpers --------------------------------------------------
+  function buildPlayOpts() {
+    const opts = {};
+    if (posEnabled.checked) {
+      // Listener at origin, facing -Z (default orientation): +X = right, -X = left.
+      engine.setListener({ x: 0, y: 0, z: 0 }, { x: 0, z: -1 });
+      opts.pos = { x: Number(posX.value), y: 0, z: 0 };
+    }
+    return opts;
+  }
+
+  async function playOneShot(name) {
+    try {
+      await ensureEngine();
+      const opts = buildPlayOpts();
+      engine.play(name, opts);
+      setStatus("played " + name + (opts.pos ? " @ x=" + opts.pos.x : ""), "ok");
+    } catch (err) {
+      fail("play " + name, err);
+    }
+  }
+
+  async function toggleLoop(name, btn) {
+    try {
+      await ensureEngine();
+      const active = loopHandles.get(name);
+      if (active) {
+        try { active.stop(); } catch (_e) { /* ignore */ }
+        loopHandles.delete(name);
+        btn.classList.remove("on");
+        setStatus("stopped " + name, "ok");
+        return;
+      }
+      const opts = buildPlayOpts();
+      const handle = engine.play(name, opts);
+      loopHandles.set(name, handle);
+      btn.classList.add("on");
+      setStatus("looping " + name + (opts.pos ? " @ x=" + opts.pos.x : ""), "ok");
+    } catch (err) {
+      fail("toggle " + name, err);
+    }
+  }
+
+  // ---- Volume sliders ----------------------------------------------------
+  function wireVolume(input, output, apply) {
+    const sync = () => {
+      output.textContent = Number(input.value).toFixed(2);
+      try {
+        if (engine) apply(Number(input.value));
+      } catch (err) {
+        fail("volume", err);
+      }
+    };
+    input.addEventListener("input", sync);
+    sync();
+  }
+  wireVolume(volMaster, outMaster, (v) => engine.setMasterVolume(v));
+  wireVolume(volSfx, outSfx, (v) => engine.setSfxVolume(v));
+  wireVolume(volMusic, outMusic, (v) => engine.setMusicVolume(v));
+
+  // ---- Positional slider readout -----------------------------------------
+  const syncPosX = () => { outPosX.textContent = String(posX.value); };
+  posX.addEventListener("input", syncPosX);
+  syncPosX();
+
+  // ---- Music controls ----------------------------------------------------
+  function readSeed() {
+    const n = parseInt(seedInput.value, 10);
+    return Number.isFinite(n) ? n : 1234;
+  }
+
+  async function startMusic(mode) {
+    try {
+      await ensureEngine();
+      const seed = readSeed();
+      engine.startMusic(mode, { seed });
+      setStatus("music: " + mode + " (seed " + seed + ")", "ok");
+    } catch (err) {
+      fail("startMusic " + mode, err);
+    }
+  }
+
+  $("mus-calm").addEventListener("click", () => startMusic("calm"));
+  $("mus-nether").addEventListener("click", () => startMusic("nether"));
+  $("mus-stop").addEventListener("click", async () => {
+    try {
+      await ensureEngine();
+      engine.stopMusic();
+      setStatus("music stopped", "ok");
+    } catch (err) {
+      fail("stopMusic", err);
+    }
+  });
+
+  setStatus("Loaded " + buttonCount + " SFX buttons. Click any control to begin.", "ok");
+  console.log("[demo] ready — " + buttonCount + " SFX buttons wired");
+</script>
