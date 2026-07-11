@@ -21,7 +21,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/OrbitControls.js';
 
 import { generateDemoChunk } from './worldgen.js';
-import { BLOCKS, AIR, WATER, LEAVES } from './blocks.js';
+import { BLOCKS, AIR, WATER, LEAVES, WOOD, GLOWSTONE } from './blocks.js';
 import { createBlockAtlas } from './textures.js';
 import { buildChunkGeometry } from './voxelMesher.js';
 import { createVoxelMaterial } from './voxelMaterial.js';
@@ -31,6 +31,12 @@ import { Water, UnderwaterOverlay } from './water.js';
 import { DistanceFog } from './fog.js';
 import { PostFX } from './postprocessing.js';
 import { Particles } from './particles.js';
+import { PortalGate } from './portals.js';
+import { BlockCracks } from './blockcrack.js';
+import { FirstPersonViewModel } from './viewmodel.js';
+import { TorchLightManager, QUALITY_LIGHTS, makeTorchMesh } from './torchlights.js';
+import { applyWindSway, getWindController } from './windsway.js';
+import { BiomeGrading } from './biomelut.js';
 import { createGUI } from './gui.js';
 
 // ---------------------------------------------------------------------------
@@ -170,15 +176,9 @@ function init() {
     scene.add(leavesMesh);
   }
 
-  // Warm glowstone/torch point lights at every worldgen light position.
-  const torchLights = [];
-  for (const l of volume.lights) {
-    const pl = new THREE.PointLight(0xffb262, 1.4, 20, 2);
-    pl.position.set(l.x + 0.5, l.y + 0.6, l.z + 0.5);
-    pl.castShadow = false; // point-light shadows are too costly for the target fps
-    scene.add(pl);
-    torchLights.push(pl);
-  }
+  // Torch/glowstone lighting is handled by the pooled TorchLightManager below
+  // (replaces the old always-on per-torch PointLights). Glowstone blocks keep
+  // their emissive material look regardless of the light budget.
 
   // ==========================================================================
   // 4. Sky (owns the sun + hemi lights), shadows, water, fog, particles.
@@ -228,6 +228,93 @@ function init() {
   // ==========================================================================
   const post = new PostFX(renderer, scene, camera, { quality: 'medium' });
 
+  // ==========================================================================
+  // 6. Phase-2 effects: portal gate, block cracks, first-person view model,
+  //    pooled torch lights, foliage wind sway, biome colour grading.
+  // ==========================================================================
+
+  // ---- Portal gate. The grass shelf at x 19..25, z 24..26 south of the cabin
+  // is dead flat (surface block y = 15 across the span — read from worldgen)
+  // and faces the 'hero' camera, which looks from (-14,26,62) toward the cabin.
+  // Gate y = 16 = the shelf's top face, so the frame base sits on the grass.
+  const portal = new PortalGate({
+    position: new THREE.Vector3(22, 16, 25.5),
+    width: 4,
+    height: 5,
+    dimension: 'warpwold',
+  });
+  scene.add(portal.object3d);
+  portal.activate(); // boot burst so early screenshots catch the flare
+
+  // ---- Progressive block-crack decals (volume-aware face culling).
+  const cracks = new BlockCracks(scene, { volume });
+
+  // ---- First-person view model. Camera children only render when the camera
+  // itself is in the scene graph.
+  if (!camera.parent) scene.add(camera);
+  const viewmodel = new FirstPersonViewModel(camera, {
+    atlas,
+    atlasTexture: atlas.texture,
+  });
+  viewmodel.setItem('block:1'); // default: grass block in hand
+
+  // ---- Pooled torch lights: register every worldgen light position, then
+  // scatter ~36 extra visible torches across the island surface. Positions are
+  // deterministic (golden-angle spiral + volume surface sampling — no
+  // Math.random), so the layout is identical every run.
+  const torchMgr = new TorchLightManager(scene, {
+    maxLights: QUALITY_LIGHTS.medium,
+  });
+  for (const l of volume.lights) torchMgr.register(l);
+
+  // Top-most non-air/non-water block of a column (or null for open water).
+  function surfaceTop(x, z) {
+    for (let y = sy - 1; y >= 0; y--) {
+      const id = volume.get(x, y, z);
+      if (id !== AIR && id !== WATER) return { y, id };
+    }
+    return null;
+  }
+
+  const torchMeshes = new THREE.Group();
+  torchMeshes.name = 'scatterTorches';
+  scene.add(torchMeshes);
+  {
+    const GOLDEN = Math.PI * (3 - Math.sqrt(5));
+    const taken = new Set();
+    let placed = 0;
+    for (let i = 0; i < 120 && placed < 36; i++) {
+      const r = 6 + 16 * ((i % 60) / 60);
+      const a = i * GOLDEN;
+      const x = Math.round(sx / 2 + Math.cos(a) * r);
+      const z = Math.round(sz / 2 + Math.sin(a) * r);
+      if (x < 1 || z < 1 || x >= sx - 1 || z >= sz - 1) continue;
+      const key = x + z * 1024;
+      if (taken.has(key)) continue;
+      if (x >= 24 && x <= 34 && z >= 10 && z <= 20) continue; // cabin + yard
+      if (x >= 18 && x <= 26 && z >= 23 && z <= 28) continue; // portal shelf
+      const t = surfaceTop(x, z);
+      if (!t || t.y < WATER_LEVEL + 1) continue;              // dry land only
+      if (t.id === LEAVES || t.id === WOOD || t.id === GLOWSTONE) continue;
+      taken.add(key);
+      const mesh = makeTorchMesh();
+      mesh.position.set(x + 0.5, t.y + 1, z + 0.5); // base on the block top
+      torchMeshes.add(mesh);
+      torchMgr.register({ x, y: t.y + 1, z });      // flame ~0.55 above base
+      placed++;
+    }
+  }
+
+  // Synthetic stress-test registrations (window.demo.setTorchCount).
+  const syntheticTorchIds = [];
+
+  // ---- Foliage wind sway on the transparent (leaves) material instance.
+  applyWindSway(leavesMat, { mode: 'leaves' });
+  const wind = getWindController();
+
+  // ---- Per-biome colour grading through PostFX.setGrade (eased in-post).
+  const biomes = new BiomeGrading(post);
+
   // Mark cast/receive flags AFTER every mesh (incl. water) is in the scene.
   shadows.applyToScene(scene);
 
@@ -235,11 +322,19 @@ function init() {
   // Shared state + a stable ctx object (mutated in place; no per-frame alloc).
   // ==========================================================================
   const state = {
-    effects: { ao: true, sky: true, shadows: true, water: true, post: true, particles: true, fog: true },
+    effects: {
+      ao: true, sky: true, shadows: true, water: true, post: true,
+      particles: true, fog: true,
+      portal: true, crack: true, viewmodel: true, torchlights: true,
+      wind: true, biome: true,
+    },
     quality: 'medium',
     timeOfDay: 0.35,
     weather: 'clear',
     underwater: false,
+    dimension: 'warpwold',
+    heldItem: 'block:1',
+    biome: 'plains',
   };
 
   const ctxSkyColor = new THREE.Color().copy(sky.getFogColor());
@@ -266,6 +361,30 @@ function init() {
     const desc = BLOCKS[b.id];
     if (!desc || desc.air || desc.emissive) continue; // skip air-ish + glowstone
     surfaces.push(b);
+  }
+
+  // Crack-animation targets: visible top surfaces in the cabin's front yard
+  // (framed by the 'hero' view), clear of the portal shelf.
+  const breakSpots = surfaces.filter((b) =>
+    b.x >= 16 && b.x <= 38 && b.z >= 19 && b.z <= 30 &&
+    b.y >= WATER_LEVEL + 2 &&
+    !(b.x >= 18 && b.x <= 26 && b.z >= 23 && b.z <= 28));
+
+  let breakIdx = 0;
+  let breakTimer = 0;
+  function triggerBreakImpl() {
+    if (breakSpots.length === 0) return;
+    const b = breakSpots[breakIdx % breakSpots.length];
+    breakIdx += 5; // stride so consecutive breaks hop around the yard
+    breakTimer = 0;
+    viewmodel.swing(); // the hand swings whenever a break starts
+    cracks.animateBreak(b.x, b.y, b.z, {
+      duration: 1.5,
+      onComplete: (x, y, z) => {
+        // Existing debris system: burst voxel shards off the broken block.
+        particles.spawnBlockBreak({ x, y, z }, BLOCKS[b.id] && BLOCKS[b.id].color);
+      },
+    });
   }
 
   // ==========================================================================
@@ -323,6 +442,48 @@ function init() {
       state.quality = quality;
       post.setQuality(quality);
       shadows.setQuality(quality);
+      torchMgr.setMaxLights(QUALITY_LIGHTS[quality] || QUALITY_LIGHTS.medium);
+    },
+
+    // Portal: crossfade to another dimension palette (+ activation burst).
+    setPortalDimension(name) {
+      portal.setDimension(name);
+      state.dimension = portal.dimension;
+    },
+
+    // Crack + break a visible block near the cabin (debris on completion).
+    triggerBreak() {
+      triggerBreakImpl();
+    },
+
+    // First-person held item: 'block:<id|name>' | 'tool:pickaxe' | null/''.
+    setHeldItem(spec) {
+      viewmodel.setItem(spec || null);
+      state.heldItem = spec ? String(spec) : '';
+    },
+
+    swing() {
+      viewmodel.swing();
+    },
+
+    // Biome colour grade: 'plains'|'desert'|'tundra'|'swamp'|'cinder'.
+    setBiome(name) {
+      if (biomes.setBiome(name)) state.biome = name;
+    },
+
+    // Stress hook: register n synthetic torch positions in a ring around the
+    // island (replaces the previous synthetic set; scenery torches untouched).
+    setTorchCount(n) {
+      n = Math.max(0, Math.min(500, n | 0));
+      while (syntheticTorchIds.length) torchMgr.unregister(syntheticTorchIds.pop());
+      for (let i = 0; i < n; i++) {
+        const a = (i / Math.max(1, n)) * Math.PI * 2;
+        syntheticTorchIds.push(torchMgr.register({
+          x: sx / 2 + Math.cos(a) * 18,
+          y: WATER_LEVEL + 7.5,
+          z: sz / 2 + Math.sin(a) * 18,
+        }));
+      }
     },
 
     toggle(name, on) {
@@ -339,6 +500,15 @@ function init() {
         case 'post': post.setEnabled(b); break;
         case 'particles': particles.setEnabled(b); break;
         case 'fog': fog.setEnabled(b); break;
+        case 'portal': portal.setEnabled(b); break;
+        case 'crack': cracks.setEnabled(b); break;
+        case 'viewmodel': viewmodel.setEnabled(b); break;
+        case 'torchlights':
+          torchMgr.setEnabled(b);
+          torchMeshes.visible = b; // hide the prop meshes with their lights
+          break;
+        case 'wind': wind.setEnabled(b); break;
+        case 'biome': biomes.setEnabled(b); break;
         default: break;
       }
     },
@@ -391,11 +561,6 @@ function init() {
     ctx.weather = state.weather;
     ctx.underwater = state.underwater;
 
-    // Gentle torch flicker on the warm point lights.
-    for (let i = 0; i < torchLights.length; i++) {
-      torchLights[i].intensity = 1.25 + 0.35 * Math.sin(elapsed * 8.5 + i * 2.3);
-    }
-
     controls.update();
 
     // Effect updates (each module self-gates on its own enabled flag).
@@ -417,6 +582,12 @@ function init() {
     underwater.update(dt, ctx);
     fog.update(dt, ctx);
     particles.update(dt, ctx);
+    portal.update(dt, ctx);      // swirl time + palette fade + burst envelope
+    cracks.update(dt, ctx);      // break-stage animations (fires onComplete)
+    viewmodel.update(dt, ctx);   // idle bob + swing arc + night fill
+    torchMgr.update(dt, ctx);    // nearest-N light pooling + flame flicker
+    wind.update(dt, ctx);        // weather-driven sway strength (2 uniforms)
+    biomes.update(dt, ctx);      // no-op (PostFX eases the grade internally)
     post.update(dt, ctx);        // auto night boost from sun altitude
                                  // (wider/stronger bloom as the sun sets)
 
@@ -428,6 +599,11 @@ function init() {
       bbIndex += 7; // stride to spread bursts across the terrain
       window.demo.spawnBlockBreak(b, BLOCKS[b.id] && BLOCKS[b.id].color);
     }
+
+    // Auto crack-break near the cabin every ~6 s (view-model swing included)
+    // so screenshots can catch the full crack -> debris sequence.
+    breakTimer += dt;
+    if (breakTimer >= 6) triggerBreakImpl();
 
     // Final render (PostFX self-bypasses to a plain render when disabled).
     post.render(dt);

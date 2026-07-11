@@ -12,7 +12,8 @@
 //         ──▶ bright-pass (soft-knee threshold)        ▲ bloom branch
 //         ──▶ separable gaussian blur (downsampled, N iterations, ping-pong)
 //         ──▶ COMPOSITE  (scene + bloom*strength, exposure, ACES filmic
-//                          tonemap, vignette, sRGB encode)
+//                          tonemap, per-biome colour grade, vignette,
+//                          sRGB encode)
 //         ──▶ [optional FXAA on the final LDR sRGB image]
 //         ──▶ screen
 //
@@ -46,6 +47,12 @@
 //                              // day image stays clean. Calling this disables
 //                              // the update(dt,ctx) auto-drive (manual wins).
 //   setAutoNightBoost(bool)    // re-enable/disable the update() auto-drive
+//   setGrade({lift,gain,sat})  // per-biome colour grade target (applied in the
+//                              // composite AFTER tonemap, BEFORE vignette:
+//                              // c = mix(vec3(luma(c)), c, sat) * gain + lift).
+//                              // Live values ease toward the target over
+//                              // ~0.5 s. Omitted fields reset to neutral
+//                              // (lift [0,0,0], gain [1,1,1], sat 1).
 //   setEnabled(bool)           // false => straight renderer.render (bypass)
 //   get enabled()
 //   dispose()
@@ -122,7 +129,8 @@ void main() {
 }
 `;
 
-// Composite: additive bloom, exposure, ACES filmic tonemap, vignette, sRGB out.
+// Composite: additive bloom, exposure, ACES filmic tonemap, per-biome colour
+// grade (post-tonemap, pre-vignette), vignette, sRGB out.
 const COMPOSITE_FRAG = /* glsl */ `
 uniform sampler2D tScene;        // HDR linear scene
 uniform sampler2D tBloom;        // blurred bloom (linear, low-res, upsampled)
@@ -134,6 +142,9 @@ uniform float uVignette;         // 0/1
 uniform float vigRadius;
 uniform float vigSoftness;
 uniform float vigDarkness;
+uniform vec3 uGradeLift;         // per-biome grade: additive lift (neutral 0)
+uniform vec3 uGradeGain;         // per-biome grade: channel gain (neutral 1)
+uniform float uGradeSat;         // per-biome grade: saturation (neutral 1)
 varying vec2 vUv;
 
 // Narkowicz ACES filmic approximation (standard).
@@ -153,6 +164,12 @@ void main() {
   hdr *= exposure;
 
   vec3 color = mix(hdr, aces(hdr), uTonemap);
+  color = clamp(color, 0.0, 1.0);
+
+  // Per-biome colour grade — AFTER tonemap, BEFORE vignette. Neutral values
+  // (lift 0, gain 1, sat 1) reproduce the ungraded image exactly.
+  float gradeLuma = dot(color, vec3(0.2126, 0.7152, 0.0722));
+  color = mix(vec3(gradeLuma), color, uGradeSat) * uGradeGain + uGradeLift;
   color = clamp(color, 0.0, 1.0);
 
   float dist = distance(vUv, vec2(0.5));
@@ -209,6 +226,25 @@ void main() {
 }
 `;
 
+// ---- small input-sanitising helpers (module-private, allocation-free) ------
+function _num(v, fallback) {
+  v = +v;
+  return Number.isFinite(v) ? v : fallback;
+}
+
+// Fill `out` (THREE.Vector3) from an [r,g,b] array, an {x,y,z}/Vector3-like,
+// or null/undefined (=> the per-channel defaults). Never allocates.
+function _readVec3(out, src, dx, dy, dz) {
+  if (src == null) {
+    out.set(dx, dy, dz);
+  } else if (typeof src.x === 'number') {
+    out.set(_num(src.x, dx), _num(src.y, dy), _num(src.z, dz));
+  } else {
+    out.set(_num(src[0], dx), _num(src[1], dy), _num(src[2], dz));
+  }
+  return out;
+}
+
 export class PostFX {
   constructor(renderer, scene, camera, { quality = 'medium' } = {}) {
     this.renderer = renderer;
@@ -244,6 +280,19 @@ export class PostFX {
     this.nightBoost = 0;
     this._autoNight = true;          // update() drives nightBoost until
                                      // setNightBoost() takes manual control
+
+    // Per-biome colour grade (composite pass, post-tonemap / pre-vignette).
+    // The *live* lift/gain vectors double as the composite uniform values —
+    // render() eases them toward the *target* set by setGrade() with an
+    // exponential smoothing whose time constant gives ~95% settle in ~0.5 s.
+    // Neutral defaults => output identical to the pre-grade chain.
+    this._gradeLift = new THREE.Vector3(0, 0, 0);       // live (== uniform)
+    this._gradeGain = new THREE.Vector3(1, 1, 1);       // live (== uniform)
+    this._gradeSat = 1;                                 // live
+    this._gradeLiftTarget = new THREE.Vector3(0, 0, 0);
+    this._gradeGainTarget = new THREE.Vector3(1, 1, 1);
+    this._gradeSatTarget = 1;
+    this._gradeTau = 0.5 / 3;        // ~0.5 s to reach ~95% of the target
 
     // Feature flags (live state). setQuality resets them; toggle() mutates one.
     this.features = { bloom: true, tonemap: true, vignette: true, fxaa: true };
@@ -336,6 +385,10 @@ export class PostFX {
       vigRadius: { value: this.vignetteRadius },
       vigSoftness: { value: this.vignetteSoftness },
       vigDarkness: { value: this.vignetteDarkness },
+      // Grade uniforms share the live vectors — lerped in place, never realloc.
+      uGradeLift: { value: this._gradeLift },
+      uGradeGain: { value: this._gradeGain },
+      uGradeSat: { value: this._gradeSat },
     });
     this.fxaaMat = mk(FXAA_FRAG, {
       tDiffuse: { value: null },
@@ -390,6 +443,19 @@ export class PostFX {
   // Re-enable (or disable) auto-deriving nightBoost inside update(dt, ctx).
   setAutoNightBoost(on) {
     this._autoNight = !!on;
+  }
+
+  // Per-biome colour grade TARGET. Applied in the composite pass AFTER
+  // tonemapping and BEFORE vignette/FXAA:
+  //   c = mix(vec3(luma(c)), c, sat) * gain + lift
+  // The live values ease toward this target inside render() (~0.5 s), so
+  // biome transitions cross-fade instead of popping. `lift`/`gain` accept
+  // [r,g,b] arrays or {x,y,z}/Vector3-likes; omitted fields reset to neutral
+  // (lift [0,0,0], gain [1,1,1], sat 1) — setGrade() alone returns to neutral.
+  setGrade({ lift, gain, sat } = {}) {
+    _readVec3(this._gradeLiftTarget, lift, 0, 0, 0);
+    _readVec3(this._gradeGainTarget, gain, 1, 1, 1);
+    this._gradeSatTarget = _num(sat, 1);
   }
 
   // Effects-contract hook (optional — render() alone still works). When auto
@@ -462,7 +528,7 @@ export class PostFX {
     this.renderer.render(this._quad, this._fsCamera);
   }
 
-  render(/* dt */) {
+  render(dt) {
     const r = this.renderer;
 
     // Bypass: straight scene render, no chain.
@@ -524,7 +590,17 @@ export class PostFX {
       }
     }
 
-    // 3) Composite (scene + bloom, exposure, ACES, vignette, sRGB).
+    // Ease the live per-biome grade toward its setGrade() target. Exponential
+    // smoothing (frame-rate independent) with tau = ~0.5s/3, so a new target
+    // is ~95% reached in about half a second. Lerps mutate the shared uniform
+    // vectors in place — zero allocation.
+    const gdt = (typeof dt === 'number' && dt > 0) ? Math.min(dt, 0.25) : 1 / 60;
+    const gk = 1 - Math.exp(-gdt / this._gradeTau);
+    this._gradeLift.lerp(this._gradeLiftTarget, gk);
+    this._gradeGain.lerp(this._gradeGainTarget, gk);
+    this._gradeSat += (this._gradeSatTarget - this._gradeSat) * gk;
+
+    // 3) Composite (scene + bloom, exposure, ACES, grade, vignette, sRGB).
     const cu = this.compositeMat.uniforms;
     cu.tScene.value = this.sceneRT.texture;
     cu.tBloom.value = bloomOn ? this.bloomA.texture : this._blackTex;
@@ -536,6 +612,7 @@ export class PostFX {
     cu.vigRadius.value = this.vignetteRadius;
     cu.vigSoftness.value = this.vignetteSoftness;
     cu.vigDarkness.value = this.vignetteDarkness;
+    cu.uGradeSat.value = this._gradeSat; // lift/gain uniforms share the vectors
 
     if (this.features.fxaa) {
       // Composite -> LDR sRGB buffer, then FXAA -> screen.

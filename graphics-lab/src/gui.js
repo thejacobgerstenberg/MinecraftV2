@@ -92,11 +92,39 @@ const CSS = `
 }
 #gui input[type="range"] { margin-top: 2px; height: 18px; cursor: pointer; }
 #gui .glab-time-val { font-variant-numeric: tabular-nums; color: #9fb2c8; font-size: 11px; }
+#gui button.glab-btn {
+  width: 100%;
+  background: rgba(110, 168, 254, 0.16);
+  color: #cfe2ff;
+  border: 1px solid rgba(110, 168, 254, 0.35);
+  border-radius: 7px;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+#gui button.glab-btn:hover { background: rgba(110, 168, 254, 0.28); }
+#gui button.glab-btn:active { background: rgba(110, 168, 254, 0.4); }
 `;
 
-const EFFECTS = ['ao', 'sky', 'shadows', 'water', 'post', 'particles', 'fog'];
+const EFFECTS = [
+  'ao', 'sky', 'shadows', 'water', 'post', 'particles', 'fog',
+  'portal', 'crack', 'viewmodel', 'torchlights', 'wind', 'biome',
+];
 const QUALITIES = ['low', 'medium', 'high', 'ultra'];
 const WEATHERS = ['clear', 'rain', 'snow'];
+const DIMENSIONS = [
+  ['warpwold', 'Warpwold'],
+  ['cinderloom', 'Cinderloom'],
+  ['nevermend', 'Nevermend'],
+];
+const HELD_ITEMS = [
+  ['block:1', 'grass block'],
+  ['block:3', 'stone block'],
+  ['tool:pickaxe', 'pickaxe'],
+  ['', 'none'],
+];
+const BIOME_NAMES = ['plains', 'desert', 'tundra', 'swamp', 'cinder'];
 
 function el(tag, cls, text) {
   const n = document.createElement(tag);
@@ -143,13 +171,21 @@ export function createGUI(demo, state = {}) {
   let liveState = state && typeof state === 'object' ? state : {};
 
   const effects = Object.assign(
-    { ao: true, sky: true, shadows: true, water: true, post: true, particles: true, fog: true },
+    {
+      ao: true, sky: true, shadows: true, water: true, post: true,
+      particles: true, fog: true,
+      portal: true, crack: true, viewmodel: true, torchlights: true,
+      wind: true, biome: true,
+    },
     liveState.effects || {},
   );
   const quality0 = liveState.quality || 'medium';
   const time0 = liveState.timeOfDay != null ? liveState.timeOfDay : 0.35;
   const weather0 = liveState.weather || 'clear';
   const underwater0 = !!liveState.underwater;
+  const dimension0 = liveState.dimension || 'warpwold';
+  const held0 = liveState.heldItem != null ? liveState.heldItem : 'block:1';
+  const biome0 = liveState.biome || 'plains';
 
   const call = (method, ...args) => {
     const d = window.demo || demo;
@@ -240,6 +276,56 @@ export function createGUI(demo, state = {}) {
   wSection.appendChild(wSel);
   panel.appendChild(wSection);
 
+  // --- Portal dimension --------------------------------------------------------
+  const pSection = el('div', 'glab-section');
+  pSection.appendChild(el('span', 'glab-label', 'Portal dimension'));
+  const pSel = el('select');
+  for (const [value, label] of DIMENSIONS) {
+    const opt = el('option', null, label);
+    opt.value = value;
+    if (value === dimension0) opt.selected = true;
+    pSel.appendChild(opt);
+  }
+  pSel.addEventListener('change', () => call('setPortalDimension', pSel.value));
+  pSection.appendChild(pSel);
+  panel.appendChild(pSection);
+
+  // --- Held item -----------------------------------------------------------------
+  const hSection = el('div', 'glab-section');
+  hSection.appendChild(el('span', 'glab-label', 'Held item'));
+  const hSel = el('select');
+  for (const [value, label] of HELD_ITEMS) {
+    const opt = el('option', null, label);
+    opt.value = value;
+    if (value === held0) opt.selected = true;
+    hSel.appendChild(opt);
+  }
+  hSel.addEventListener('change', () => call('setHeldItem', hSel.value));
+  hSection.appendChild(hSel);
+  panel.appendChild(hSection);
+
+  // --- Biome grade -----------------------------------------------------------------
+  const bSection = el('div', 'glab-section');
+  bSection.appendChild(el('span', 'glab-label', 'Biome'));
+  const bSel = el('select');
+  for (const b of BIOME_NAMES) {
+    const opt = el('option', null, b);
+    opt.value = b;
+    if (b === biome0) opt.selected = true;
+    bSel.appendChild(opt);
+  }
+  bSel.addEventListener('change', () => call('setBiome', bSel.value));
+  bSection.appendChild(bSel);
+  panel.appendChild(bSection);
+
+  // --- Break block button ------------------------------------------------------------
+  const brSection = el('div', 'glab-section');
+  const brBtn = el('button', 'glab-btn', 'break a block');
+  brBtn.type = 'button';
+  brBtn.addEventListener('click', () => call('triggerBreak'));
+  brSection.appendChild(brBtn);
+  panel.appendChild(brSection);
+
   // --- Underwater ------------------------------------------------------------
   const uSection = el('div', 'glab-section');
   const uLabel = el('label', 'glab-check');
@@ -291,6 +377,23 @@ export function createGUI(demo, state = {}) {
     // Weather dropdown.
     if (s.weather != null && WEATHERS.indexOf(s.weather) !== -1 && wSel.value !== s.weather) {
       wSel.value = s.weather;
+    }
+
+    // Portal dimension dropdown.
+    if (s.dimension != null && DIMENSIONS.some((d) => d[0] === s.dimension) &&
+        pSel.value !== s.dimension) {
+      pSel.value = s.dimension;
+    }
+
+    // Held-item dropdown ('' == none is a valid value).
+    if (s.heldItem != null && HELD_ITEMS.some((h) => h[0] === s.heldItem) &&
+        hSel.value !== s.heldItem) {
+      hSel.value = s.heldItem;
+    }
+
+    // Biome dropdown.
+    if (s.biome != null && BIOME_NAMES.indexOf(s.biome) !== -1 && bSel.value !== s.biome) {
+      bSel.value = s.biome;
     }
 
     // Underwater checkbox.
