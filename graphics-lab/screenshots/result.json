@@ -1,8 +1,6 @@
 {
   "ready": true,
-  "consoleErrors": [
-    "[console] Failed to load resource: the server responded with a status of 404 (File not found)"
-  ],
+  "consoleErrors": [],
   "screenshots": [
     "/home/user/MinecraftV2/graphics-lab/screenshots/01-day.png",
     "/home/user/MinecraftV2/graphics-lab/screenshots/02-night.png",
@@ -11,11 +9,11 @@
     "/home/user/MinecraftV2/graphics-lab/screenshots/05-snow.png",
     "/home/user/MinecraftV2/graphics-lab/screenshots/06-sunrise.png"
   ],
-  "fpsMedium": 1.9177294083806486,
+  "fpsMedium": 1.371817383669956,
   "fpsByQuality": {
-    "low": 0.29564806054873094,
-    "medium": 1.9177294083806486,
-    "ultra": 0.9890544639324198
+    "low": 0.24488196689192454,
+    "medium": 1.371817383669956,
+    "ultra": 0.8914774753357405
   },
-  "notes": "demoReady=true after 10ms\ndemo API keys: setTimeOfDay,setWeather,setUnderwater,setQuality,toggle,spawnBlockBreak\n01-day.png: {\"mean\":159.6,\"std\":48.1,\"width\":1600,\"height\":900}\n02-night.png: {\"mean\":28.39,\"std\":21.35,\"width\":1600,\"height\":900}\n03-rain.png: {\"mean\":162.09,\"std\":48.6,\"width\":1600,\"height\":900}\n04-underwater.png: {\"mean\":96.75,\"std\":45.56,\"width\":1600,\"height\":900}\n05-snow.png: {\"mean\":172.31,\"std\":42.89,\"width\":1600,\"height\":900}\n06-sunrise.png: {\"mean\":125.76,\"std\":32.17,\"width\":1600,\"height\":900}\nfps medium=1.9 ultra=1.0 low=0.3"
+  "notes": "demoReady=true after 9ms\ndemo API keys: setTimeOfDay,setWeather,setUnderwater,setView,setQuality,toggle,spawnBlockBreak,renderer,camera,scene,sky,controls\n01-day.png: {\"mean\":144.19,\"std\":72.27,\"width\":1600,\"height\":900}\n02-night.png: {\"mean\":54.66,\"std\":55.17,\"width\":1600,\"height\":900}\n03-rain.png: {\"mean\":123.59,\"std\":64.21,\"width\":1600,\"height\":900}\n04-underwater.png: {\"mean\":90.87,\"std\":40.49,\"width\":1600,\"height\":900}\n05-snow.png: {\"mean\":139.1,\"std\":65.22,\"width\":1600,\"height\":900}\n06-sunrise.png: {\"mean\":112.49,\"std\":66.79,\"width\":1600,\"height\":900}\nfps medium=1.4 ultra=0.9 low=0.2"
 }

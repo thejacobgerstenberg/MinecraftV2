@@ -94,10 +94,22 @@ function init() {
   const volume = generateDemoChunk();
   const { sx, sy, sz, WATER_LEVEL } = volume;
 
-  // A pleasing daytime 3/4 framing on the chunk, plus a submerged lake framing.
   const CENTER = new THREE.Vector3(sx / 2, WATER_LEVEL + 2, sz / 2); // ~(24,12,24)
-  const ABOVE_TARGET = CENTER.clone();
-  const ABOVE_CAM = new THREE.Vector3(sx * 1.18, sy * 1.55, sz * 1.28); // ~(57,50,61)
+
+  // ---- Camera view presets (window.demo.setView) ---------------------------
+  // 'hero'    3/4 view from the SW, pitched only ~8 deg down so the top ~40% of
+  //           the frame is SKY (the old top-down framing never showed the sky
+  //           above the horizon — that is why stars/moon/clouds "vanished").
+  //           Faces +X/-Z: the low night moon arc (sky.js) rises on this side.
+  // 'sunrise' LOW camera (y ~ WATER_LEVEL+6) west of the island looking EAST
+  //           along the sun azimuth (~11 deg) so the rising sun disc, horizon
+  //           gradient and long shadows are all in frame.
+  // 'closeup' by the cabin's glowstone lights: texture + AO detail.
+  const VIEWS = {
+    hero:    { pos: [-14, 26, 62], target: [26, 18, 20], maxPolar: 0.495 },
+    sunrise: { pos: [-26, WATER_LEVEL + 6, 47], target: [54, WATER_LEVEL + 4, 63], maxPolar: 0.55 },
+    closeup: { pos: [38, 25, 27], target: [29.5, 20.5, 16.5], maxPolar: 0.52 },
+  };
   // Lake centre is (13,34) r=10 in worldgen; dip to WATER_LEVEL-2 inside it.
   const UNDER_CAM = new THREE.Vector3(13, WATER_LEVEL - 2, 40);         // ~(13,8,40)
   const UNDER_TARGET = new THREE.Vector3(20, WATER_LEVEL + 1, 26);
@@ -105,18 +117,29 @@ function init() {
   const camera = new THREE.PerspectiveCamera(
     55, window.innerWidth / window.innerHeight, 0.1, 4000,
   );
-  camera.position.copy(ABOVE_CAM);
+  camera.position.fromArray(VIEWS.hero.pos);
 
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
-  controls.target.copy(ABOVE_TARGET);
-  controls.minDistance = 10;
+  controls.target.fromArray(VIEWS.hero.target);
+  controls.minDistance = 8;
   controls.maxDistance = 220;
-  controls.maxPolarAngle = Math.PI * 0.495; // stay above the ground plane
-  controls.autoRotate = true;               // gentle auto-orbit option
-  controls.autoRotateSpeed = 0.45;
+  controls.maxPolarAngle = Math.PI * VIEWS.hero.maxPolar;
+  controls.autoRotate = true;               // gentle showcase drift on boot;
+  controls.autoRotateSpeed = 0.45;          // any explicit setView() stops it
   controls.update();
+
+  let currentView = 'hero';
+  function applyView(name) {
+    const v = VIEWS[name] || VIEWS.hero;
+    currentView = VIEWS[name] ? name : 'hero';
+    controls.autoRotate = false;            // deterministic framing
+    controls.maxPolarAngle = Math.PI * v.maxPolar;
+    controls.target.fromArray(v.target);
+    camera.position.fromArray(v.pos);
+    controls.update();
+  }
 
   // ==========================================================================
   // 3. Voxel chunk: AO-meshed solid + transparent(leaves) geometry, textured
@@ -241,13 +264,6 @@ function init() {
   // 7. window.demo control API (EXACTLY per API_CONTRACT.md, plus a debug
   //    spawnBlockBreak helper used by the render loop).
   // ==========================================================================
-  function frameAbove() {
-    controls.autoRotate = true;
-    controls.maxPolarAngle = Math.PI * 0.495;
-    controls.target.copy(ABOVE_TARGET);
-    camera.position.copy(ABOVE_CAM);
-    controls.update();
-  }
   function frameUnderwater() {
     controls.autoRotate = false;
     controls.maxPolarAngle = Math.PI * 0.9; // allow looking up at the surface
@@ -270,8 +286,9 @@ function init() {
       state.weather = mode;
       ctx.weather = mode;
       particles.setWeather(mode);          // reseed the weather field
-      // DistanceFog scales its density from ctx.weather every frame (rain/snow
-      // thicken the haze); nothing else to poke here.
+      sky.setWeather(mode);                // storm mood: grey sky, sun -45%
+      ctxSkyColor.copy(sky.getFogColor()); // fog snaps to the graded horizon
+      // DistanceFog additionally scales density from ctx.weather every frame.
     },
 
     setUnderwater(on) {
@@ -279,7 +296,12 @@ function init() {
       state.underwater = b;
       ctx.underwater = b;                  // UnderwaterOverlay + fog react to this
       if (b) frameUnderwater();
-      else frameAbove();
+      else applyView(currentView);
+    },
+
+    // Camera view presets: 'hero' | 'sunrise' | 'closeup'.
+    setView(name) {
+      applyView(name);
     },
 
     setQuality(q) {
@@ -311,6 +333,13 @@ function init() {
     spawnBlockBreak(pos, color) {
       particles.spawnBlockBreak(pos, color);
     },
+
+    // Exposed for stats/verification tooling.
+    renderer,
+    camera,
+    scene,
+    sky,
+    controls,
   };
 
   // ==========================================================================
