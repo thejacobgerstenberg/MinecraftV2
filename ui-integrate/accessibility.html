@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Loomfall UI Integrate — ux-access Fold Proof</title>
+  <!-- Inline favicon so the harness sees no favicon 404. -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23F2C14E'/%3E%3C/svg%3E" />
+
+  <!-- Import-map PREFIX remap: the vendored ux-access modules import
+       ../../ui-kit/... relative to their own URL, which resolves to
+       /ui-integrate/vendor-ux/ui-kit/... — remap that prefix onto the real
+       repo-root /ui-kit/ so lf-core.js and the kit components load once. Must
+       precede every module script. -->
+  <script type="importmap">
+    { "imports": { "/ui-integrate/vendor-ux/ui-kit/": "/ui-kit/" } }
+  </script>
+
+  <!-- content/* stub: nothing in this proof needs it, but keep the proof
+       console-clean if any vendored module probes /content/* — pass every
+       other request through untouched. -->
+  <script>
+    (function () {
+      var STUBS = {
+        '/content/splashes.json': { splashes: ['Every thread returns.'] },
+        '/content/tips.json': { tips: [{ text: 'Pull a thread, see what happens.' }] },
+        '/content/naming.json': { blocks: [], biomes: [] },
+      };
+      var _fetch = window.fetch ? window.fetch.bind(window) : null;
+      window.fetch = function (input, init) {
+        var url = typeof input === 'string' ? input : (input && input.url) || '';
+        try { url = new URL(url, location.href).pathname; } catch (e) {}
+        if (Object.prototype.hasOwnProperty.call(STUBS, url)) {
+          return Promise.resolve(new Response(JSON.stringify(STUBS[url]), {
+            status: 200, headers: { 'Content-Type': 'application/json' },
+          }));
+        }
+        return _fetch ? _fetch(input, init) : Promise.reject(new Error('no fetch'));
+      };
+    })();
+  </script>
+
+  <!-- ui-kit foundation -->
+  <link rel="stylesheet" href="/ui-kit/tokens.css" />
+  <link rel="stylesheet" href="/ui-kit/base.css" />
+  <!-- ui-kit components the docked ux panels compose -->
+  <link rel="stylesheet" href="/ui-kit/components/settings-shell.css" />
+  <link rel="stylesheet" href="/ui-kit/components/dropdown.css" />
+  <link rel="stylesheet" href="/ui-kit/components/slider.css" />
+  <link rel="stylesheet" href="/ui-kit/components/toggle.css" />
+  <link rel="stylesheet" href="/ui-kit/components/button.css" />
+  <link rel="stylesheet" href="/ui-kit/components/modal.css" />
+  <link rel="stylesheet" href="/ui-kit/components/toast.css" />
+  <!-- vendored ux-access component css -->
+  <link rel="stylesheet" href="/ui-integrate/vendor-ux/ux/keybinds/keybinds.css" />
+  <link rel="stylesheet" href="/ui-integrate/vendor-ux/ux/options/access-options.css" />
+  <link rel="stylesheet" href="/ui-integrate/vendor-ux/ux/captions/captions.css" />
+  <link rel="stylesheet" href="/ui-integrate/vendor-ux/ux/onboarding/tutorial.css" />
+  <!-- brand overlay + the ui-kit follow-up narrow-width fix (also linked by
+       applyTheme(); exact-href match dedupes). -->
+  <link rel="stylesheet" href="/ui-integrate/brand-theme.css" />
+  <link rel="stylesheet" href="/ui-integrate/settings-shell-fix.css" />
+
+  <style>
+    /* Proof harness layout only — colors come from tokens + brand-theme. */
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      background:
+        radial-gradient(1200px 800px at 70% -10%, #2a2340 0%, transparent 60%),
+        linear-gradient(160deg, #17131f 0%, #0f0c15 100%);
+      color: var(--lf-color-text-body);
+      font-family: var(--lf-font-body, system-ui, sans-serif);
+      min-height: 100vh;
+    }
+
+    /* Settings shell column (left). */
+    #menu-root {
+      position: relative;
+      z-index: 5;
+      max-width: 560px;
+      margin: 24px;
+      padding: 0;
+    }
+
+    /* HUD layer — anchors for the onboarding coach-marks. */
+    #hud {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      pointer-events: none;
+    }
+    #hud .crosshair {
+      position: fixed;
+      left: 50%; top: 46%;
+      width: 26px; height: 26px;
+      margin: -13px 0 0 -13px;
+      border: 2px solid var(--lf-color-text-body);
+      border-radius: 50%;
+      box-shadow: 0 0 0 2px rgba(0,0,0,0.5) inset;
+    }
+    #hud #hotbar {
+      position: fixed;
+      left: 50%; bottom: 20px; transform: translateX(-50%);
+      display: flex; gap: 6px;
+      padding: 6px; border-radius: 8px;
+      background: rgba(0,0,0,0.4);
+    }
+    #hud #hotbar .slot {
+      width: 40px; height: 40px; border-radius: 6px;
+      background: var(--lf-color-bg-raised);
+      border: 1px solid var(--lf-color-border);
+    }
+    #hud .health {
+      position: fixed;
+      left: 50%; bottom: 74px; transform: translateX(-50%);
+      font: 700 13px/1 ui-monospace, monospace;
+      color: var(--lf-color-text-body);
+      background: rgba(0,0,0,0.4); padding: 4px 8px; border-radius: 6px;
+    }
+    #hud #chat {
+      position: fixed; left: 16px; bottom: 96px;
+      font: 12px/1.4 ui-monospace, monospace; color: var(--lf-color-text-dim);
+      background: rgba(0,0,0,0.35); padding: 6px 8px; border-radius: 6px;
+    }
+    #hud #debug {
+      position: fixed; left: 16px; top: 12px;
+      font: 11px/1.4 ui-monospace, monospace; color: var(--lf-color-text-dim);
+      background: rgba(0,0,0,0.35); padding: 6px 8px; border-radius: 6px;
+      white-space: pre;
+    }
+    #hud #inventory-button {
+      position: fixed; right: 16px; top: 12px;
+      pointer-events: auto;
+      padding: 6px 10px; border-radius: 6px;
+      background: var(--lf-color-bg-raised);
+      border: 1px solid var(--lf-color-border);
+      color: var(--lf-color-text-body); font: 600 12px/1 system-ui, sans-serif;
+    }
+  </style>
+</head>
+<body>
+  <main id="menu-root"></main>
+
+  <!-- Small builder-style HUD so the onboarding anchors exist. -->
+  <div id="hud">
+    <div id="debug">Loomfall dev
+fps 60
+xyz 12 68 -4</div>
+    <button id="inventory-button" type="button">Inventory</button>
+    <div class="crosshair" aria-hidden="true"></div>
+    <div class="health" aria-label="Health">❤ 20 / 20</div>
+    <div id="hotbar" aria-label="Hotbar">
+      <div class="slot"></div><div class="slot"></div><div class="slot"></div>
+      <div class="slot"></div><div class="slot"></div><div class="slot"></div>
+      <div class="slot"></div><div class="slot"></div><div class="slot"></div>
+    </div>
+    <div id="chat">&lt;Weaver&gt; the loom holds…</div>
+  </div>
+
+  <script type="module">
+    import HudKit from '/ui-integrate/integrate.js';
+    // Share the SAME OptionsStore singleton the docked panel edits.
+    import { getStore } from '/ui-integrate/vendor-ux/ux/options/options-store.js';
+
+    const errors = [];
+    const UX = '/ui-integrate/vendor-ux/ux/';
+
+    async function fetchJSON(url) {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error('HTTP ' + r.status + ' for ' + url);
+      return r.json();
+    }
+
+    async function boot() {
+      const kit = new HudKit({
+        assetBase: '/',
+        themeHref: '/ui-integrate/brand-theme.css',
+        settingsFixHref: '/ui-integrate/settings-shell-fix.css',
+        uxBase: UX,
+        theme: 'dark',
+      });
+
+      // Tier 1 — palette + settings-shell narrow-width fix.
+      kit.applyTheme();
+      // Anchor the HUD widgets for the onboarding coach-marks.
+      kit.tagHudAnchors();
+
+      // Fetch the genuine ux-access data docs from the vendored package.
+      const [bindingsDoc, captionsDoc, flowDoc] = await Promise.all([
+        fetchJSON(UX + 'keybinds/bindings.default.json'),
+        fetchJSON(UX + 'captions/captions.json'),
+        fetchJSON(UX + 'onboarding/tutorial.json'),
+      ]);
+
+      // Tier 3 — fold the whole ux-access package in one call.
+      const fold = kit.foldUxAccess({
+        uxBase: UX,
+        bindingsDoc,
+        captionsDoc,
+        flowDoc,
+        captionsCorner: 'bottom-left',
+      });
+
+      // Wait for all four ux-access elements to register + upgrade so props
+      // (defaults/captions/flow) have applied and rows/controls have rendered.
+      await Promise.all(
+        ['lf-keybinds', 'lf-access-options', 'lf-captions', 'lf-tutorial'].map((t) =>
+          customElements.whenDefined(t)
+        )
+      );
+      // One frame for upgraded elements to render their light DOM.
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+      const store = getStore();
+
+      // DEMO 1 — a directional caption line (◀ chevron, left).
+      HudKit.emitAudioEvent({ name: 'thunder', direction: 'left', volume: 0.8 });
+
+      // DEMO 2 — apply a colorblind mode through the shared store; it sets
+      // html[data-lf-cvd] and dispatches window lf-options-change.
+      store.set('colorblindMode', 'deuteranopia');
+
+      // DEMO 3 — gate the onboarding: the on_first_block_broken beat anchors a
+      // coach-mark to [data-lf-anchor="crosshair"].
+      HudKit.emitGameEvent('on_first_block_broken');
+
+      // Let the caption + coach-mark paint.
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+      window.a11yProof = {
+        kit,
+        fold,
+        store,
+        errors,
+        showCaption: (d) => HudKit.emitAudioEvent(d),
+        gate: (t) => HudKit.emitGameEvent(t),
+        setColorblind: (m) => store.set('colorblindMode', m),
+        ready: true,
+      };
+    }
+
+    window.addEventListener('error', (e) =>
+      errors.push(String((e.error && e.error.stack) || e.message))
+    );
+    window.addEventListener('unhandledrejection', (e) =>
+      errors.push('unhandledrejection: ' + String((e.reason && e.reason.message) || e.reason))
+    );
+
+    boot().catch((err) => {
+      errors.push('boot failed: ' + String((err && err.stack) || err));
+      window.a11yProof = window.a11yProof || { errors, ready: false };
+      window.a11yProof.ready = false;
+      window.a11yProof.errors = errors;
+    });
+  </script>
+</body>
+</html>

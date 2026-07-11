@@ -32,11 +32,42 @@
  * See INTEGRATION.md for the exact main.js edits (link tags + the one-line
  * `HudKit.init({ ui }).adoptAll()` call and per-widget opt-ins).
  *
+ *   TIER 3 — ux-access fold (foldUxAccess):  folds the genuine ux-access
+ *     package (keybinds / options / captions / onboarding) into the same
+ *     facade. These four are define()-registered lf-* custom elements wired
+ *     purely through WINDOW CustomEvents — HudKit never imports three or any
+ *     audio engine, it only mounts the elements and links their css. The
+ *     window-event buses it observes / drives:
+ *       - `lf-audio-event`   {name, direction?, volume?, loop?, ended?} —
+ *         <lf-captions> self-subscribes to this on connect. THE BUILDER'S
+ *         GameAudio MUST DISPATCH IT per engine.play() for captions to show;
+ *         HudKit.emitAudioEvent(detail) is the tiny static bridge (used by
+ *         the builder + the proof). <lf-captions> has no attach() method.
+ *       - `lf-game-event`    {type:'on_first_block_broken'|...} — gates the
+ *         <lf-tutorial> coach-mark beats. Drive it with
+ *         HudKit.emitGameEvent(type). Beats anchor via
+ *         document.querySelector('[data-lf-anchor="<id>"]') — tagHudAnchors()
+ *         stamps the reserved anchor vocabulary onto the managed HUD widgets.
+ *       - `lf-options-change` {key,value,options} — dispatched by the
+ *         OptionsStore on every commit; it also sets html[data-lf-cvd] /
+ *         [data-lf-reduced-motion] / --lf-ui-scale. subtitles===false is the
+ *         store's signal to unmount <lf-captions>.
+ *       - `lf-bindings-change` {action,slot,code,bindings} — emitted by
+ *         <lf-keybinds>; the tutorial live-substitutes [MOVE]/[BREAK]/… from it.
+ *     <lf-keybinds> and <lf-access-options> DOCK into an <lf-settings-shell>
+ *     as <section data-category="Controls"> / ="Accessibility"> bodies. Note
+ *     the shell consumes its sections at render() time, so foldUxAccess
+ *     authors them as children BEFORE the shell connects.
+ *     applyTheme() also links settings-shell-fix.css — a ui-kit follow-up
+ *     overlay adding the narrow-width (~390px) breakpoint the kit's
+ *     settings-shell.css lacks (rail pinned flex:0 0 168px crushes dropdowns).
+ *
  * @example
  *   import HudKit from './ui-integrate/integrate.js';
  *   const kit = HudKit.init({ ui, assetBase: './' });
  *   kit.applyTheme();          // Tier 1 — palette + contrast, zero churn
  *   kit.adoptCrosshair();      // Tier 2 — opt in per widget
+ *   kit.foldUxAccess({ uxBase: './ux/' });  // Tier 3 — ux-access fold
  *   // ...later
  *   kit.revertAll();           // full, clean revert
  */
@@ -78,6 +109,17 @@ export class HudKit {
    * @param {string} [opts.wordmarkHref] Explicit href for the brand wordmark
    *   SVG fetched by adoptWordmark(). Defaults to
    *   `${assetBase}vendor-game/brand/wordmark-dark.svg`.
+   * @param {string} [opts.uxBase='./ux/'] Path where the ux-access package
+   *   (keybinds/ options/ captions/ onboarding/) lives in the game tree,
+   *   relative to the page (must end with '/'). The demo passes
+   *   './vendor-ux/ux/'. Used by adoptAccessibilitySettings/Captions/Onboarding
+   *   and foldUxAccess (each accepts a per-call uxBase override).
+   * @param {string} [opts.settingsFixHref] Explicit href for
+   *   settings-shell-fix.css (the narrow-width breakpoint overlay linked by
+   *   applyTheme). It sits BESIDE this module / the page — NOT under assetBase
+   *   (which points at the ui-kit root) — so it defaults to the module-relative
+   *   URL `new URL('./settings-shell-fix.css', import.meta.url)`. The demo may
+   *   pass './settings-shell-fix.css'.
    */
   constructor(opts = {}) {
     this.root = opts.root || (typeof document !== 'undefined' ? document : null);
@@ -94,6 +136,19 @@ export class HudKit {
       opts.wordmarkHref != null
         ? String(opts.wordmarkHref)
         : base + 'vendor-game/brand/wordmark-dark.svg';
+
+    // Where the ux-access package sits in the game tree (default './ux/').
+    let ux = opts.uxBase == null ? './ux/' : String(opts.uxBase);
+    if (ux && !ux.endsWith('/')) ux += '/';
+    this.uxBase = ux;
+    // settings-shell-fix.css lives beside this module (ui-integrate/), off the
+    // ui-kit assetBase root — default to a module-relative URL so it resolves
+    // wherever HudKit is deployed. Overridable for bundlers/odd layouts.
+    this.settingsFixHref =
+      opts.settingsFixHref != null
+        ? String(opts.settingsFixHref)
+        : safe(() => new URL('./settings-shell-fix.css', import.meta.url).href, 'settingsFixHref') ||
+          base + 'settings-shell-fix.css';
 
     /** @type {Map<string, {revert:Function}>} active adoptions, keyed by name. */
     this._adoptions = new Map();
@@ -165,6 +220,10 @@ export class HudKit {
     this._linkCss(b + 'ui-kit/base.css');
     // brand-theme.css may live off the assetBase root — use the resolved href.
     this._linkCss(this.themeHref);
+    // ui-kit follow-up: the narrow-width settings-shell breakpoint overlay.
+    // Linked LAST so its @media rules win over settings-shell.css by source
+    // order (equal specificity). Tracked, so removeTheme() unlinks it too.
+    this._linkCss(this.settingsFixHref);
     safe(() => {
       const doc = this._doc;
       if (doc && doc.documentElement) doc.documentElement.dataset.theme = this.theme;
@@ -207,6 +266,45 @@ export class HudKit {
   _make(tag) {
     const doc = this._doc;
     return doc ? safe(() => doc.createElement(tag), 'create ' + tag) : null;
+  }
+
+  /**
+   * Resolve a ux-access base path (per-call override or the instance default),
+   * normalizing a trailing slash.
+   * @param {string} [override] @returns {string}
+   */
+  _uxBase(override) {
+    let b = override != null ? String(override) : this.uxBase;
+    if (b && !b.endsWith('/')) b += '/';
+    return b;
+  }
+
+  /**
+   * Dynamically import a ux-access module (never throws; returns a Promise).
+   * @param {string} href absolute-or-page-relative module URL
+   * @returns {Promise<any>}
+   */
+  _importUx(href) {
+    return (
+      safe(() => import(/* @vite-ignore */ href), 'import ux ' + href) || Promise.resolve(null)
+    );
+  }
+
+  /**
+   * Once `tag` is a defined custom element, run `fn(el)` (used to assign
+   * bootstrap PROPERTIES like .defaults/.flow/.captions that are NOT observed
+   * attributes and so are lost if set before upgrade). Never throws.
+   * @param {string} tag @param {Element} el @param {(el:Element)=>void} fn
+   */
+  _whenDefined(tag, el, fn) {
+    safe(() => {
+      const ce = typeof customElements !== 'undefined' ? customElements : null;
+      if (ce && isFn(ce.whenDefined)) {
+        ce.whenDefined(tag).then(() => safe(() => fn(el), 'apply ' + tag));
+      } else {
+        safe(() => fn(el), 'apply ' + tag);
+      }
+    }, 'whenDefined ' + tag);
   }
 
   /**
@@ -693,6 +791,312 @@ export class HudKit {
         },
       };
     });
+  }
+
+  // =======================================================================
+  // TIER 3 — ux-access fold (keybinds / options / captions / onboarding)
+  // =======================================================================
+
+  /**
+   * Dock the ux-access keybinds + accessibility-options panels into an
+   * <lf-settings-shell>. Finds an existing shell (e.g. from adoptSettings) or
+   * creates one appended to `mountInto`. Imports the vendored modules and
+   * inserts a <section data-category="Controls"><lf-keybinds></section> and a
+   * <section data-category="Accessibility" data-ux-access-dock><lf-access-options></section>.
+   * Because the shell consumes its sections at render() time, when we CREATE
+   * the shell the sections are authored as children first, then the shell is
+   * connected. When docking into an EXISTING (already-rendered) shell we
+   * append the panels into its matching category bodies instead.
+   * @param {object} [opts]
+   * @param {string} [opts.uxBase] override the instance uxBase.
+   * @param {object} [opts.bindingsDoc] parsed bindings.default.json; assigned
+   *   to lf-keybinds .defaults once the element upgrades.
+   * @param {Element} [opts.mountInto] host for a newly-created shell
+   *   (default #menu-root, else <body>).
+   * @returns {{revert:Function, element:Element|null, keybinds:Element|null, options:Element|null}}
+   */
+  adoptAccessibilitySettings({ uxBase, bindingsDoc, mountInto } = {}) {
+    return this._adopt('a11ySettings', () => {
+      const doc = this._doc;
+      if (!doc) return this._missing('a11ySettings', 'document');
+      const base = this._uxBase(uxBase);
+
+      // The <lf-settings-shell> host itself is a ui-kit component — load its
+      // definition (+ css) so the shell upgrades and builds its rail/pane/tabs
+      // and CONSUMES our authored <section data-category> panels at render().
+      // Without this the shell stays inert and the panels never dock into tabs.
+      this._loadComponent('settings-shell');
+
+      // Link the ux component css + import the modules (options-store is
+      // pulled transitively by access-options; it auto-links cvd/motion css).
+      this._linkCss(base + 'keybinds/keybinds.css', false);
+      this._linkCss(base + 'options/access-options.css', false);
+      this._importUx(base + 'keybinds/keybinds.js');
+      this._importUx(base + 'options/access-options.js');
+
+      const kb = this._make('lf-keybinds');
+      const opts = this._make('lf-access-options');
+      if (!kb || !opts) return this._missing('a11ySettings', 'lf-keybinds/lf-access-options');
+
+      const existing = this._q('lf-settings-shell');
+      let shell = existing;
+      let createdShell = false;
+      const added = []; // nodes we inserted, for revert
+
+      if (existing) {
+        // Dock into the already-rendered shell's category bodies (sections
+        // were reparented into the pane but keep their data-category attr).
+        const controls =
+          existing.querySelector('section[data-category="Controls"]') ||
+          existing.querySelector('.lf-settings-shell__panel[data-category="Controls"]');
+        const access =
+          existing.querySelector('section[data-ux-access-dock]') ||
+          existing.querySelector('section[data-category="Accessibility"]');
+        if (controls) {
+          controls.appendChild(kb);
+          added.push(kb);
+        }
+        if (access) {
+          access.setAttribute('data-ux-access-dock', '');
+          access.appendChild(opts);
+          added.push(opts);
+        }
+        if (!controls && !access) {
+          return this._missing('a11ySettings', 'shell Controls/Accessibility sections');
+        }
+      } else {
+        // Author the sections as children BEFORE connecting the shell.
+        shell = this._make('lf-settings-shell');
+        if (!shell) return this._missing('a11ySettings', 'lf-settings-shell');
+        shell.setAttribute('heading', 'Settings');
+        const controls = doc.createElement('section');
+        controls.setAttribute('data-category', 'Controls');
+        controls.appendChild(kb);
+        const access = doc.createElement('section');
+        access.setAttribute('data-category', 'Accessibility');
+        access.setAttribute('data-ux-access-dock', '');
+        access.appendChild(opts);
+        shell.appendChild(controls);
+        shell.appendChild(access);
+        const host = mountInto || this._q('#menu-root') || doc.body;
+        if (!host) return this._missing('a11ySettings', '#menu-root');
+        host.appendChild(shell); // renders now, consuming the two sections
+        createdShell = true;
+      }
+
+      // Bootstrap the keybinds defaults once the element is upgraded.
+      if (bindingsDoc) {
+        this._whenDefined('lf-keybinds', kb, (el) => {
+          el.defaults = bindingsDoc;
+        });
+      }
+
+      return {
+        element: shell,
+        keybinds: kb,
+        options: opts,
+        revert: () => {
+          if (createdShell) {
+            if (shell && shell.parentNode) shell.parentNode.removeChild(shell);
+          } else {
+            for (const n of added) if (n && n.parentNode) n.parentNode.removeChild(n);
+          }
+        },
+      };
+    });
+  }
+
+  /**
+   * Mount <lf-captions> into the HUD layer. It self-subscribes on connect to
+   * the window `lf-audio-event` bus — so the BUILDER'S GameAudio must dispatch
+   * `window` 'lf-audio-event' {name, direction?, volume?, loop?, ended?} per
+   * engine.play() for lines to appear (there is no attach() method). Use the
+   * static HudKit.emitAudioEvent(detail) bridge from the builder or a test.
+   * @param {object} [opts]
+   * @param {string} [opts.uxBase] override the instance uxBase.
+   * @param {object} [opts.captionsDoc] parsed captions.json; assigned to
+   *   .captions once the element upgrades.
+   * @param {('bottom-left'|'bottom-right'|'top-left'|'top-right')} [opts.corner]
+   * @returns {{revert:Function, element:Element|null}}
+   */
+  adoptCaptions({ uxBase, captionsDoc, corner } = {}) {
+    return this._adopt('captions', () => {
+      const doc = this._doc;
+      const host = this._q('#hud') || (doc && doc.body);
+      if (!host) return this._missing('captions', '#hud');
+      const base = this._uxBase(uxBase);
+      this._linkCss(base + 'captions/captions.css', false);
+      this._importUx(base + 'captions/captions.js');
+      const el = this._make('lf-captions');
+      if (!el) return this._missing('captions', 'lf-captions');
+      if (corner) el.setAttribute('corner', corner);
+      host.appendChild(el); // connects + self-subscribes to lf-audio-event
+      if (captionsDoc) {
+        this._whenDefined('lf-captions', el, (c) => {
+          c.captions = captionsDoc;
+        });
+      }
+      return {
+        element: el,
+        revert: () => {
+          if (el.parentNode) el.parentNode.removeChild(el);
+        },
+      };
+    });
+  }
+
+  /**
+   * Mount <lf-tutorial> onboarding coach-marks. Gate the beats by dispatching
+   * window 'lf-game-event' {type:'on_first_block_broken'|...} — use the static
+   * HudKit.emitGameEvent(type) bridge. Beats anchor via
+   * document.querySelector('[data-lf-anchor="<id>"]'); call tagHudAnchors()
+   * first so those anchors exist on the managed HUD widgets.
+   * @param {object} [opts]
+   * @param {string} [opts.uxBase] override the instance uxBase.
+   * @param {object} [opts.flowDoc] parsed tutorial.json; assigned to .flow.
+   * @param {string} [opts.src] flow JSON URL (alternative to flowDoc).
+   * @param {boolean} [opts.autostart=true] arm the overlay (start({force}))
+   *   so gate events advance it. Set false to arm it yourself later.
+   * @returns {{revert:Function, element:Element|null}}
+   */
+  adoptOnboarding({ uxBase, flowDoc, src, autostart = true } = {}) {
+    return this._adopt('onboarding', () => {
+      const doc = this._doc;
+      const host = this._q('#hud') || (doc && doc.body);
+      if (!host) return this._missing('onboarding', 'body');
+      const base = this._uxBase(uxBase);
+      this._linkCss(base + 'onboarding/tutorial.css', false);
+      this._importUx(base + 'onboarding/tutorial.js');
+      const el = this._make('lf-tutorial');
+      if (!el) return this._missing('onboarding', 'lf-tutorial');
+      if (src && !flowDoc) el.setAttribute('src', src);
+      host.appendChild(el);
+      this._whenDefined('lf-tutorial', el, (t) => {
+        if (flowDoc) t.flow = flowDoc;
+        if (autostart && isFn(t.start)) t.start({ force: true });
+      });
+      return {
+        element: el,
+        revert: () => {
+          if (el.parentNode) el.parentNode.removeChild(el);
+        },
+      };
+    });
+  }
+
+  /**
+   * Stamp data-lf-anchor onto the managed HUD widgets using the reserved
+   * onboarding anchor vocabulary, so <lf-tutorial> coach-marks can locate
+   * them. Prefers the adopted lf-* elements, falling back to the builder's
+   * bare widgets. One element carries at most one anchor id (later ids for an
+   * already-tagged element are skipped). Idempotent; revert removes only the
+   * attrs we added.
+   * @param {Record<string, string|string[]>} [map] anchorId -> selector(s).
+   * @returns {{revert:Function}}
+   */
+  tagHudAnchors(map) {
+    return this._adopt('anchors', () => {
+      const resolve = (candidates) => {
+        const list = Array.isArray(candidates) ? candidates : [candidates];
+        for (const sel of list) {
+          const el = this._q(sel);
+          if (el) return el;
+        }
+        return null;
+      };
+      const defaults = {
+        hotbar: ['lf-hotbar', '#hotbar'],
+        healthbar: ['lf-statbars', '.health', '.healthbar'],
+        statbars: ['lf-statbars', '.statbars', '.health'],
+        crosshair: ['lf-crosshair', '.crosshair'],
+        chat: ['lf-chat', '#chat'],
+        debug: ['lf-debug-overlay', '#debug'],
+        'inventory-button': ['#inventory-button', '.inventory-button', '[data-inventory-open]'],
+      };
+      const spec = map || defaults;
+      const applied = []; // [el] we stamped
+      for (const anchorId of Object.keys(spec)) {
+        const el = resolve(spec[anchorId]);
+        if (!el) continue;
+        // Don't clobber a pre-existing anchor (incl. one we set this run).
+        if (el.getAttribute('data-lf-anchor') != null) continue;
+        safe(() => el.setAttribute('data-lf-anchor', anchorId), 'anchor ' + anchorId);
+        applied.push(el);
+      }
+      return {
+        revert: () => {
+          for (const el of applied) safe(() => el.removeAttribute('data-lf-anchor'), 'unanchor');
+        },
+      };
+    });
+  }
+
+  /**
+   * Convenience: fold the whole ux-access package in one call —
+   * applyTheme() (which also links settings-shell-fix.css) +
+   * adoptAccessibilitySettings + adoptCaptions + adoptOnboarding +
+   * tagHudAnchors. Returns an aggregate revert that tears down all of them.
+   * @param {object} [opts]
+   * @param {string} [opts.uxBase]
+   * @param {object} [opts.bindingsDoc]
+   * @param {object} [opts.captionsDoc]
+   * @param {object} [opts.flowDoc]
+   * @param {string} [opts.captionsCorner]
+   * @param {Record<string, string|string[]>} [opts.anchorMap]
+   * @returns {{revert:Function, settings, captions, onboarding, anchors}}
+   */
+  foldUxAccess({ uxBase, bindingsDoc, captionsDoc, flowDoc, captionsCorner, anchorMap } = {}) {
+    const base = this._uxBase(uxBase);
+    // Ensure the palette + the settings-shell narrow-width fix are linked.
+    this.applyTheme();
+    const settings = this.adoptAccessibilitySettings({ uxBase: base, bindingsDoc });
+    const captions = this.adoptCaptions({ uxBase: base, captionsDoc, corner: captionsCorner });
+    const onboarding = this.adoptOnboarding({ uxBase: base, flowDoc });
+    const anchors = this.tagHudAnchors(anchorMap);
+    return {
+      settings,
+      captions,
+      onboarding,
+      anchors,
+      revert: () => {
+        for (const h of [anchors, onboarding, captions, settings]) {
+          safe(() => h && isFn(h.revert) && h.revert(), 'foldUxAccess revert');
+        }
+      },
+    };
+  }
+
+  // =======================================================================
+  // Static window-event bridges (the ux-access buses, contract §4)
+  // =======================================================================
+
+  /**
+   * Dispatch the window `lf-audio-event` that <lf-captions> consumes. The
+   * builder's GameAudio calls this per engine.play(); the proof drives it too.
+   * @param {{name:string, direction?:string, volume?:number, loop?:boolean, ended?:boolean, category?:string}} detail
+   */
+  static emitAudioEvent(detail) {
+    if (typeof window === 'undefined') return;
+    safe(
+      () => window.dispatchEvent(new CustomEvent('lf-audio-event', { detail: detail || {} })),
+      'emitAudioEvent'
+    );
+  }
+
+  /**
+   * Dispatch the window `lf-game-event` that gates <lf-tutorial> beats.
+   * @param {string} type e.g. 'on_first_block_broken'
+   * @param {object} [extra] merged into detail alongside {type}
+   */
+  static emitGameEvent(type, extra) {
+    if (typeof window === 'undefined') return;
+    safe(
+      () =>
+        window.dispatchEvent(
+          new CustomEvent('lf-game-event', { detail: Object.assign({ type: type }, extra || {}) })
+        ),
+      'emitGameEvent'
+    );
   }
 
   // =======================================================================
