@@ -1,0 +1,309 @@
+{
+  "tips": [
+    {
+      "id": "first-thread",
+      "system": "crafting",
+      "text": "Everything begins with Raw Skein, sheared from the trusting skeinlings of the Sennmeadows. Spin it to thread, thread to cord, cord to the first walls that keep the night off you. The Loom will not raise them for you — the raising is what a Mender is for."
+    },
+    {
+      "id": "pick-it-loose",
+      "system": "mining",
+      "text": "The ground is cloth, and your bare hands will pick the meadow turf loose easily enough. Threadstone, though, wants a tool against it; work Knotwood into a pick before you go down, or you will only scrabble at the weave and come up with almost nothing to show for the ache in your arms."
+    },
+    {
+      "id": "where-the-glow-ends",
+      "system": "lighting",
+      "text": "Set a Knotlight before the dark closes on you. Where its glow ends the dark begins to move, and the things that stir out there were woven crooked and then left that way."
+    },
+    {
+      "id": "set-your-knot",
+      "system": "anchoring",
+      "text": "A Knotlight is more than a flame; kindle one and it becomes your anchor. When you are unpicked you wake again at your last knot, so set a new one often, and never far from the work you mean to come back to."
+    },
+    {
+      "id": "you-do-not-die",
+      "system": "death",
+      "text": "You do not truly die. Struck down, burned, or unravelled, you are only pulled from the pattern and re-stitched at your knot — though a little of your gathered thread is always lost in the tearing. Carry less than you would grieve to leave behind."
+    },
+    {
+      "id": "needlejacks-grow",
+      "system": "combat",
+      "text": "By day a needlejack slumps rigid, a half-stuffed shape gone stiff in the shape of a thing not yet finished. By night it unbends to hunt, and stitches what it kills into its own tangle, so the old ones are the worst of all. Do not let them get old."
+    },
+    {
+      "id": "thread-wears-thin",
+      "system": "hunger",
+      "text": "Your thread wears thin as you work and wander. Berries thick from the hedgerows, bread of grown grain, a fish off the Dyewater Coast — eat, or your cloth begins to fray from want alone, with nothing having laid a hand on you at all."
+    },
+    {
+      "id": "nothing-holds-itself",
+      "system": "building",
+      "text": "To build is to stitch the world into a shape you chose. But a wall raised this morning can be frayed by hounds, unpicked by Ravelers, or simply loosened over time by the Ravelling. Nothing you make will hold itself; that tending is the whole of the work."
+    },
+    {
+      "id": "bindwax-hope",
+      "system": "binding",
+      "text": "Bindwax is the rarest hope there is. Work a thing in it and it is bound — past fraying, past unpicking, past the slow pull of the Ravelling. It gathers slowly and spends fast, so bind only what you could not bear to lose a second time."
+    },
+    {
+      "id": "build-anyway",
+      "system": "the-ravelling",
+      "text": "Everything you make is already, a little, always coming apart in your hands. That is the Ravelling, and it does not rest. Build anyway. A Loom left to itself only frays; you are the single thread in it that chooses otherwise."
+    },
+    {
+      "id": "loom-gates",
+      "system": "dimensions",
+      "text": "The way down to the Cinderloom is a frame of Cinderglass with a living fray drawn taut across it and threaded fast into the stone — no flame needed, only the tear held open. It becomes a gate onto the fire where the making still burns. Follow a fray the other way, far enough, and it widens instead onto Nevermend, where the making comes undone."
+    },
+    {
+      "id": "two-places-at-once",
+      "system": "exploration",
+      "text": "In the Understitch Downs the old world bleeds up through the new — a river running at once where it is and where it used to be. It is beautiful, and it will turn you around inside the hour. Lay a line of Knotlights behind you, or you will wander two places at once and learn to trust neither."
+    },
+    {
+      "id": "the-loam-remembers",
+      "system": "farming",
+      "text": "Understitch Loam grows anything you press into it, for the unpicked patterns buried in it still remember being orchard and field, and they feed your roots with that remembering. Break a clod as you work and you may catch the faint reversed shape of whatever grew there long before you did."
+    },
+    {
+      "id": "climb-for-iron",
+      "system": "mining",
+      "text": "Needle-Iron waits in the frayed seams high on Warpspine Reach, cold and grey and patient — the metal the folk named for the needles they once mended themselves with. It holds an edge long after Knotwood has given out. The falls up there run longer than they look, and the thin air forgives no slip."
+    },
+    {
+      "id": "the-last-upgrade",
+      "system": "crafting",
+      "text": "Knotwood carries a first morning, Threadstone serves at first, Needle-Iron longer, Dawnthread longer still — yet each is only cloth grown hard, and cloth can be undone. Everthread alone was drawn in an unfinished world, and so a finished one has no hold on it. Nothing you ever carry will outlast it."
+    },
+    {
+      "id": "understruck-grief",
+      "system": "combat",
+      "text": "The Understruck were half-unpicked and then, cruelly, left to go on living in pieces, dragging their own loose ends behind them. They hunt you for whole living thread that might make them finished again. Their hunger is grief more than malice — but grief with reach, and it cannot be talked down."
+    },
+    {
+      "id": "mothdust-glow",
+      "system": "lighting",
+      "text": "Silence-moths drift toward any light and gnaw quietly at woven things — banners, walls, and you, if you hold still long enough to be mistaken for a wall. Their shed dust presses into Mothdust Brick, a pale cold glow that never flickers and never quite seems awake."
+    },
+    {
+      "id": "never-sit-down",
+      "system": "dimensions",
+      "text": "The Cinderloom keeps no shade and grants no night, and to stand too long on Cinderthread is a slow way to be unmade from the feet upward. Nothing runs cool down there, so carry Frostlace for the quenching, and settle on a way back before ever you go in — and whatever your legs tell you down there, do not sit to rest."
+    },
+    {
+      "id": "slagmoths-cold",
+      "system": "combat",
+      "text": "Slagmoths are drawn not to light but to cold, and you come into the fire carrying the whole chill of Warpwold on your skin. They gather to it and cook you inside your own armor. Shed the chill where you can — even a moment's footing on warm cinderthread reads as too warm to be worth wanting — and keep moving, so they never quite settle onto you."
+    },
+    {
+      "id": "stitch-your-path",
+      "system": "dimensions",
+      "text": "In Nevermend gravity is only a rumor, and a thread you drop falls forever with nothing below to catch it. Build your road one stitch ahead of your own feet, and mind your footing as you go — the void picks quietly at your seams the entire while you cross."
+    },
+    {
+      "id": "ravelers-steal-the-record",
+      "system": "combat",
+      "text": "Ravelers do not strike; they unpick. They draw blocks from your walls and items from your hands and drift off with the pieces, undoing your work stitch by patient stitch. What they take, they take from the record and not just the moment — so bind anything that matters before you carry it into their dark."
+    },
+    {
+      "id": "bond-a-spoolmare",
+      "system": "mounts",
+      "text": "A spoolmare walks the Understitch Downs in slow swaying bands — a wound spool of living thread carried high on six long legs, unspooling a fading trail behind it. Gentle one slowly and it will bear you, saddled atop the spool; a bonded spoolmare can even stride out across a fray in Nevermend, laying down ground beneath its own legs for as long as it lasts before it comes undone."
+    },
+    {
+      "id": "speak-kindly",
+      "system": "trading",
+      "text": "The Wickerkin keep the stitched villages swept and lamplit, and will trade skein, dye, and knotwork for what you gather. Speak kindly to them. They dream they are alive, and wait with unfailing courtesy for a story whose next chapter never came — and they will not thank you for telling them the ground is only cloth."
+    },
+    {
+      "id": "ore-that-burns",
+      "system": "smelting",
+      "text": "Emberskein Ore is molten at the core and threaded with running fire, and it burns as its own fuel — the one thing that keeps a furnace lit in a place that would sooner melt it. Carry a few glowing lumps up out of the Cinderloom and your forge on the surface need never go cold and dark on you again."
+    },
+    {
+      "id": "give-it-color",
+      "system": "crafting",
+      "text": "The Dyewater sea runs in bands that never fully mix — indigo, madder, weld, each keeping to its own current. Gather the colored water and work it into your skein and your walls. To give a thing color is to say, against all the fraying, that you mean to keep it."
+    },
+    {
+      "id": "window-on-the-loom",
+      "system": "building",
+      "text": "Fuse Dyewater sand in the heat and it clears into Loomglass, a pane you can nearly see the warp through. Hold one up to a dim light and you may catch faint threads drifting inside it, going about their slow work — a small honest window onto the Loom that lies beneath everything."
+    },
+    {
+      "id": "follow-the-thrum",
+      "system": "exploration",
+      "text": "That low hum you feel in your teeth before you hear it is the Thrum — the Loom still turning with no hand at the shuttle. It rises loudest where the weave runs thin and raw. Walk toward it to find unworked material, or away from it when all you want is to sleep."
+    },
+    {
+      "id": "frayed-hounds-bite",
+      "system": "combat",
+      "text": "Frayed hounds run in packs out of the Muslin Fens and the Unfinished Hem, and their bite does not stop when the jaws let go — it leaves your own cloth unravelling with every stride you take after. Stand still a few breaths to mend the seam, or press a mothdust poultice to it; keep running and you will bleed thread the whole way home."
+    },
+    {
+      "id": "shear-not-slaughter",
+      "system": "hunger",
+      "text": "Skeinlings crop the meadow in trusting flocks. Shear one for Raw Skein and the wool returns in a few days' grazing; unpick one and you get nothing the shears would not have given twice over. A patient Mender keeps a flock and lives off it for many seasons without ever thinning the herd."
+    },
+    {
+      "id": "a-standing-larder",
+      "system": "farming",
+      "text": "Give two bobbin-deer the grain they favor and in time a fawn is wound new between them, its little bobbin-antlers barely started. A penned herd is a store that refills itself — thread-sinew and hide-cloth without ever leaving your gate — and far kinder on your nights than stalking the Thrumwood in the dark."
+    },
+    {
+      "id": "never-straight-down",
+      "system": "mining",
+      "text": "The floor of Warpwold is thinner than it looks in most places, and a single plumb-line drop can split the weave clean through into a fray of fire or of nothing beneath you. Sink your shafts in steps instead, always. Neither of those things down there catches you gently."
+    },
+    {
+      "id": "rethread-your-armor",
+      "system": "crafting",
+      "text": "Rethread armor over your cloth and a killing blow becomes only a fraying one. Needle-Iron will see you across the surface; but the Cinderloom's fire and the void's undoing eat through everything softer, and past that threshold only Everthread keeps its shape around you."
+    },
+    {
+      "id": "bind-the-knot-room",
+      "system": "binding",
+      "text": "Bind your knot-room first of all — the small shelter close around your anchor. Let the Ravelling gnaw the outbuildings if it must, but keep this one place bound and whole, so that whatever the dark does to you out there, you wake somewhere that did not come apart in your absence."
+    },
+    {
+      "id": "frostlace-keeps-you",
+      "system": "exploration",
+      "text": "The Frostlace is lovely and lethally quiet. The lacework ground shatters underfoot, warmth leaks from anything that stops moving, and the hush does not feel empty so much as attentive — as though it has already turned to look at you. Do not linger to admire it; it admires you back, and it keeps what it admires."
+    },
+    {
+      "id": "cross-the-bleach-quick",
+      "system": "exploration",
+      "text": "In the Bleachlands the dreamdye has drained clean out of the cloth, and the world lies the flat grey-white of fabric no one ever finished. Little water, less shade, and a horizon like a page bleached bare and never rewritten. Carry your own shade, cross it quickly, and try not to dwell on why the pattern simply stops."
+    },
+    {
+      "id": "ring-your-camp",
+      "system": "lighting",
+      "text": "The dark here is not empty; it is unfinished, and the unfinished has a way of moving. Ring your camp in Knotlight and Mothdust Brick before the light goes. One dark corner left open is a door, and you will not be the one who chose to open it."
+    },
+    {
+      "id": "take-nothing",
+      "system": "combat",
+      "text": "The Scaldwardens tend the Cinderspindle Forges and suffer no theft from the making of the world. Take nothing and they let you pass unbothered. Lift so much as a strand of Everthread and they turn on you, drawing the very warmth out of your threads — still faithfully obeying an order no one ever came back to lift from them."
+    },
+    {
+      "id": "molthkin",
+      "system": "combat",
+      "text": "At the deepest forge turns Molthkin, the First Bobbin, still feeding the fire and certain that thread enough will bring the Weaver home to weave again. Fell it and a coil of Everthread comes loose, and the forges fall still a while — but it will not feel like winning. It only ever wanted to finish its work."
+    },
+    {
+      "id": "the-unpicked-reach",
+      "system": "combat",
+      "text": "The Unpicked shamble the Fraying with their hands out, reaching for anyone still knotted, trying to pull a whole thread loose to fill the place their own once held. What they manage to take, they take from the pattern itself — no body left behind, only a gap the world quietly forgets was ever anyone."
+    },
+    {
+      "id": "selvage-wardens",
+      "system": "combat",
+      "text": "The Selvage Wardens stand across the last edge, wound from finished hem-thread and closing their own wounds as fast as ever you can open them. Only a heavy blow makes them pause in the mending, so light taps buy you nothing. Come with Dawnthread in your hands at the least, or do not come at all."
+    },
+    {
+      "id": "gild-your-work",
+      "system": "crafting",
+      "text": "Giltspool is too soft to hold an edge, but the Wickerkin prize it, and a knot-charm gilded in it is said to slow a fraying. To gild your own work is a quiet act of faith — you dress a thing in gold as though certain that someday, some eye will be there to find it and count it worth the looking."
+    },
+    {
+      "id": "under-knotwood",
+      "system": "building",
+      "text": "Knotwood Plank is the plain warm board of Warpwold carpentry, every face a different tangle of grain. It is cheap and it is honest. Raise your first roof of it and feel no shame — there is no Mender walking who did not begin their nights under Knotwood."
+    },
+    {
+      "id": "the-unfinished-hem",
+      "system": "exploration",
+      "text": "At the Unfinished Hem the world thins away into sketch — hills half-drawn, trees with no leaves woven in, ground you can see clean through in patches. It is the easiest place to slip a hand down into the raw warp, and the first place, if you stand still, that you feel the far cold pull of Nevermend."
+    },
+    {
+      "id": "mine-dawnthread-careful",
+      "system": "mining",
+      "text": "Dawnthread holds the first light of a weaving and grows only in the frayed high peaks, brilliant and hard and faintly warm in the hand. For all its brightness it is delicate; take it with a poor tool and it crumbles to loose light and is lost. Bring something worthy up the mountain before you reach for it."
+    },
+    {
+      "id": "the-meadow-is-kind",
+      "system": "hunger",
+      "text": "The Sennmeadows give more than grass. Loose knots of flower, wild grain, berries thick in the hedgerows — a waking thread need not lift a spear to eat well in its first days. Gather freely as you go, and take the ease while it holds; the country ahead of you is not this kind."
+    },
+    {
+      "id": "night-wakes-the-wrong",
+      "system": "combat",
+      "text": "Night in Warpwold is when the crooked-woven wake and go walking. Do not be caught in the open with no knot set behind you. A roof overhead, a ring of light, and a bound door between you and the dark will carry you to a morning that the needlejacks will not."
+    },
+    {
+      "id": "cinderglass-endures",
+      "system": "building",
+      "text": "Cinderglass forms where molten skein meets a sudden cold, and its dark edges still hold the last red memory of that fire. It frames every loom-gate and every thing meant truly to last. Cutting it is slow, patient work — but what Cinderglass holds together does not willingly come apart."
+    },
+    {
+      "id": "walk-your-walls",
+      "system": "the-ravelling",
+      "text": "Go back to the things you have made. Walk your walls, now and again, with an eye for loosened knots. What you leave untended the Ravelling tends in your stead, a thread here and a board there, until the shape you chose is simply gone — and the Loom, turning on, keeps no memory that it ever stood."
+    },
+    {
+      "id": "frame-the-gate-well",
+      "system": "dimensions",
+      "text": "A loom-gate is only ever as sound as its Cinderglass frame and the fray you thread across it. Set both well and it will carry you down and back for as long as it stands. Set it careless, or too near a crumbling edge, and one morning it opens somewhere you would never have chosen to step."
+    },
+    {
+      "id": "trust-your-lights",
+      "system": "navigation",
+      "text": "Little here stays where you set it for long, and the Understitch will happily show you a road that is no longer anywhere at all. Trust a line of your own Knotlights over any hill or river or ruin. The world is not lying to you; it is only unfinished, and an unfinished thing keeps changing its mind."
+    },
+    {
+      "id": "shears-that-heal",
+      "system": "crafting",
+      "text": "Shears of Needle-Iron lift Raw Skein from a skeinling and leave it unharmed, the wool coming back in a few days' grazing. They take their name from the great needles of the old days — from back when the woven folk still knew their own cloth could tear, and kept the tools on hand to close the tears themselves."
+    },
+    {
+      "id": "voidknot-holds",
+      "system": "building",
+      "text": "Voidknot is the one thing in Nevermend that will not come loose — a dark, dense knot that holds fast where all else drifts apart. Carry it in to anchor your deepest gates, or to raise a last outpost that stands steady while the void quietly unmakes the ground on every side of it."
+    },
+    {
+      "id": "hemstone-trophy",
+      "system": "exploration",
+      "text": "Hemstone is gathered at the Last Selvage, the outermost bound edge of everything that is — pale, clean-grained, and hard past anything the surface holds. It is the void's only trophy, and the slate on which a Mender who reaches the end might carve some small memorial. Fewer still ever carry it back to carve it."
+    },
+    {
+      "id": "cast-where-dark",
+      "system": "hunger",
+      "text": "Fishing runs good along the Dyewater Coast, where the sea lies in standing bands of color. Cast where the dye pools darkest for the best of it — but keep your line short and do not linger over it. Something broader than any fish moves down where the color goes to black, and it does not surface for nothing."
+    },
+    {
+      "id": "emberspinners",
+      "system": "combat",
+      "text": "Emberspinners string webs of burning thread across the Emberwarp and lair in the black seams between the warp-lines — fast, brittle, and past counting, the furnace's own loose sparks handed the will to hunt. Cut one down and quench the scorched silk it drops, and that much of the fire is yours to carry off and use."
+    },
+    {
+      "id": "tallowstone-drips",
+      "system": "building",
+      "text": "Tallowstone carves like soft wax and stays faintly warm under the hand, forever a little unfinished — the Cinderloom's own stone to build with. But it drips and re-forms as it cools, and a wall of it will not keep its edge for long. Bind it while it is fresh, or resign yourself to raising it twice."
+    },
+    {
+      "id": "reach-into-the-warp",
+      "system": "the-understitch",
+      "text": "Where the present cloth wears thin you can slip a hand past it into the warp beneath the world; the Understitch Downs and the Unfinished Hem are the surest ground for it. Down there the old patterns still cradle shapes the surface has long forgotten. Reach slowly, and mind that not everything the world put away wanted to be found again."
+    },
+    {
+      "id": "everthread-remembers",
+      "system": "crafting",
+      "text": "Everthread is won only from Molthkin's fall, and then tempered a second time out in the void — quenched in the very undoing it was made to withstand — and it remembers being new. Rethread your finest gear with it and it will barely wear, and shrug off the Ravelling besides. It is the last thing you will ever need to make, and the longest road to the making of it."
+    },
+    {
+      "id": "watch-the-floor",
+      "system": "combat",
+      "text": "Waxlings are feeble one against one and murderous in a crowd, and the hot tallow they leave underfoot is the truer danger of them. In the Tallow Vaults keep half your eyes on the ground and not all of them on the dark ahead; more descents have ended on a slick floor here than ever ended in the open fire."
+    },
+    {
+      "id": "cook-it-first",
+      "system": "hunger",
+      "text": "A raw catch off the Dyewater sits poorly and can fray you from the inside as surely as any hound. Hold it to a Knotlight's flame or set it in the furnace first. Fire is the one gift the Cinderloom ever sent up to the surface, paid for in its endless burning — spend a little of it on warmth and an honest meal."
+    },
+    {
+      "id": "the-choice-unstitched",
+      "system": "dimensions",
+      "text": "Past the Last Selvage waits the Last Needle, which does not weave and only unpicks. It cannot be killed, only bound and turned and taught, a while, to mend instead of tear. Whether to finish the weaving in the void's teeth, or draw the last thread through and let the long cloth come gently to rest — the Weaver left that unstitched. It falls to you now."
+    }
+  ]
+}

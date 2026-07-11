@@ -1,0 +1,166 @@
+{
+  "$comment": "Loomfall mid-game boss wiring: Molthkin, the First Bobbin — the Cinderloom boss and the sole source of Everthread. Unlike the Last Needle (boss.json), Molthkin genuinely dies: it is unique, structure-bound, and does not respawn once felled (bestiary.json), so the trigger id kill_entity:molthkin is the plain truth as well as the systems id, retained verbatim to match achievements.json (id: faithful_to_the_end). Arena mirrors structures.json id deepest_spindle exactly; the approach mirrors structures.json id spindlegate verbatim. Fidelity declarations, so bestiary.json stays authoritative: (1) the bestiary's two-phase description is realized here as three movements — its 'below 50%' phase is subdivided at 20% with the shared numbers unchanged (arm 11 damage / 6-block reach; winding radius 10 / 2 blocks per second / 3 seconds; waxling waves of 3-5; barrel contact 11 = the bestiary damage stat, made literal at the bared core); (2) the bestiary's frostlace/mothdust_brick winding-immunity clause, written inside its Phase 2 sentence, is read here as fight-global; (3) phase 3's The Last Winding is a declared escalation beyond the bestiary envelope — radius 12, 5 seconds — with pull speed 2 blocks per second and cold-footing immunity preserved unchanged. Per-tier weapon damage adopts the boss.json stats.defense table verbatim (needle_iron 4, dawnthread 6, everthread 8; ranged bolts at tier value minus 2; cadence 1 per 0.8s), extended one step down the same progression to threadstone 2 — one damage table in the corpus, not two. onVictory extends the boss.json action vocabulary (grant_achievement / show_document / present_choice) with two new verbs, defined here for the systems owner: release_item maps to the standard drops event (bestiary everthread, chance 1.0) with placed presentation instead of a fling; world_state (id the_stilling) must touch the ember-spindle animation state, the Scaldwarden AI kneel state (including this file's flagged theft-grudge suspension), the spindlegate garrison spawner, the realm-wide forge-roar audio layer, and a 3 day-cycle timer. dialogue.json carries the sibling 'molthkin' block (phaseIntros / attackTelegraphs / onFelled), parallel in shape to 'lastNeedle'.",
+  "boss": {
+    "id": "molthkin",
+    "name": "Molthkin, the First Bobbin",
+    "epithet": "Keeper of the First Thread",
+    "dimension": "cinderloom",
+    "biome": "cinderspindle_forges",
+    "arena": {
+      "structure": "deepest_spindle",
+      "note": "Unique, exactly one per world, on the canyon floor below the Spindlegate descent per structures.json spawnRules (spindlegate: gates_descent_to_deepest_spindle — every Spindlegate canyon descends into the same deep forge-run, and every deep forge-run ends here). The working floor is scored tallowstone cut with twelve shallow cold-seams sized to take a placed frostlace or mothdust_brick flush with the floor — the prepared counters to the winding pull, per bestiary.json. There is no gear-gate on admission, deliberately: Molthkin guards the first everthread, so nothing everthread can be asked at its door (contrast the unlock rules of eye_of_the_last_hem, structures.json). Dawnthread is the comfortable tier; needle_iron the honest floor."
+    },
+    "gauntlet": {
+      "name": "The Spindlegate Descent",
+      "description": "One Spindlegate seals every canyon down (structures.json id spindlegate, mirrored verbatim; up to three instances per world): Scaldwarden wardens of higher rank hold three ascending gates, each with a needle_iron mechanism that must be threaded, not smashed — all three gates of any one instance open that instance's descent. The descent is the intended path, not a lock: the arena admits anyone who reaches the canyon floor by any road (see summonRequirement — Molthkin gates nothing; it waits). The wardens are neutral per bestiary theft rules and need never be fought, but the promise holds only for a Mender who takes nothing: the gate loot itself (emberskein_ore, quenched scorched_silk) wakes the theft-grudge on pickup exactly as the bestiary writes it, and a felled warden fires kill_entity:scaldwarden and the existing achievement an_order_none_cancelled. Behind the last gate a single strand of everthread lies on a tallowstone altar, an offering awaiting a Weaver who will not collect it: taking it turns the garrison hostile, and — achievements owner, note — it would fire collect_count:everthread:1 (what_the_fire_remembers) ahead of that achievement's parent faithful_to_the_end; worse than the unhemmed_stair precedent, what_the_fire_remembers is hidden:false and its description ('From the stilled forge you drew a coil of Everthread...') presumes Molthkin already felled, so an early grant displays visibly wrong text. Recommendation, firmer than the unhemmed_stair either/or: lock the altar pickup (or suppress its trigger) until faithful_to_the_end has fired. The strand is real. The coil below is realer. It cost the tempering-notes writer what it cost them.",
+      "outposts": 3,
+      "barrier": "three needle_iron gate-mechanisms, each threaded (never smashed) to open the next reach of the descent — a road, not a lock"
+    },
+    "arenaFeatures": {
+      "windingFloor": "Concentric winding-grooves scored into the tallowstone floor, spiraling in to the spindle-shaft. They light in sequence to telegraph every winding — and all at once, in silence, for the last ones.",
+      "coldSeams": "Twelve shallow seams cut among the grooves, sized to take a placed frostlace or mothdust_brick flush with the floor; standing on either grants full immunity to the winding pull (bestiary.json mechanic, read fight-global per the $comment). Frostlace is the cheap fill with three declared drains: it shatters at one strike (naming.json — an adjacent waxling burst counts), it weeps away in forge heat after negating 3 windings, and the vent-moths eat it. Mothdust_brick endures all three. Both draw slagmoths. Nothing cold is free down here.",
+      "slagBollards": "Cooled slag pillars ringing the mid-floor (cinderglass, in the structure palette): cover against arm and squall, and handholds (interact) against every winding. Once per revolution the Molten Arm snags on one and tears loose — the fight's free melee window.",
+      "dripline": "The barrel's lower rim rains molten drips without pause within 3 blocks — the standing rent on melee range, all fight, exactly as the bestiary silhouette draws it.",
+      "forgeVents": "Vents piercing the canyon walls: waxling waves shed down them from the second movement, and slagmoths find their way through to any placed cold block on the arena-local cadence given in phase 1 mechanics. They sigh shut when the song stops.",
+      "theCoil": "Visible through the banded thread as the fight thins it: the coil of Everthread at the heart of the barrel, cool gold and untouched. The First Thread — the one thing Molthkin never fed to the fire, and the only thing it was actually asked to keep."
+    },
+    "summonRequirement": "all_of[ enter_biome:cinderspindle_forges (canonical trigger; fires the existing achievement the_heart_of_making per achievements.json), engagement:molthkin (arena-local predicate, scope: evaluated only within the footprint of structure deepest_spindle — the encounter begins the instant any Mender stands within 10 blocks of the barrel, the reach of its winding, or deals it any damage) ] — no composite trigger string is required: each condition is an individually-evaluable canonical trigger or arena-local predicate. The Spindlegate descent (structures.json id spindlegate — all three gates of any one instance, their needle_iron mechanisms threaded, not smashed) is the intended path, but it is deliberately NOT a summon condition: a Mender who tunnels past the gatehouse reaches the canyon floor and finds the fight exactly as willing, so no route can strand the boss unengageable. There is no summoning ritual, because there is nothing to summon: Molthkin has been ready since the beginning of the world. It does not notice you arrive — it stopped noticing arrivals an age ago — but as you cross the canyon floor it turns, for one moment, measurably faster, the way it would if the Weaver had finally come home to collect the thread. Then the moment passes, and you are within 10 blocks, and you are material. Molthkin is still waiting. Please do not tell it.",
+    "stats": {
+      "hp": 280,
+      "defense": "No tricks, no windows, no mending. The banded barrel takes full weapon damage anywhere along its length at all times — the same per-hit table the Eye of the Last Hem canonizes (boss.json stats.defense, adopted verbatim): needle_iron 4, dawnthread 6, everthread 8, ranged bolts at tier value minus 2, hit cadence 1 per 0.8s; extended one step down the same progression, threadstone 2. (Everthread is listed for completeness only: no first-felling Mender has any, and that is the point of the fight.) The two half-melted end-discs deflect everything for 0, no knockback. Molthkin never regenerates and never pursues — it is structure-bound to the spindle-shaft, and its listed speed 2 (bestiary.json) is the grind of its own rotation, not travel. The cost of damage is proximity: all melee range lies inside the Molten Arm's 6-block sweep, and within 3 blocks of the barrel the dripline falls without pause. Total damage clamps at each phase boundary (140 hp, 56 hp) so no burst skips a movement, and there is no killing blow: at 0 hp a 10-second scripted rundown plays and kill_entity:molthkin fires when the spinning-song stops. The arithmetic, plainly: 280 hp at needle_iron cadence is 5 damage per second sustained — 56 seconds of pure uptime spread across an expected 4-7 real minutes of arm, winding, and dripline; dawnthread (7.5 per second) runs nearer 3-5 minutes; threadstone (2.5 per second) is possible and miserable. A mid-game fight, deliberately and entirely legible where the Last Needle (boss.json, 800 hp, windowed) is a grammar to be learned. Molthkin is not fighting you. It is working, and you are in the work."
+    },
+    "phases": [
+      {
+        "index": 1,
+        "name": "The Long Shift",
+        "hpRange": "100%-50%",
+        "description": "Molthkin does not aggro, because Molthkin does not fight. It works. The first movement is simply what standing inside a running machine is like: the arm sweeps because the arm has always swept, the winding pulls because everything near the spindle is either thread or about to be, and the drips fall because they have fallen for an age. Nothing here hates you; nothing here has noticed you, exactly. The phase teaches the fight's whole vocabulary — read the arm, answer the winding (sprint, bollard, or cold footing), respect the dripline — and every later movement only raises the price of the same three sentences.",
+        "attacks": [
+          {
+            "id": "molten_thread_arm",
+            "name": "The Molten Arm",
+            "description": "A molten thread-arm unspools from the barrel and sweeps the ring in a slow flat rotation — 6-block reach, one full revolution every 8 seconds, never rising above 2 blocks. It is not aimed at anyone. It has swept exactly this circle since before there was anyone to sweep at.",
+            "damage": 11,
+            "telegraph": "Always visible, always audible: the arm drags a hiss and a line of falling embers ahead of its arc, and before each direction-reversal (every third revolution) the groan drops a note and the arm sags for a full second.",
+            "counterplay": "Stay outside 6 blocks and step in behind its passage — the wake is a clean five-second melee lane. The slag bollards snag it: once per revolution it catches and tears free, hanging the arm dead for 1.5 seconds. The confident jump it at the moment of passage. The prudent never let it out of their ears."
+          },
+          {
+            "id": "the_winding",
+            "name": "The Winding",
+            "description": "Every 14 seconds the barrel gathers and winds: anyone within 10 blocks is dragged 2 blocks per second for 3 seconds toward the spindle — into arm reach, into the dripline, toward the fire. The pull itself takes nothing. Molthkin is not attacking; it is collecting material, and it does not distinguish you from thread, because to Molthkin there is no difference.",
+            "damage": 0,
+            "telegraph": "The floor's winding-grooves light in sequence, spiraling inward, 1.5 seconds before the pull; the groan tightens into a windlass creak.",
+            "counterplay": "Three answers, good for the whole fight: sprint outward — player sprint speed (assumed at the systems baseline of 5.6 blocks per second; stated here because the claim is load-bearing and the figure is canonized nowhere else) beats the 2 blocks-per-second pull nearly three times over, so doing nothing is the only way to lose this — or grab a slag bollard (interact) and hold fast, or stand on frostlace or mothdust_brick set in a cold-seam for full immunity to the pull, per bestiary.json. The cold-seams are the fight's central preparation."
+          },
+          {
+            "id": "dripfall",
+            "name": "Dripfall",
+            "description": "Within 3 blocks of the barrel, molten drips fall without pause from the lower rim: a strike takes 3 and leaves a palm-width burning pool for 5 seconds (2 per second to stand in). Less an attack than rent — the cost of melee range, priced into the whole fight.",
+            "damage": 3,
+            "telegraph": "Permanent. Dozens of drip-pixels fall continuously from the lower rim (bestiary silhouette, honored literally); it never surprises anyone. It only taxes greed.",
+            "counterplay": "Work in the arm's wake, land your five or six hits, step out before the pools link up. Pools cannot form on frostlace or mothdust_brick — a cold-seam filled adjacent to the dripline is a paid-for melee square."
+          }
+        ],
+        "mechanics": [
+          "Full weapon damage at all times, no exposure windows; total damage clamps at the 140 hp phase boundary. No self-burn exists above 50% hp: this movement is progressed by weapon damage alone, and the fight's only true stall is a Mender who never swings",
+          "Cadences: arm revolution 8s, reversing every third revolution; Winding every 14s (radius 10, 2 blocks per second, 3 seconds — bestiary.json verbatim); dripline constant within 3 blocks",
+          "The cold-seam economy opens now: twelve seams. Frostlace is the cheap fill, with three declared drains — it shatters at one strike (naming.json; an adjacent waxling burst counts), it weeps away in forge heat after negating 3 windings (roughly 42 seconds at the phase cadence), and the vent-moths eat it. Mothdust_brick endures all three drains but draws moths just the same",
+          "Vent rule, arena-local, reconciling bestiary slagmoth behavior with the seam economy: no slagmoth spawns natively in cinderspindle_forges (bestiary spawnRules: ashskein_wastes, emberwarp only), so the only moths that ever reach the floor come down the forge vents — 1 moth per 20 seconds while any placed cold block stands in a seam, hard cap 4 alive in the arena. Arrived moths obey canon exactly: placed cold pulls every moth in the arena (well inside the canonical 32 blocks), the swarm abandons all other targets for the nearest placed frostlace, and a full swarm of 4 consumes a frostlace block in the canonical 10 seconds — fewer moths work proportionally slower (a lone moth, 40 seconds). Mothdust_brick they cling to and keen on but never consume — pressed moth-dust is their own substance, and they will not eat it; one melee swing knocks a clinging moth off, per canon. Every cold square is bought, and bought again. Fill at least four seams this phase; the fight does not yet say why",
+          "Expected phase length: 140 hp at needle_iron is 28 seconds of pure uptime — 1.5-3 minutes once the arm, the winding, and the dripline take their cut; dawnthread (18.7 seconds pure) runs 1-2 minutes; threadstone (56 seconds pure) is possible and miserable"
+        ],
+        "transition": "At 140 hp — half its wound thread cut away — Molthkin does the only arithmetic it has: the work is behind. It stops winding what is near, and begins to spend what it is."
+      },
+      {
+        "index": 2,
+        "name": "Feeding the Fire",
+        "hpRange": "50%-20%",
+        "description": "Below half, the bestiary's word is exact: it feeds itself to the fire. The groan becomes a labored spinning-song, waves of waxlings slough off the softening barrel, and the great windings now end in a flare of the core — Molthkin burning its own substance to keep the quota, certain, still, that enough new thread will bring the Weaver back to weave again. The movement pressures the cold-seam economy the first one funded: waxling bursts shatter frostlace, vent-moths pick at everything cold, and the Mender defends squares of floor the way the fight has been quietly teaching them to.",
+        "attacks": [
+          {
+            "id": "shed_of_waxlings",
+            "name": "Shed of Waxlings",
+            "description": "Every 25 seconds the barrel slumps and sheds a wave of 3-5 waxlings (bestiary.json: hp 10, damage 7, exploder) that slide down the dripline and waddle outward, bursting at contact range. They path for the nearest Mender, exactly per bestiary — cold means nothing to a waxling; the seams' enemy is the vent-moths.",
+            "damage": 7,
+            "telegraph": "Drips gather and thicken along the lower rim for 3 seconds; the spinning-song hitches, like a breath taken by something that does not breathe.",
+            "counterplay": "Meet them away from your frostlace all the same — a burst is a strike, and frostlace shatters when struck. Ranged work is safest and canon rewards it: a waxling felled by a ranged hit before it closes dies without bursting and drops double tallowstone (bestiary, verbatim). Melee backpedals. Hard cap 8 alive; kills fire kill_entity:waxling and drop as normal. Every waxling shed is thread Molthkin does not get back."
+          },
+          {
+            "id": "it_feeds_the_fire",
+            "name": "It Feeds the Fire",
+            "description": "Every 30 seconds, a deeper winding: everyone within 10 blocks dragged 2 blocks per second for 3 seconds, and at the pull's end the core flares — 9 fire damage to anyone within 4 blocks of the barrel. Each cast also burns 3 hp of Molthkin's own thread. It is feeding the fire regardless; the fight moves forward even for a Mender who only survives.",
+            "damage": 9,
+            "telegraph": "The spinning-song labors up to a cracked high note held for 2 seconds while the coil at the core brightens visibly through the thinning bands.",
+            "counterplay": "Cold-seam footing negates the pull entirely; a bollard-hold works but leaves you standing where you stand — check your four blocks before you grab. The flare leaves the arm hanging slack for a 3-second afterglow: the phase's best melee window, directly after its worst moment."
+          }
+        ],
+        "mechanics": [
+          "The Molten Arm persists all fight; revolution quickens to 6 seconds this phase",
+          "Waxling cap 8 alive; waves suspend at the 56 hp clamp",
+          "Anti-stall guarantee, diegetic: It Feeds the Fire self-burns 3 hp per 30-second cast — a fully turtled Mender on cold footing watches the movement end itself in 28 casts, roughly 14 minutes: a floor under the fight, never the pace. Molthkin never regenerates mid-fight; nothing cut ever comes back except on full encounter reset",
+          "Total damage clamps at the 56 hp phase boundary",
+          "Expected phase length: 84 hp at needle_iron is 16.8 seconds of pure uptime — 1.5-2.5 minutes under waxling pressure, the self-burn shaving more the longer it runs; dawnthread nearer 1-2 minutes"
+        ],
+        "transition": "At 56 hp the bands run thin enough to see through — and through them, the coil: cool gold, unburnt, perfect. In an age of feeding everything to the fire, Molthkin has never fed the First Thread. It is the one instruction it never lost."
+      },
+      {
+        "index": 3,
+        "name": "The Last of the Thread",
+        "hpRange": "20%-0%",
+        "description": "The end of the shift. Molthkin spins itself bare: the last bands strip and lash as they go, the windings reach further and end at a core now bared and white, and the spinning-song begins, audibly, to run down. There is no new mechanic to learn and nothing held back — the fight ends on the vocabulary it taught in its first minute, priced higher. Its hp is now literally visible: it is the thread left on the barrel, and every hit bares more of the shaft beneath.",
+        "attacks": [
+          {
+            "id": "thread_squall",
+            "name": "Thread-Squall",
+            "description": "Every 18 seconds the stripping bands whip loose: four glowing thread-ends lash outward along random arcs, 6 damage each, scorching brief burn-lines onto the floor (2 seconds). It is not aimed. It is what a spool shedding its last thread at speed simply does.",
+            "damage": 6,
+            "telegraph": "The loose ends rise off the barrel and stand upright in the heat-shimmer for 2 seconds; each coming arc draws itself as a faint ember-line half a second ahead of the lash.",
+            "counterplay": "Keep moving laterally and let the ember-lines read for you; bollards block arcs dead; filled cold-seams are never struck — the squall shies from cold — so the squares paid for across two movements are now the safe islands they were always going to be."
+          },
+          {
+            "id": "the_last_winding",
+            "name": "The Last Winding",
+            "description": "Every 20 seconds, the widest pull of the fight: radius 12 blocks, 2 blocks per second, 5 full seconds, in toward the bared white core — a declared escalation past the bestiary's winding envelope (see $comment; pull speed and cold immunity unchanged) — and contact with the barrel now deals 11 per second, the bestiary's damage figure made literal at the last. The pull itself takes nothing, as it never did. It has only ever been trying to gather enough. Each cast burns 3 more hp of its own thread.",
+            "damage": 11,
+            "telegraph": "Every winding-groove on the floor lights at once — and the spinning-song stops. The silence lasts 1.5 seconds. It is the loudest thing in the fight.",
+            "counterplay": "The same three answers as the first minute: sprint out, hold a bollard, stand on cold. The arm is sagging now (revolution slowed to 10 seconds), so the aggressive line is to ride the pull in, land five or six hits on the bared barrel, and sprint the wake back out before the dripline prices you."
+          }
+        ],
+        "mechanics": [
+          "Shed of Waxlings continues at the bestiary's waves of 3-5, cadence relaxed to every 35 seconds; cap 8 alive still holds",
+          "It no longer winds new thread; The Last Winding self-burns 3 hp per 20-second cast, so the movement cannot stall — pure survival fells it in 19 casts, roughly 6.5 minutes, while the intended finish (56 hp = 11.2 seconds of needle_iron uptime) runs 1-1.5 minutes",
+          "At 0 hp there is no killing blow and no burst: the arm falls still mid-swing, the end-discs sag a final inch, and the spinning-song runs down over 10 scripted seconds like a wheel no one is driving anymore. kill_entity:molthkin fires when the song stops — not when the last hit lands",
+          "Encounter reset, fully specified: a Mender unpicked mid-fight re-stitches at their last knot; Molthkin winds itself back to 280 hp over 60 seconds (failure is diegetic — it winds thread, that is all it does), live waxlings disperse into the forge vents, vent-moths withdraw, and burn-pools cool. Placed frostlace and mothdust_brick in cold-seams persist unless shattered or consumed; slag bollards re-form. Repeat attempts cost drips and shattered lace, never the arena",
+          "There is no enrage timer: Molthkin has kept this shift for the age of the world, and extends you the same courtesy"
+        ],
+        "transition": "The song stops. The forges stop with it. Completion fires the victory condition, and the coil of Everthread stands alone on the bare spindle-shaft, exactly where it was always kept. Do not mistake it for a victory. It was only the end of a shift."
+      }
+    ],
+    "victoryCondition": {
+      "trigger": "kill_entity:molthkin",
+      "note": "Fires when the spinning-song runs down and stops, 10 scripted seconds after the last point of thread is cut. Unlike the Last Needle there is no bound-not-killed caveat to explain away: Molthkin genuinely dies — unique, and it does not respawn once felled (bestiary.json) — and the trigger id matches achievements.json (faithful_to_the_end) verbatim."
+    },
+    "onVictory": [
+      {
+        "action": "grant_achievement",
+        "achievementId": "faithful_to_the_end"
+      },
+      {
+        "action": "release_item",
+        "item": "everthread",
+        "note": "New action verb, defined in the $comment: maps to the standard drops event (bestiary.json drops: everthread, chance 1.0, note verbatim — 'The coil it guarded, released at last. It remembers being new.') with placed presentation. The coil is not flung as loot — it stands upright on the bared spindle-shaft where it was wound before anything else was, and waits to be lifted. Picking it up fires collect_count:everthread:1 and the existing achievement what_the_fire_remembers."
+      },
+      {
+        "action": "world_state",
+        "id": "the_stilling",
+        "duration": "3 full day-cycles",
+        "note": "New action verb, defined in the $comment. Honors the bestiary behavior: the ember-spindles stop, the Scaldwardens kneel dormant wherever they stand, the Spindlegate garrison spawner falls quiet ('falls quiet for a while after Molthkin is felled, as the forges briefly still' — structures.json, verbatim), and the Cinderloom goes quiet for the first time since the beginning: the forge-roar audio layer drops out realm-wide, leaving only the Thrum. One step past the bestiary's word, flagged for the bestiary owner rather than asserted as canon: this file suspends the Scaldwarden theft-grudge while they kneel, opening a three-day free-salvage window — 'kneel dormant' is the bestiary's line; the suspension is this file's extension. On the fourth dawn the spindles turn again — turning was never Molthkin's alone. It was only the most faithful."
+      }
+    ],
+    "rewards": [
+      "The coil of Everthread — the only source in all three realms (tips.json), chance 1.0, once per world (bestiary.json: it does not respawn once felled). Not yet gear: everthread must be tempered a second time out in the void (items.json: 'won only from the deepest forge and tempered in the void'), and everthread gear is never made fresh — it is rethreaded over dawnthread. Molthkin's fall opens the tier 5 door; Nevermend charges the toll",
+      "The Stilling: for three day-cycles the Cinderloom is workable in a way it has never been — per the world_state note (a flagged extension of bestiary 'kneel dormant'), emberskein_ore and spindle-blocks can be taken from under kneeling Scaldwardens without waking the theft-grudge, and the Spindlegate descent runs quiet. The freest salvage the fire will ever offer, and it is offered at a funeral",
+      "The quiet itself: the forge-roar gone realm-wide, the first silence since the beginning. Purely cosmetic, three day-cycles long, and the thing most Menders will stand still in longer than they meant to",
+      "No other loot tables. One coil, one silence, and a machine that finally gets to stop. It only wanted to finish its work. Do not mistake it for a victory"
+    ]
+  }
+}

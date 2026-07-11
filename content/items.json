@@ -1,0 +1,436 @@
+{
+  "$comment": "Loomfall item registry. Every recipe.shape is a 3x3 crafting grid flattened to 9 cells, read left-to-right, top-to-bottom; null means an empty cell. Cell ids reference this file's item ids or block ids from naming.json only. Items with an all-null shape are not crafted — see their 'source' field (mob drops, foraging, trade). Each item carries an integer 'tier' matching the top-level 'tiers' array (1=Knotwood, 2=Threadstone, 3=Needle-Iron, 4=Dawnthread, 5=Everthread; 0 = untiered materials, utility, and food). Tool progression per canon: Knotwood -> Threadstone -> Needle-Iron -> Dawnthread -> Everthread.",
+  "tiers": [
+    {
+      "tier": 1,
+      "name": "Knotwood",
+      "material": "knotwood_plank",
+      "source": "Split from Thrumwood Boles felled on the Warpwold surface, their braids tightened into flat knotted boards. A first day's kit — humming faintly, quick to wear, and enough to fell a tree, turn the warpsod, and chip the first loose threadstone free of the ground.",
+      "loreNote": "Every Mender's first edge is cut from a tree that hums. The forest does not mind. It has been asked before."
+    },
+    {
+      "tier": 2,
+      "name": "Threadstone",
+      "material": "threadstone",
+      "source": "Quarried from beneath the warpsod — ancient thread compressed by ages into grey stone, Warpwold's common bedrock, smelted and shaped into most early gear. Stone first; iron, dawn, and Everthread will each come in their season.",
+      "loreNote": "Stone is only thread that stopped arguing. Strike it along the old weave and it remembers how to come apart."
+    },
+    {
+      "tier": 3,
+      "name": "Needle-Iron",
+      "material": "needle_iron",
+      "source": "A cold grey workhorse metal drawn from ore in Warpspine Reach — the reliable mid-tier for tools, needles, and shears, and the middle of a Mender's long road.",
+      "loreNote": "Named for the great needles the woven folk once used to mend themselves, in the age when they still knew they could tear."
+    },
+    {
+      "tier": 4,
+      "name": "Dawnthread",
+      "material": "dawnthread",
+      "source": "A rare luminous fiber that holds the first light of a weaving, found deep in the frayed peaks of Warpspine Reach. The premium surface crafting thread — the finest the surface will ever give you. Below and beyond, there is finer still.",
+      "loreNote": "It holds the first light of a weaving. Tools of it are faintly warm in the hand, even in the Frostlace, even in the dark."
+    },
+    {
+      "tier": 5,
+      "name": "Everthread",
+      "material": "everthread",
+      "source": "The First Thread itself, forged in the Cinderspindle Forges and never surpassed — won only from the deepest forge and tempered in the void. Everthread gear is not made fresh: the thread is worked over an existing dawnthread tool by rethreading.",
+      "loreNote": "Made in an unfinished world, it cannot be undone by a finished one. It remembers being new."
+    }
+  ],
+  "items": [
+    {
+      "id": "loose_thread",
+      "displayName": "Loose Thread",
+      "tier": 0,
+      "description": "A handful of thread picked free of the weave — the small change of the whole world. Everything you gather is thread of one kind or another; this is the kind that admits it.",
+      "recipe": {
+        "shape": [null, null, null, null, "raw_skein", null, null, null, null],
+        "note": "One block of raw skein picks apart into loose thread. Also dropped by The Understruck and recovered from Ravelers."
+      }
+    },
+    {
+      "id": "thread_sinew",
+      "displayName": "Thread-Sinew",
+      "tier": 0,
+      "description": "Tough cord-fiber from the working parts of woven creatures. Holds a knot under strain, which is the most a thread can be asked.",
+      "recipe": {
+        "shape": [null, null, null, null, null, null, null, null, null],
+        "source": "Dropped by Bobbin-deer, Frayed Hounds, and Needlejacks; traded at the Herders' Picket."
+      }
+    },
+    {
+      "id": "hide_cloth",
+      "displayName": "Hide-Cloth",
+      "tier": 0,
+      "description": "The dense outer weave of a bobbin-deer, cured flat. Warm, quiet, and honestly come by only if you shear more than you hunt.",
+      "recipe": {
+        "shape": [null, null, null, null, null, null, null, null, null],
+        "source": "Dropped by Bobbin-deer and Frayed Hounds; traded at the Herders' Picket."
+      }
+    },
+    {
+      "id": "mothdust",
+      "displayName": "Mothdust",
+      "tier": 0,
+      "description": "The pale shed dust of Silence-Moths, faintly glowing and cool to the touch. Pressed in quantity it becomes Mothdust Brick — a light that never flickers and never quite feels awake.",
+      "recipe": {
+        "shape": [null, null, null, null, null, null, null, null, null],
+        "source": "Shed by Silence-Moths; gathers where they cluster at night."
+      }
+    },
+    {
+      "id": "scorched_silk",
+      "displayName": "Scorched Silk",
+      "tier": 0,
+      "description": "An emberspinner's burning thread, caught and quenched before it could cool you instead. Salvaged, and turned to a braver use than the fire intended.",
+      "recipe": {
+        "shape": [null, null, null, null, null, null, null, null, null],
+        "source": "Dropped by Emberspinners; quench the burning silk to keep it. Found baled in the Scaldwatch Bastion stores."
+      }
+    },
+    {
+      "id": "hedgerow_berries",
+      "displayName": "Hedgerow Berries",
+      "tier": 0,
+      "description": "Knotted red fruit from the embroidered hedgerows of the Sennmeadows. The meadow is kind. It will not always be.",
+      "recipe": {
+        "shape": [null, null, null, null, null, null, null, null, null],
+        "source": "Foraged from hedgerows in the Sennmeadows and Thrumwood edges. Food."
+      }
+    },
+    {
+      "id": "sennit_grain",
+      "displayName": "Sennit Grain",
+      "tier": 0,
+      "description": "Wild meadow grain whose heavy ears braid themselves flat as they ripen, like cordage that decided to be bread instead. Bobbin-deer favor it past anything else a hand can hold. The meadow grows it without being asked. Nothing else will.",
+      "recipe": {
+        "shape": [null, null, null, null, null, null, null, null, null],
+        "source": "Foraged as wild grain in the Sennmeadows; replanted in understitch_loam it regrows over two day-cycles in braided rows. Food, and the breeding-feed the bobbin-deer favor."
+      }
+    },
+    {
+      "id": "woven_cloth",
+      "displayName": "Woven Cloth",
+      "tier": 0,
+      "description": "Loose thread gathered and spun into cloth of your own choosing. A weaving left to itself only frays; this is the whole of your craft in a single square.",
+      "recipe": {
+        "shape": ["loose_thread", "loose_thread", null, "loose_thread", "loose_thread", null, null, null, null],
+        "note": "Worked at a handloom."
+      }
+    },
+    {
+      "id": "knot_charm",
+      "displayName": "Knot-Charm",
+      "tier": 0,
+      "description": "A giltspool token worked round with careful knots, of the kind the Wickerkin hang on every lintel. Said to slow a fraying. To gild a thing is to adorn it as if sure it will one day be seen.",
+      "recipe": {
+        "shape": [null, "loose_thread", null, "loose_thread", "giltspool", "loose_thread", null, "loose_thread", null],
+        "note": "Also traded by the Wickerkin."
+      }
+    },
+    {
+      "id": "lore_scroll",
+      "displayName": "Lore-Scroll",
+      "tier": 0,
+      "description": "Half-remembered history in a Wickerkin hand — a chapter of the story they were woven to expect, copied out against forgetting. Some of that waiting is yours now to answer.",
+      "recipe": {
+        "shape": [null, null, null, null, null, null, null, null, null],
+        "source": "Traded by the Wickerkin; found in ruin caches such as the Unpicked Manor cellar."
+      }
+    },
+    {
+      "id": "handloom",
+      "displayName": "Handloom",
+      "tier": 0,
+      "description": "A small loom of your own. The great Loom weaves without wanting; this one weaves whatever you ask of it. That is the whole difference between them, and it is everything.",
+      "recipe": {
+        "shape": ["knotwood_plank", "raw_skein", "knotwood_plank", "knotwood_plank", "raw_skein", "knotwood_plank", "knotwood_plank", "knotwood_plank", "knotwood_plank"]
+      }
+    },
+    {
+      "id": "mending_needle",
+      "displayName": "Mending Needle",
+      "tier": 0,
+      "description": "A field-needle of Needle-Iron, eye threaded and ready — kin to the tools the woven folk mended themselves with, no kin at all to the one that waits at the edge. Used to stitch frays shut.",
+      "recipe": {
+        "shape": [null, "needle_iron", null, null, "needle_iron", null, null, "loose_thread", null],
+        "note": "Required to seal a fray (seal_fray)."
+      }
+    },
+    {
+      "id": "needle_iron_shears",
+      "displayName": "Needle-Iron Shears",
+      "tier": 3,
+      "description": "Two cold grey blades on a sprung knot. Shear, do not slaughter; a patient Mender eats many nights from a flock kept whole.",
+      "recipe": {
+        "shape": [null, "needle_iron", null, "needle_iron", null, null, null, null, null]
+      }
+    },
+    {
+      "id": "binding_needle",
+      "displayName": "Binding Needle",
+      "tier": 0,
+      "description": "A needle charged with worked-cool bindwax. What it stitches is finished for good — past the reach of hound or Raveler or the Ravelling itself. The most hopeful tool your hands will hold.",
+      "recipe": {
+        "shape": [null, "bindwax", null, null, "needle_iron", null, null, "loose_thread", null],
+        "note": "Consumes bindwax to perform bind_block."
+      }
+    },
+    {
+      "id": "saddle_frame",
+      "displayName": "Saddle-Frame",
+      "tier": 0,
+      "description": "A rider's frame of needle-iron and hide-cloth, strung with sinew, made for a mount that is itself unspooling. The Wickerkin do not ride. They make these anyway, for the company.",
+      "recipe": {
+        "shape": ["hide_cloth", "hide_cloth", "hide_cloth", "thread_sinew", "needle_iron", "thread_sinew", null, "needle_iron", null],
+        "note": "Used to ride a tamed spoolmare. The bond comes first (tame_entity:spoolmare); the frame will not sit an unbonded mare."
+      }
+    },
+    {
+      "id": "mothdust_poultice",
+      "displayName": "Mothdust Poultice",
+      "tier": 0,
+      "description": "Cool pale dust pressed into clean cloth. Laid on fraying seams it quiets them — a mending for your own weave, dreamlike and a little wrong, like all the moths' gifts.",
+      "recipe": {
+        "shape": [null, "mothdust", null, null, "woven_cloth", null, null, null, null],
+        "note": "Heals fraying (damage-over-time from Frayed Hound bites and the void)."
+      }
+    },
+    {
+      "id": "everthread_needle",
+      "displayName": "Everthread Needle",
+      "tier": 5,
+      "description": "A needle strung with the First Thread itself, made for the binding-anvil at the Eye of the Last Hem. It does not kill. It argues, stitch by stitch, that the cloth is worth the keeping.",
+      "recipe": {
+        "shape": [null, "everthread", null, null, "everthread", null, null, "needle_iron", null],
+        "note": "Required at the central everthread stitch-point to bind The Last Needle."
+      }
+    },
+    {
+      "id": "knotwood_pickaxe",
+      "displayName": "Knotwood Pickaxe",
+      "tier": 1,
+      "description": "A pick of tightened braid, blunt as a first morning. It will not open iron or the deep weave, but it chips loose surface threadstone free of the warpsod — and stone, as the old words say, comes first.",
+      "recipe": {
+        "shape": ["knotwood_plank", "knotwood_plank", "knotwood_plank", null, "knotwood_plank", null, null, "knotwood_plank", null]
+      }
+    },
+    {
+      "id": "knotwood_axe",
+      "displayName": "Knotwood Axe",
+      "tier": 1,
+      "description": "Wood set to cutting wood, which the Thrumwood boles seem to find neither ironic nor upsetting. The hum in the haft matches the hum in the trunk, and the work goes gently.",
+      "recipe": {
+        "shape": ["knotwood_plank", "knotwood_plank", null, "knotwood_plank", "knotwood_plank", null, null, "knotwood_plank", null]
+      }
+    },
+    {
+      "id": "knotwood_spade",
+      "displayName": "Knotwood Spade",
+      "tier": 1,
+      "description": "A flat knotwood blade for turning warpsod and loamweft. The ground picks loose easily in the Sennmeadows, as if it half remembers being loose thread and does not mind going back.",
+      "recipe": {
+        "shape": [null, "knotwood_plank", null, null, "knotwood_plank", null, null, "knotwood_plank", null]
+      }
+    },
+    {
+      "id": "knotwood_blade",
+      "displayName": "Knotwood Blade",
+      "tier": 1,
+      "description": "A sharpened hardwood edge on a thread-wrapped grip, for the crooked things that unbend after dark. It will not last, and neither would you have, without it.",
+      "recipe": {
+        "shape": [null, "knotwood_plank", null, null, "knotwood_plank", null, null, "loose_thread", null]
+      }
+    },
+    {
+      "id": "threadstone_pickaxe",
+      "displayName": "Threadstone Pickaxe",
+      "tier": 2,
+      "description": "Old thread pressed hard into stone, and stone shaped into a first rough pick. Not much. Enough to open the ground and ask it what it hides.",
+      "recipe": {
+        "shape": ["threadstone", "threadstone", "threadstone", null, "knotwood_plank", null, null, "knotwood_plank", null]
+      }
+    },
+    {
+      "id": "threadstone_axe",
+      "displayName": "Threadstone Axe",
+      "tier": 2,
+      "description": "A rough grey edge for the braided boles of Thrumwood. The trees hum faintly as they fall, and a little after.",
+      "recipe": {
+        "shape": ["threadstone", "threadstone", null, "threadstone", "knotwood_plank", null, null, "knotwood_plank", null]
+      }
+    },
+    {
+      "id": "threadstone_spade",
+      "displayName": "Threadstone Spade",
+      "tier": 2,
+      "description": "For turning warpsod and loamweft — lifting the world's green skin gently, one clod of agreed-upon thread at a time.",
+      "recipe": {
+        "shape": [null, "threadstone", null, null, "knotwood_plank", null, null, "knotwood_plank", null]
+      }
+    },
+    {
+      "id": "threadstone_blade",
+      "displayName": "Threadstone Blade",
+      "tier": 2,
+      "description": "A first blade, rough as the nights it is for. Pity what comes at you in the dark if you must — from behind it.",
+      "recipe": {
+        "shape": [null, "threadstone", null, null, "threadstone", null, null, "knotwood_plank", null]
+      }
+    },
+    {
+      "id": "needle_iron_pickaxe",
+      "displayName": "Needle-Iron Pickaxe",
+      "tier": 3,
+      "description": "The cold workhorse, hafted. Reliable, grey, and yours — the middle of a Mender's long road, and the length of it.",
+      "recipe": {
+        "shape": ["needle_iron", "needle_iron", "needle_iron", null, "knotwood_plank", null, null, "knotwood_plank", null]
+      }
+    },
+    {
+      "id": "needle_iron_axe",
+      "displayName": "Needle-Iron Axe",
+      "tier": 3,
+      "description": "An honest edge that keeps. Named, like all its kin, for the mending the woven folk used to do — put it to building more often than to battle.",
+      "recipe": {
+        "shape": ["needle_iron", "needle_iron", null, "needle_iron", "knotwood_plank", null, null, "knotwood_plank", null]
+      }
+    },
+    {
+      "id": "needle_iron_spade",
+      "displayName": "Needle-Iron Spade",
+      "tier": 3,
+      "description": "Turns the deep weft without tearing it. The ground gives like cloth, because it is cloth; dig accordingly.",
+      "recipe": {
+        "shape": [null, "needle_iron", null, null, "knotwood_plank", null, null, "knotwood_plank", null]
+      }
+    },
+    {
+      "id": "needle_iron_blade",
+      "displayName": "Needle-Iron Blade",
+      "tier": 3,
+      "description": "Cold, grey, dependable. It lays the crooked-woven straight and asks for nothing after. Do not mistake its work for victory.",
+      "recipe": {
+        "shape": [null, "needle_iron", null, null, "needle_iron", null, null, "knotwood_plank", null]
+      }
+    },
+    {
+      "id": "dawnthread_pickaxe",
+      "displayName": "Dawnthread Pickaxe",
+      "tier": 4,
+      "description": "A pick that holds the first light of a weaving in its edge, brilliant and hard and faintly warm. The finest the surface will ever give you. Below and beyond, there is finer still.",
+      "recipe": {
+        "shape": ["dawnthread", "dawnthread", "dawnthread", null, "knotwood_plank", null, null, "knotwood_plank", null]
+      }
+    },
+    {
+      "id": "dawnthread_blade",
+      "displayName": "Dawnthread Blade",
+      "tier": 4,
+      "description": "An edge of remembered morning, older than the world it cuts. It is faintly warm in the hand, even in the Frostlace, even in the dark.",
+      "recipe": {
+        "shape": [null, "dawnthread", null, null, "dawnthread", null, null, "knotwood_plank", null]
+      }
+    },
+    {
+      "id": "everthread_pickaxe",
+      "displayName": "Everthread Pickaxe",
+      "tier": 5,
+      "description": "A dawnthread pick rethreaded with the First Thread, won from the deepest forge and tempered in the void. It barely wears, and it shrugs off the Ravelling. It remembers being new.",
+      "recipe": {
+        "shape": ["everthread", "everthread", "everthread", null, "dawnthread_pickaxe", null, null, null, null],
+        "note": "Rethreading: the everthread is worked over an existing dawnthread tool."
+      }
+    },
+    {
+      "id": "everthread_blade",
+      "displayName": "Everthread Blade",
+      "tier": 5,
+      "description": "Made in an unfinished world, and so unable to be undone by a finished one. Neither, for now, is what you defend with it.",
+      "recipe": {
+        "shape": [null, "everthread", null, null, "everthread", null, null, "dawnthread_blade", null],
+        "note": "Rethreading: the everthread is worked over an existing dawnthread blade."
+      }
+    },
+    {
+      "id": "needle_iron_helm",
+      "displayName": "Needle-Iron Helm",
+      "tier": 3,
+      "description": "Cold iron closed over your thoughts like a kept promise. Part of the Needle-Iron set.",
+      "set": "needle_iron_armor",
+      "recipe": {
+        "shape": ["needle_iron", "needle_iron", "needle_iron", "needle_iron", null, "needle_iron", null, null, null]
+      }
+    },
+    {
+      "id": "needle_iron_mail",
+      "displayName": "Needle-Iron Mail",
+      "tier": 3,
+      "description": "Ring on ring of the cold workhorse, lined in woven cloth so it sits like a garment and not a cage. Part of the Needle-Iron set.",
+      "set": "needle_iron_armor",
+      "recipe": {
+        "shape": ["needle_iron", "woven_cloth", "needle_iron", "needle_iron", "needle_iron", "needle_iron", "needle_iron", "needle_iron", "needle_iron"]
+      }
+    },
+    {
+      "id": "needle_iron_leggings",
+      "displayName": "Needle-Iron Leggings",
+      "tier": 3,
+      "description": "Greaves for the long road down. The reliable middle of a Mender's wardrobe, and the part that carries you home. Part of the Needle-Iron set.",
+      "set": "needle_iron_armor",
+      "recipe": {
+        "shape": ["needle_iron", "needle_iron", "needle_iron", "needle_iron", null, "needle_iron", "needle_iron", null, "needle_iron"]
+      }
+    },
+    {
+      "id": "needle_iron_boots",
+      "displayName": "Needle-Iron Boots",
+      "tier": 3,
+      "description": "Soled against cinderthread and frostlace alike. The ground is cloth everywhere; only the temperature changes. Part of the Needle-Iron set.",
+      "set": "needle_iron_armor",
+      "recipe": {
+        "shape": [null, null, null, "needle_iron", null, "needle_iron", "needle_iron", null, "needle_iron"]
+      }
+    },
+    {
+      "id": "everthread_helm",
+      "displayName": "Everthread Helm",
+      "tier": 5,
+      "description": "The First Thread, wound close about your waking. The oldest thing in all three realms, and it remembers being new. Part of the Everthread set.",
+      "set": "everthread_armor",
+      "recipe": {
+        "shape": ["everthread", "everthread", "everthread", "everthread", null, "everthread", null, null, null]
+      }
+    },
+    {
+      "id": "everthread_mail",
+      "displayName": "Everthread Mail",
+      "tier": 5,
+      "description": "Forged before there was anything to draw it through, quilted over scorched silk, tempered in the void. Wear it to the edge of everything. Part of the Everthread set.",
+      "set": "everthread_armor",
+      "recipe": {
+        "shape": ["everthread", "scorched_silk", "everthread", "everthread", "everthread", "everthread", "everthread", "everthread", "everthread"]
+      }
+    },
+    {
+      "id": "everthread_leggings",
+      "displayName": "Everthread Leggings",
+      "tier": 5,
+      "description": "Strides that the Ravelling cannot pick loose. The void quietly tries anyway. Let it. Part of the Everthread set.",
+      "set": "everthread_armor",
+      "recipe": {
+        "shape": ["everthread", "everthread", "everthread", "everthread", null, "everthread", "everthread", null, "everthread"]
+      }
+    },
+    {
+      "id": "everthread_boots",
+      "displayName": "Everthread Boots",
+      "tier": 5,
+      "description": "Footing for finished hem and unspun nothing alike. Where these step, the world briefly agrees to hold. Part of the Everthread set.",
+      "set": "everthread_armor",
+      "recipe": {
+        "shape": [null, null, null, "everthread", null, "everthread", "everthread", null, "everthread"]
+      }
+    }
+  ]
+}

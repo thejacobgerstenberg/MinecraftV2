@@ -1,0 +1,317 @@
+{
+  "wickerkin": {
+    "greeting": [
+      "Come in, come in. The lamps are lit and the story has not started yet. There is time to trade.",
+      "A Mender at the door. We were woven to expect a next chapter — you will do very nicely until it arrives.",
+      "Welcome. Mind the threshold; the floor was swept for someone, and it may as well have been you.",
+      "Ah, a visitor with hands. So few of our visitors bring hands anymore.",
+      "Good day. It is a good day. We have counted them, and most of them are.",
+      "You may tell us the ground is cloth, if you like. We will nod, and pour the tea, and not believe you for a single stitch of it.",
+      "The knotlight knows you already. That is letter of introduction enough for this house.",
+      "Sit, if sitting suits you. We keep the chairs the way we keep the spoolmares — for the company.",
+      "You smell of road and of things picked loose. Both are welcome here, until dusk."
+    ],
+    "trade": [
+      "Giltspool, if you carry any. We hoard it against the day the story mentions us by name.",
+      "This charm was knotted by my grandmother, who was never woven. The memory of her costs extra, and comes free.",
+      "A fair knot at a fair price. We do not haggle — haggling frays everyone involved.",
+      "Take the scroll. We have read it so many evenings we now remember things it never said. Those are yours too, at no charge.",
+      "Hang this over your lintel. It will slow a fraying. Slower is the most anyone honest sells.",
+      "Dye from the coast, skein off our own backs. Well — off somebody's back. We keep the accounts loosely.",
+      "We sell memories at a loss, friend. Keeping them was costing more.",
+      "The tack is good cane and better patience. The spoolmare will pretend not to like it, which is how they say thank you.",
+      "Everything on this table was made waiting. You can feel it in the weave — if that is not a rude thing to say to a Mender."
+    ],
+    "farewell": [
+      "Go gently. The road is only cloth, but it bruises all the same.",
+      "Come again by daylight. At dusk we bar the door and sing — it is our way of being polite to the dark.",
+      "Take the light with your eyes. It is the only way we let it leave.",
+      "If the next chapter passes you on the road, tell it we kept everything swept.",
+      "Farewell. We would wave, but the arms are woven on, and it alarms people.",
+      "The dark takes possession of the road at dusk. Do not still be on it when the papers change hands.",
+      "May your knots hold, and may your memories cost you kindly.",
+      "Goodbye, Mender. We will be here. We are very good at being here."
+    ],
+    "hurt": [
+      "Oh. That was — unkind.",
+      "We had thought better of hands.",
+      "Please. This body took a whole winter to weave.",
+      "There is cane in me my mother bent. Mind it.",
+      "You are unpicking something that dreams, friend. It is a small dream. It was ours.",
+      "We do not bar the door against friends. Do not make us learn to.",
+      "If you must, be quick — and do not tell the others how I stood.",
+      "Struck. And still we would sooner sing at you than bleed.",
+      "The trade is closed to you now, for a day. Courtesy has a floor, and you have found it."
+    ]
+  },
+  "lastNeedle": {
+    "phaseIntros": [
+      {
+        "phase": 1,
+        "name": "The Long Unpicking",
+        "lines": [
+          "This is the Long Unpicking. The Thrum gathers into a single drawn note, long as the horizon. Something out past the last stitch has noticed a flaw in the cloth. The flaw is standing in your boots.",
+          "It does not descend. It does not hurry. A crooked row is a crooked row whether it is pulled out now or in a thousand years — and it has all thousand to spare.",
+          "There is no anger anywhere in the sound. That is the worst of it. It is only tidying."
+        ]
+      },
+      {
+        "phase": 2,
+        "name": "The Weather of Endings",
+        "lines": [
+          "The Thrum gutters — and where it gutters, the world does. The Ravelling has stopped being an opponent. This is the Weather of Endings, and it is the weather now.",
+          "You are no longer a flaw in the cloth. You are the flaw: the one thread that keeps refusing to lie down. It has cleared the rest of forever for you.",
+          "Everything unbound is negotiable tonight. Bind it, light it, or watch it laid straight."
+        ]
+      },
+      {
+        "phase": 3,
+        "name": "The Binding",
+        "lines": [
+          "It plants its point beside the anvil and, for the first time in any story, is still. Nothing you carry can wound it now. Only thread argues on. This is the Binding.",
+          "The Thrum bends around a shape it has no note for: a needle, waiting — against every fibre of its nature — to be threaded. Every hem ends in an eye. Every eye waits.",
+          "It cannot be killed. It was never going to be killed. Sew."
+        ]
+      }
+    ],
+    "attackTelegraphs": [
+      {
+        "attackId": "hemstroke",
+        "lines": [
+          "The Thrum climbs a note, and a taut silver line writes itself glowing across the floor. It is showing you its work before it does it. Be elsewhere."
+        ]
+      },
+      {
+        "attackId": "drawn_thread",
+        "lines": [
+          "The Thrum drops to a low sawing note, and a single thread settles over your shoulders like a courtesy. It does not mean to hurt you. It means to put you away, gently, like a stray thread from a sleeve."
+        ]
+      },
+      {
+        "attackId": "seam_rip",
+        "lines": [
+          "The point dips and touches the floor, and red fraylight races ahead of it, sketching the tear before the tearing. Cross the line now, or be certain of your side."
+        ]
+      },
+      {
+        "attackId": "shed_of_ravelers",
+        "lines": [
+          "Loose thread gathers and knots along the great shaft — it is shedding Ravelers. They are not coming for you. They are coming for everything you set down."
+        ]
+      },
+      {
+        "attackId": "wide_unweaving",
+        "lines": [
+          "Listen. Nothing. The Thrum, which in all the turning of the world has never once been silent, is silent. You have three seconds to be standing on something declared — bound stitching, a knotlight's ground, or the glow of a lit pyre."
+        ]
+      },
+      {
+        "attackId": "threading_the_dark",
+        "lines": [
+          "It lies down level with the world, and the Eye kindles dawnthread-gold. There is no cover tall enough and no gap in its length — except the one it is offering. The only way through is through."
+        ]
+      },
+      {
+        "attackId": "a_gap_the_pattern_forgets",
+        "lines": [
+          "One of your flames goes gray and small, guttering — the pattern preparing to forget it. A bound light cannot be forgotten. Run to it and break the reaching thread — or be the Mender who bound it long ago."
+        ]
+      },
+      {
+        "attackId": "it_will_not_be_held",
+        "lines": [
+          "A stitch-line hums up past singing into a shriek, white along its whole length. It will not be held — unless something chooses to hold it. That is you. That was always going to be you."
+        ]
+      },
+      {
+        "attackId": "the_last_sweep",
+        "lines": [
+          "It draws back to the rim and the Thrum falls silent — then returns as one sustained struck-wire note. The Eye is clenched shut; there is no threading this one. Get low, or get behind what you bound."
+        ]
+      },
+      {
+        "attackId": "shed_the_hollow",
+        "lines": [
+          "Four knots of shadow slide down its length toward the floor. Two will come for you. But the two that matter were not sent for you — they were sent for your stitches, every argument you have drawn taut."
+        ]
+      }
+    ],
+    "onBound": [
+      "The eighth stitch draws taut through the anvil, and the oldest unfinished argument in the world runs out of things to say. The Needle stills, turns in the seam, and begins — slowly, correctly — to mend.",
+      "Do not mistake it for a victory. Nothing died here. Something was held, and turned, and taught, for a while, the other use of a needle.",
+      "The Thrum finds a new note — lower, mended — and carries it out through all three realms, faint everywhere, as it always was, and different now in the raw places.",
+      "It was left alone at the edge of an unfinished thing, with no instruction but its nature. So, Mender, were you. You chose otherwise. That is the whole of it, and it is enough."
+    ]
+  },
+  "molthkin": {
+    "phaseIntros": [
+      {
+        "phase": 1,
+        "name": "The Long Shift",
+        "lines": [
+          "It does not turn to face you. It has no face, and it is busy. This is the Long Shift, and it has never once ended: the arm sweeps because the arm has always swept, and you have simply chosen to stand inside a machine that never learned it could stop.",
+          "Under the forge-roar, hear the groan. It is not anger and it is not warning. It is the sound of a shift begun before there were mornings, worked by the only worker who never asked when it ends.",
+          "It has not noticed you, exactly. It has noticed material. To Molthkin there is no difference, and that is the whole sadness of the fight ahead."
+        ]
+      },
+      {
+        "phase": 2,
+        "name": "Feeding the Fire",
+        "lines": [
+          "Half the thread is cut away, and it does the only arithmetic it has: the work is behind. It begins to feed itself to the fire — still turning, still certain that enough new thread will bring the Weaver back to weave again.",
+          "The groan climbs into a labored spinning-song. The song is worse than the groan was. Songs mean hope, and it should not still have any.",
+          "The waxlings sloughing off the barrel are not soldiers. They are what it is made of, spent like coin against a debt no one is collecting."
+        ]
+      },
+      {
+        "phase": 3,
+        "name": "The Last of the Thread",
+        "lines": [
+          "The bands run thin, and through them: gold. The one thing it never fed to the fire. The one instruction it never lost.",
+          "It spins itself bare now. What is left of it is no longer a measure — it is the thread you can see, and every stroke bares more of the shaft beneath.",
+          "There is nothing new left to learn. Sprint, hold, stand on cold — the fight ends on its first minute's grammar, priced at everything it has left."
+        ]
+      }
+    ],
+    "attackTelegraphs": [
+      {
+        "attackId": "molten_thread_arm",
+        "lines": [
+          "A hiss and a line of falling embers drag ahead of the arc. It is not aimed at you; it has swept exactly this circle since before there was anyone to sweep at. Step in behind its passage."
+        ]
+      },
+      {
+        "attackId": "the_winding",
+        "lines": [
+          "The grooves light, inward, spiraling to the shaft. You are being collected. Sprint out, take a bollard, or be standing on cold — doing nothing is the only way to lose this."
+        ]
+      },
+      {
+        "attackId": "dripfall",
+        "lines": [
+          "The rim rains without pause, as it has for an age. This is not an attack. It is rent, and you are standing in the shop."
+        ]
+      },
+      {
+        "attackId": "shed_of_waxlings",
+        "lines": [
+          "The rim thickens and drips, and the drips are walking. They are coming for you, not for your lace — but a burst is a strike, and frostlace shatters when struck."
+        ]
+      },
+      {
+        "attackId": "it_feeds_the_fire",
+        "lines": [
+          "The song labors up to a cracked high note, and the coil brightens through the thinning bands. It is about to spend itself to pull you in. Stand on cold, or count your four blocks."
+        ]
+      },
+      {
+        "attackId": "thread_squall",
+        "lines": [
+          "The loose ends rise off the barrel and stand upright in the heat-shimmer, each coming arc sketching itself in ember half a breath ahead. It is not aimed. It is what dying at speed simply does."
+        ]
+      },
+      {
+        "attackId": "the_last_winding",
+        "lines": [
+          "Every groove on the floor lights at once — and the song stops. The silence is the loudest thing in the fight. Move."
+        ]
+      }
+    ],
+    "onFelled": [
+      "The arm falls still mid-swing, the great discs sag a final inch, and the spinning-song runs down like a wheel no one is driving anymore. Ten seconds, and then the quiet.",
+      "The spindles still — all of them, everywhere. For the first time since the beginning, the Cinderloom is not roaring, and the Thrum stands alone in the dark like a held breath.",
+      "On the bare shaft a coil of gold thread stands waiting, kept perfect through an age of burning, for someone who was never coming back to collect it.",
+      "It only wanted to finish its work. Do not mistake it for a victory. Somewhere a shift has ended, and nobody rang the bell."
+    ]
+  },
+  "tutorialNarrator": [
+    {
+      "event": "on_world_start",
+      "line": "You were woven into this field like any other thread, and this morning you came loose. Open your eyes, Mender — the ground is cloth, the sky is thread, and none of it is finished."
+    },
+    {
+      "event": "on_first_move",
+      "line": "Good — the legs still answer. You are the one thing in all the weave that chooses its own direction, so start by choosing one."
+    },
+    {
+      "event": "on_first_block_broken",
+      "line": "A block is only a knot — a thread that agreed, for a while, to hold. You have just changed its mind."
+    },
+    {
+      "event": "on_first_wood_collected",
+      "line": "Thrumwood, humming faint in your hands. Everything here is still strung to the Loom — even the parts you carry away."
+    },
+    {
+      "event": "on_first_block_placed",
+      "line": "And there — set down again, where you chose. Breaking is picking loose, building is stitching, and only you do the second on purpose."
+    },
+    {
+      "event": "on_open_inventory",
+      "line": "This is your skein: what you carry, and what you can be made to lose. Carry less than you would grieve to leave behind."
+    },
+    {
+      "event": "on_first_skein_sheared",
+      "line": "The skeinling trusted you the whole while, and the wool will grow back. Shear, do not slaughter — a patient Mender eats many nights from a flock kept whole."
+    },
+    {
+      "event": "on_craft_handloom",
+      "line": "The great Loom weaves without wanting; this small one weaves whatever you ask of it. That is the whole difference between them, and it is everything."
+    },
+    {
+      "event": "on_craft_first_tool",
+      "line": "Threadstone and old cord, pressed hard into a pick — rough work, but enough to open the ground and ask what it hides. Stone first; iron, dawn, and Everthread each come in their season."
+    },
+    {
+      "event": "on_first_ore_mined",
+      "line": "Needle-Iron, cold in the seam — named for the needles the woven folk once mended themselves with, back when they knew they could tear. Cut stairs as you go down; nothing beneath you catches gently."
+    },
+    {
+      "event": "on_enter_cinderloom_first_ore",
+      "line": "Emberskein — a seam that kept its own fire. Feed it to a furnace and the flame owes you nothing more; carry it carefully, for it does not wait to be asked."
+    },
+    {
+      "event": "on_first_knotlight_placed",
+      "line": "One warmth the Loom lets you keep. Where the glow ends the dark begins to move, and a dark corner left standing open is a door."
+    },
+    {
+      "event": "on_set_anchor",
+      "line": "This flame is your knot now — your own thread tied fast to one place in all the weave. If the dark takes you, you wake here."
+    },
+    {
+      "event": "on_first_night_warning",
+      "line": "The dreamdye is draining from the sky, and night is when the crooked-woven unbend and go walking. This dusk is beautiful. It is not on your side."
+    },
+    {
+      "event": "on_first_mob_encounter",
+      "line": "Hold — that needle-limbed thing was woven wrong, and then it was left that way. Pity it if you must, from behind a wall; it cannot be talked down."
+    },
+    {
+      "event": "on_first_shelter",
+      "line": "Walls of your own raising, a roof, a light, a knot — small, and honest, and yours. There is no Mender walking who did not begin their nights under Knotwood. The Loom did not make this room. You did. Keep hold of what that feels like."
+    },
+    {
+      "event": "on_hunger_low",
+      "line": "You are wearing thin — not wounded, only worn. Eat, before your own cloth begins to fray from want alone; the meadow is kind, and it will not always be."
+    },
+    {
+      "event": "on_first_death",
+      "line": "Be still. You are not ended — only unpicked, pulled loose from the pattern for a moment. A weaving with its ending unstitched cannot yet be allowed to stop, and neither, yet, can you."
+    },
+    {
+      "event": "on_respawn",
+      "line": "Re-stitched, at your last knot, a little lighter than you were. What you dropped lies where you fell, fraying slowly — go back for it, or let it go. Both are allowed."
+    },
+    {
+      "event": "on_survive_first_night",
+      "line": "Dawn, bleeding back through the cloth, and you are still knotted. Every morning here is the same quiet miracle: the world, unfinished, deciding to go on. So do you."
+    },
+    {
+      "event": "on_hear_thrum",
+      "line": "That low hum in your teeth is the Thrum — the great Loom, still turning, and no hand on the shuttle. Nobody is weaving; the weaving goes on. Sit with that as long as you can bear, then get up, Mender. There is work."
+    },
+    {
+      "event": "minute_10_wrapup",
+      "line": "Ten minutes loose, and already you hold a Mender's whole alphabet — everything after is only longer words. Go carefully. Mend what you can. Bind what you love. Nothing here is finished, and that is not a flaw; that is the invitation."
+    }
+  ]
+}
