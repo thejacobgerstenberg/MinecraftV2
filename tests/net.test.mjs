@@ -165,10 +165,12 @@ async function main() {
   check('A does not receive its own move back', !A.msgs.some((m) => m.t === 'move' && m.id === A.welcome.id));
 
   // --- WS: edit -------------------------------------------------------------
-  sendJson(A, { t: 'edit', x: 5, y: 64, z: -2, block: 3, dim: 'overworld' });
+  // (3,68,-2) is ~3 blocks from A's server-tracked position (1.5,70,-3.25):
+  // inside the server's 7-block reach cap.
+  sendJson(A, { t: 'edit', x: 3, y: 68, z: -2, block: 3, dim: 'overworld' });
   const bEdit = await waitFor(B, (m) => m.t === 'edit');
   check('B receives A\'s edit with id + coords + block',
-    bEdit.id === A.welcome.id && bEdit.x === 5 && bEdit.y === 64 &&
+    bEdit.id === A.welcome.id && bEdit.x === 3 && bEdit.y === 68 &&
     bEdit.z === -2 && bEdit.block === 3 && bEdit.dim === 'overworld',
     JSON.stringify(bEdit));
 
@@ -195,6 +197,9 @@ async function main() {
     C.msgs.filter((m) => m.t === 'move').length === cMovesBefore);
 
   const abEditsBefore = A.msgs.filter((m) => m.t === 'edit').length + B.msgs.filter((m) => m.t === 'edit').length;
+  // Move C near the edit site first (first move after join = grace teleport).
+  sendJson(C, { t: 'move', x: 1, y: 51, z: 1, dim: 'nether' });
+  await sleep(150);
   sendJson(C, { t: 'edit', x: 1, y: 50, z: 1, block: 22, dim: 'nether' });
   await sleep(300);
   check('C\'s nether edit is NOT delivered to A or B',
@@ -209,17 +214,14 @@ async function main() {
     aChat.id === C.welcome.id && aChat.name === 'Cara');
   check('chat echoes back to sender', cChat.text === 'hello from the nether');
 
-  // --- REST: PUT merge -------------------------------------------------------
+  // --- REST: PUT is removed (security hardening) -----------------------------
   const putRes = await fetch(`${BASE}/api/worlds/${worldId}`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ edits: { end: { '0,10,0': 26 } } }),
   });
-  const putWorld = await putRes.json();
-  check('PUT /api/worlds/:id merges edits without clobbering other dims',
-    putRes.status === 200 && putWorld.edits.end['0,10,0'] === 26 &&
-    putWorld.edits.overworld['5,64,-2'] === 3 && putWorld.edits.nether['1,50,1'] === 22,
-    JSON.stringify(putWorld.edits));
+  check('PUT /api/worlds/:id is removed (404) — WS edits are the only write path',
+    putRes.status === 404, `status ${putRes.status}`);
 
   // --- peer-leave + persistence on last disconnect ---------------------------
   const leavePromise = waitFor(B, (m) => m.t === 'peer-leave' && m.id === A.welcome.id);
@@ -234,16 +236,15 @@ async function main() {
   const saveFile = path.join(ROOT, 'saves', `${worldId}.json`);
   const saved = JSON.parse(await fs.readFile(saveFile, 'utf8'));
   check('saves/<id>.json persists overworld edit under the right dim',
-    saved.edits.overworld['5,64,-2'] === 3, JSON.stringify(saved.edits.overworld));
+    saved.edits.overworld['3,68,-2'] === 3, JSON.stringify(saved.edits.overworld));
   check('saves/<id>.json persists nether edit under the right dim',
     saved.edits.nether['1,50,1'] === 22, JSON.stringify(saved.edits.nether));
 
   // --- rejoin sees prior edits ------------------------------------------------
   const A2 = await connectClient(worldId, 'Alice');
   check('rejoin welcome.world.edits contains the prior edits',
-    A2.welcome.world.edits.overworld['5,64,-2'] === 3 &&
-    A2.welcome.world.edits.nether['1,50,1'] === 22 &&
-    A2.welcome.world.edits.end['0,10,0'] === 26);
+    A2.welcome.world.edits.overworld['3,68,-2'] === 3 &&
+    A2.welcome.world.edits.nether['1,50,1'] === 22);
   await closeClient(A2);
 }
 

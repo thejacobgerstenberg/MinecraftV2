@@ -1,10 +1,12 @@
-# Voxelheim Multiplayer Protocol (v1)
+# Loomfall Multiplayer Protocol (v1)
 
 Transport: **WebSocket** at path `/ws` on the same HTTP server that serves the
 client and the REST API (default port 3000, `PORT` env override). Every frame
 is a single JSON object with a `t` field naming the message type. Unknown or
 malformed frames are ignored by both sides (the server may answer with an
-`error` frame, see below).
+`error` frame, see below). Frames larger than **65536 bytes** close the
+connection (code 1009), and all inbound traffic is rate-limited and validated
+server-side — see **§7 Security** for the complete enforcement table.
 
 A companion REST API manages world records; the WebSocket layer manages live
 rooms (one room per world).
@@ -51,14 +53,12 @@ The record is written to `saves/<id>.json` immediately. Errors:
 `404 {"error":"world not found"}`. Ids must match `[a-zA-Z0-9_-]{1,64}`
 (anything else is a 400) — this also blocks path traversal.
 
-### `PUT /api/worlds/:id`
-Body: `{ "edits": { "overworld"?: {...}, "nether"?: {...}, "end"?: {...} } }`.
+### There is no REST write endpoint
 
-**Merges** (does not replace) the given edits into the stored record,
-per dimension: each `"x,y,z": blockId` entry overwrites the same key,
-other keys are kept. Entries with malformed keys or block ids outside
-`0..40` are silently skipped. Persists immediately. `200` with the updated
-full record, or `404`.
+`PUT /api/worlds/:id` (unauthenticated bulk edit-merge) was **removed** in the
+security hardening pass: any HTTP client could overwrite any world with it.
+World edits are persisted **exclusively** through validated WebSocket `edit`
+messages. `PUT`/`PATCH`/`DELETE` on `/api/worlds/:id` now return `404`.
 
 ---
 
@@ -122,7 +122,11 @@ pings automatically; no client action is needed.
   for the id, the server **auto-creates** a world with `name = worldId` and a
   seed derived from the id (convenient for dev / direct joins; the menu flow
   normally creates worlds via REST first).
-- `name`: display name, trimmed, capped at 24 chars; defaults to `"player"`.
+- `name`: display name. Server-side: control characters and `<>&"'` are
+  stripped, the result is trimmed and capped at **24** chars; an empty result
+  falls back to a generated `Wanderer-xxxx`; duplicates within the room are
+  deduped by appending a numeral (`Kai` -> `Kai2`). The sanitized name is the
+  one echoed in `welcome.peers`, `peer-join`, and `chat`.
 - `dim` (optional): starting dimension, defaults to `overworld`.
 - A second `join` on an already-joined socket is answered with an `error`
   frame and ignored.
@@ -134,7 +138,19 @@ pings automatically; no client action is needed.
 - Coordinates are floats (player position, feet). `yaw`/`pitch` radians.
 - `dim` is the sender's current dimension; if omitted or invalid the
   previously known dimension is kept.
-- Non-finite coordinates cause the frame to be dropped.
+- Non-finite coordinates cause the frame to be dropped, as do positions with
+  `|x|` or `|z| > 30,000,000` or `y` outside `[-64, 512]`.
+- **Speed validation.** The server tracks each player's authoritative
+  position and charges every accepted move's displacement against two
+  server-side token buckets: *controllable* motion (horizontal + upward,
+  **25 blocks/s** sustained, 25-block burst — creative sprint-fly is 20 b/s)
+  and *fall* motion (downward, **90 blocks/s**, covering free fall which
+  peaks near 81 b/s). A move exceeding its budget is **silently dropped**:
+  the server keeps — and keeps broadcasting — the last valid position.
+  Exceptions ("grace teleports", which refill both budgets): the **first
+  move after join**, a **dimension change**, and a **resync** at most once
+  per 2 s (this covers client-side respawn, which has no wire signal; it
+  also caps a cheater at one teleport per 2 s instead of unlimited).
 - **Dimension changes:** a `move` whose `dim` differs from the sender's
   stored dimension performs the switch. The server updates its record and
   broadcasts a fresh **`peer-join`** (carrying the new `dim` and position)
@@ -148,19 +164,40 @@ pings automatically; no client action is needed.
 ```json
 { "t": "edit", "x": 5, "y": 64, "z": -2, "block": 3, "dim": "overworld" }
 ```
-- `x,y,z,block` must be integers; `0 <= y < 128`; `0 <= block <= 40`;
-  `dim`, if present, must be a valid dimension (defaults to the sender's
-  current dimension). Invalid edits are rejected with an `error` frame and
+- `x,y,z,block` must be integers; `0 <= y < 128`; `|x|,|z| <= 30,000,000`;
+  `0 <= block <= 40`. Invalid edits are rejected with an `error` frame and
   are neither stored nor broadcast.
-- Applied to `world.edits[dim]["x,y,z"]`, marked for debounced persistence,
-  and broadcast (with the sender's `id` added) to same-world **same-dim**
-  peers. The sender does not receive its own edit back.
+- **Bedrock floor:** `y === 0` is the unbreakable bedrock layer (worldgen
+  always places bedrock at y=0 in every dimension). The server rejects
+  **any** edit at `y === 0` — breaking *and* placing — since it does not run
+  worldgen and cannot distinguish blocks there.
+- **Dimension binding:** the edit is applied to the sender's **server-tracked
+  dimension** (from validated moves). The `dim` field is kept for
+  compatibility, but if present it must match the server's value or the edit
+  is rejected — a client can never write into a dimension it is not in.
+- **Reach:** the block must be within **7** blocks of the player's
+  server-tracked position (distance from the player's collision column,
+  feet to feet+1.8, to the block center). Client-side reach is 6; the +1
+  covers eye-height and latency slack.
+- **Rate:** at most **20 edits/s** per connection (token bucket, burst 20);
+  excess edits are dropped without an error frame.
+- Accepted edits are applied to `world.edits[dim]["x,y,z"]`, marked for
+  debounced persistence, and broadcast (with the sender's `id` added) to
+  same-world **same-dim** peers. The sender does not receive its own edit
+  back. Same-cell conflicts resolve last-writer-wins.
 
 ### `chat`
 ```json
 { "t": "chat", "text": "hello world" }
 ```
-- Trimmed; capped at 256 chars; empty after trim → dropped.
+- Server-side: control characters stripped, trimmed, capped at 256 chars;
+  empty after sanitization → dropped.
+- On broadcast, `text` **and** `name` are HTML-escaped (`& < > " '` become
+  entities) as defense-in-depth — clients must still render chat via
+  `textContent`, never `innerHTML`. Note the escaped text can exceed 256
+  chars (entities expand); the 256 cap applies to the raw text.
+- Rate limited to **3 messages per 2 s** per connection; a breach drops the
+  message and sends the sender an `error` frame with code `chat_rate`.
 - Broadcast to the whole room **including the sender** (the sender renders
   its own line when the echo arrives, guaranteeing consistent ordering).
 
@@ -223,7 +260,9 @@ Delivered to the whole room including the original sender.
 { "t": "error", "code": "bad_edit", "message": "block id out of range" }
 ```
 Advisory only; the connection stays open. Codes currently used:
-`bad_join`, `already_joined`, `bad_edit`, `bad_world`.
+`bad_join`, `already_joined`, `bad_edit`, `bad_world`, `chat_rate`.
+(Rejected `move` frames and rate-capped edits are dropped **silently** —
+no error frame — so a flood cannot use the server as an amplifier.)
 
 ---
 
@@ -250,3 +289,35 @@ Advisory only; the connection stays open. Codes currently used:
   the `join` frame.
 - `close()` — intentional shutdown; `onDisconnect` still fires, with
   `intentional: true`.
+
+---
+
+## 7. SECURITY — server-side enforcement
+
+The server is **authoritative** and validates everything a client sends; it
+never trusts client-supplied identity, position, dimension, or content.
+Summary of the enforcement added by the hardening pass (each rule has a
+regression test in `tests/security.test.mjs`, run via `npm test`):
+
+| # | Surface | Rule | On violation |
+|---|---------|------|--------------|
+| 1 | WS frame size | max **65536 bytes** per frame (`maxPayload`) | connection closed, code **1009** |
+| 2 | WS message rate | **60 msg/s** sustained, burst 120, all message types; 3 strikes | over-limit frames dropped; 3rd strike closes, code **1008** `"rate limit"` |
+| 3 | REST writes | `PUT /api/worlds/:id` **removed** (was an unauthenticated bulk write); REST JSON bodies capped at 64 kB | `404` |
+| 4 | Identity | `id`/`name` on broadcasts are always the server-minted values; client-supplied `id`/`name` fields on `move`/`edit`/`chat` are ignored | spoofed fields never propagate |
+| 5 | Move coords | finite numbers; `\|x\|,\|z\| <= 30,000,000`; `-64 <= y <= 512` | frame dropped |
+| 6 | Move speed | **25 blocks/s** sustained (horizontal+up, 25-block burst), **90 blocks/s** down (free fall); dt measured server-side; grace teleport on join / dimension change / resync (max 1 per 2 s, covers respawn) | move dropped, server keeps last valid position |
+| 7 | Edit shape | integer coords, block `0..40`, `0 <= y < 128`, `\|x\|,\|z\| <= 30,000,000` | `error: bad_edit` |
+| 8 | Bedrock | **no edit at `y === 0`** (bedrock layer is always y=0 in every dimension; the server does not run worldgen, so the whole layer is protected) | `error: bad_edit` |
+| 9 | Edit dimension | bound to the **server-tracked** dimension; a `dim` field must match it | `error: bad_edit` |
+| 10 | Edit reach | <= **7** blocks from the server-tracked player column (client reach is 6) | `error: bad_edit` |
+| 11 | Edit rate | **20 edits/s** per connection (token bucket, burst 20) | excess dropped silently |
+| 12 | Names | strip control chars + `<>&"'`, cap 24, fallback `Wanderer-xxxx`, dedup per room with numeral suffix | sanitized transparently at join |
+| 13 | Chat | strip control chars, cap 256, HTML-escape `&<>"'` on broadcast (name too); **3 msgs / 2 s** | over-limit dropped + `error: chat_rate` to sender |
+| 14 | Consistency | same-cell edits resolve **last-writer-wins**; all observers converge | n/a (locked by tests) |
+
+Known residual (accepted, documented): because client respawn has no wire
+signal, an over-budget move is accepted as a resync teleport at most once per
+2 s (rule 6). A cheater is therefore limited to one in-world teleport every
+2 s with nothing broadcast in between — bounded griefing, not full
+prevention. All other movement remains capped at the rates above.

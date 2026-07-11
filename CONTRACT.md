@@ -1,4 +1,8 @@
-# Voxelheim Module Contract (v1)
+# Loomfall Module Contract (v1)
+
+> Naming note: the game's user-facing name is **Loomfall**. The working name
+> "Voxelheim" survives in some internal keys, code comments, and file headers
+> — that is fine; do not churn identifiers over it.
 
 All client code is browser ES modules under `public/src/`. Three.js is imported as `import * as THREE from 'three'` (resolved by the importmap in index.html to `./vendor/three.module.js`). NO bundler, NO build step. NO three/addons — implement pointer lock and controls manually.
 
@@ -73,8 +77,9 @@ Exports `BLOCKS` (array indexed by id) and `getBlockDef(id)`. Each def: `{ id, n
 ## public/src/main.js  (Phase: integration)
 - Bootstraps everything: creates renderer/camera/scene, atlas, world+generator, player, controls, chunk renderer, sky, UI, net. Runs the requestAnimationFrame loop. Wires menu → start world → game. THIS FILE is written during integration; module authors must NOT edit it (except the integration agent).
 
-## Server: server/index.js  (Phase: multiplayer)
-- Express serves `public/` statically. `ws` WebSocket server on same HTTP server at path `/ws`. REST: `GET /api/worlds`, `POST /api/worlds` (create {name,seed}), `GET /api/worlds/:id`, `PUT /api/worlds/:id` (save edits). World rooms broadcast join/move/edit/chat. Persist worlds to `saves/<id>.json` as `{id,name,seed,createdAt,edits:{"x,y,z":id}}`. Default port 3000 (env PORT).
+## Server: server/index.js  (Phase: multiplayer, hardened)
+- Express serves `public/` statically. `ws` WebSocket server on same HTTP server at path `/ws`. REST (read/create only): `GET /api/worlds`, `POST /api/worlds` (create {name,seed}), `GET /api/worlds/:id`. There is **no REST write endpoint** — the old `PUT /api/worlds/:id` was removed in the security hardening pass; world edits persist exclusively through validated WS `edit` messages. World rooms broadcast join/move/edit/chat. Persist worlds to `saves/<id>.json` as `{id,name,seed,createdAt,edits:{dim:{"x,y,z":id}}}`. Default port 3000 (env PORT).
+- The server is authoritative and enforces: 64 KiB frame cap, per-connection message/edit/chat rate limits, movement speed validation with grace teleports, 7-block edit reach, coordinate bounds, y=0 bedrock protection, dimension binding, and name/chat sanitization + HTML escaping. Full table: docs/PROTOCOL.md §7. Regression suite: `tests/security.test.mjs`; `npm test` runs all suites via `tests/run-all.mjs`.
 
 ## Style
 - Modern ES2020+. No TypeScript. Clear names. Small focused modules. Every module is independently importable and side-effect free except main.js and server.

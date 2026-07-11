@@ -1,11 +1,14 @@
-// Voxelheim multiplayer server.
+// Loomfall multiplayer server. (Working title in some internal keys: Voxelheim.)
 //
 // - Serves the static client from public/.
-// - REST API for world records (create / list / get / merge-save edits),
-//   persisted as saves/<id>.json.
+// - REST API for world records (create / list / get), persisted as
+//   saves/<id>.json. Writes happen ONLY through validated WebSocket edits —
+//   there is deliberately no REST write/PUT endpoint (see docs/PROTOCOL.md §7).
 // - WebSocket endpoint at /ws hosting one "room" per world with
-//   join / move / edit / chat traffic. See docs/PROTOCOL.md for the full
-//   message reference.
+//   join / move / edit / chat traffic. All inbound traffic is validated and
+//   rate-limited server-side; the server is authoritative for player
+//   position, dimension, names, and world edits. See docs/PROTOCOL.md for the
+//   full message reference and the security/limits table.
 
 import http from 'node:http';
 import path from 'node:path';
@@ -30,6 +33,99 @@ const ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
 const SAVE_DEBOUNCE_MS = 2000;
 const HEARTBEAT_MS = 30000;
 
+// --- Security limits (documented in docs/PROTOCOL.md §7) --------------------
+
+/** Hard cap on a single WebSocket frame; larger frames close the socket (1009). */
+const MAX_WS_PAYLOAD_BYTES = 65536;
+/** Global inbound message rate per connection (all message types). */
+const MSG_RATE = { perSec: 60, burst: 120, maxStrikes: 3 };
+/** Block-edit rate per connection. */
+const EDIT_RATE = { perSec: 20, burst: 20 };
+/** Chat rate per connection (sliding window). */
+const CHAT_RATE = { msgs: 3, perMs: 2000 };
+/** Max sustained "controllable" movement speed (horizontal + upward), b/s.
+ * Creative sprint-fly is 20 b/s; 25 leaves headroom for jitter. */
+const MAX_MOVE_SPEED = 25;
+/** Max sustained downward speed, b/s (free fall peaks around 81 b/s). */
+const MAX_FALL_SPEED = 90;
+/** Movement budgets accrue up to this many seconds of allowance (burst). */
+const MOVE_BURST_S = 1;
+/** Min interval between grace teleports (join / dimension travel / respawn resync). */
+const GRACE_COOLDOWN_MS = 2000;
+/** Server-side edit reach cap; client reach is 6, +1 covers eye/latency slack. */
+const MAX_REACH = 7;
+/** World edit + movement horizontal bound. */
+const MAX_COORD_XZ = 30_000_000;
+/** Sanity bounds for move y (kill plane is -10; world height 128). */
+const MOVE_MIN_Y = -64;
+const MOVE_MAX_Y = 512;
+/** Player collision height, for the reach check's vertical segment. */
+const PLAYER_HEIGHT = 1.8;
+const NAME_MAX = 24;
+const CHAT_MAX = 256;
+
+const CONTROL_CHARS_RE = /[\u0000-\u001f\u007f-\u009f]/g;
+const NAME_STRIP_RE = /[<>&"']/g;
+const HTML_ESCAPE_RE = /[&<>"']/g;
+const HTML_ESCAPES = {
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+};
+
+// ---------------------------------------------------------------------------
+// Small helpers: token buckets + sanitizers
+// ---------------------------------------------------------------------------
+
+function makeBucket(capacity, refillPerSec) {
+  return { tokens: capacity, capacity, refillPerSec, at: Date.now() };
+}
+
+function refillBucket(bucket, now = Date.now()) {
+  bucket.tokens = Math.min(
+    bucket.capacity,
+    bucket.tokens + ((now - bucket.at) / 1000) * bucket.refillPerSec,
+  );
+  bucket.at = now;
+  return bucket;
+}
+
+/** Refill, then take `n` tokens; false (and no deduction) if not available. */
+function takeTokens(bucket, n = 1, now = Date.now()) {
+  refillBucket(bucket, now);
+  if (bucket.tokens < n) return false;
+  bucket.tokens -= n;
+  return true;
+}
+
+function clamp(v, lo, hi) {
+  return v < lo ? lo : v > hi ? hi : v;
+}
+
+/** Escape &<>"' as HTML entities (defense-in-depth for chat/name broadcast). */
+function escapeHtml(s) {
+  return String(s).replace(HTML_ESCAPE_RE, (c) => HTML_ESCAPES[c]);
+}
+
+/** Strip control chars and <>&"', trim, cap at NAME_MAX. May return ''. */
+function sanitizeName(raw) {
+  return String(raw ?? '')
+    .replace(CONTROL_CHARS_RE, '')
+    .replace(NAME_STRIP_RE, '')
+    .trim()
+    .slice(0, NAME_MAX)
+    .trim();
+}
+
+/** Dedup a display name within a room by appending 2, 3, ... (cap kept). */
+function uniqueName(room, base) {
+  const taken = new Set([...room.clients.values()].map((p) => p.name));
+  if (!taken.has(base)) return base;
+  for (let n = 2; ; n++) {
+    const suffix = String(n);
+    const candidate = base.slice(0, NAME_MAX - suffix.length) + suffix;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // World records + persistence
 // ---------------------------------------------------------------------------
@@ -37,7 +133,7 @@ const HEARTBEAT_MS = 30000;
 /**
  * Rooms keyed by world id. Each room:
  *   { world, clients: Map<clientId, player>, saveTimer, dirty }
- * where player = { id, name, ws, x, y, z, yaw, pitch, dim }.
+ * where player = { id, name, ws, x, y, z, yaw, pitch, dim, ...rate/anticheat }.
  * A room exists while the world is loaded (any client connected, or a REST
  * call touched it recently); it is unloaded when its last client leaves.
  */
@@ -158,7 +254,8 @@ async function unloadRoomIfEmpty(room) {
 // ---------------------------------------------------------------------------
 
 const app = express();
-app.use(express.json({ limit: '10mb' }));
+// Bodies are tiny (POST /api/worlds only takes {name, seed}); keep the cap low.
+app.use(express.json({ limit: '64kb' }));
 
 app.get('/api/health', (req, res) => {
   res.json({ ok: true });
@@ -229,32 +326,10 @@ app.get('/api/worlds/:id', async (req, res) => {
   res.json({ ...world, players: playersIn(id) });
 });
 
-app.put('/api/worlds/:id', async (req, res) => {
-  const { id } = req.params;
-  if (!ID_RE.test(id)) return res.status(400).json({ error: 'invalid world id' });
-  const room = rooms.get(id);
-  const world = room ? room.world : await readWorldFromDisk(id);
-  if (!world) return res.status(404).json({ error: 'world not found' });
-
-  const incoming = req.body && req.body.edits;
-  if (incoming && typeof incoming === 'object') {
-    for (const dim of DIMENSIONS) {
-      const bucket = incoming[dim];
-      if (!bucket || typeof bucket !== 'object') continue;
-      for (const [key, block] of Object.entries(bucket)) {
-        if (!validEditKey(key) || !validBlockId(block)) continue;
-        world.edits[dim][key] = block;
-      }
-    }
-  }
-  try {
-    await writeWorldToDisk(world);
-  } catch (err) {
-    return res.status(500).json({ error: `failed to persist world: ${err.message}` });
-  }
-  if (room) room.dirty = false; // in-memory copy just hit disk
-  res.json({ ...world, players: playersIn(id) });
-});
+// NOTE: there is intentionally NO PUT/PATCH/DELETE on /api/worlds/:id.
+// The old unauthenticated `PUT /api/worlds/:id` bulk-write was removed
+// (security audit finding S1): world edits are persisted exclusively through
+// validated WebSocket `edit` messages. Unknown routes fall through to 404.
 
 app.use(express.static(PUBLIC_DIR));
 
@@ -263,17 +338,11 @@ app.use(express.static(PUBLIC_DIR));
 // ---------------------------------------------------------------------------
 
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
-
-function validEditKey(key) {
-  const parts = String(key).split(',');
-  if (parts.length !== 3) return false;
-  const [x, y, z] = parts.map(Number);
-  return (
-    Number.isInteger(x) && Number.isInteger(y) && Number.isInteger(z) &&
-    y >= 0 && y < WORLD_HEIGHT
-  );
-}
+const wss = new WebSocketServer({
+  server,
+  path: '/ws',
+  maxPayload: MAX_WS_PAYLOAD_BYTES, // oversized frames close the socket (1009)
+});
 
 function validBlockId(block) {
   return Number.isInteger(block) && block >= 0 && block <= MAX_BLOCK_ID;
@@ -330,7 +399,9 @@ async function handleJoin(ws, msg) {
     unloadRoomIfEmpty(room);
     return;
   }
-  const name = (typeof msg.name === 'string' ? msg.name.trim().slice(0, 24) : '') || 'player';
+  // Names: strip control chars + <>&"', cap at 24, fall back to a generated
+  // "Wanderer-xxxx", and dedup within the room by appending a numeral.
+  const name = uniqueName(room, sanitizeName(msg.name) || `Wanderer-${randomSuffix()}`);
   const dim = DIMENSIONS.includes(msg.dim) ? msg.dim : 'overworld';
 
   const player = {
@@ -339,6 +410,14 @@ async function handleJoin(ws, msg) {
     ws,
     x: 0, y: 80, z: 0, yaw: 0, pitch: 0,
     dim,
+    // Anti-cheat / rate-limit state (server-side only; never serialized —
+    // peerSnapshot picks its fields explicitly).
+    pendingGrace: true, // the first move after join is a free teleport
+    lastTeleportAt: 0,
+    ctrlBudget: makeBucket(MAX_MOVE_SPEED * MOVE_BURST_S, MAX_MOVE_SPEED),
+    fallBudget: makeBucket(MAX_FALL_SPEED * MOVE_BURST_S, MAX_FALL_SPEED),
+    editBucket: makeBucket(EDIT_RATE.burst, EDIT_RATE.perSec),
+    chatTimes: [],
   };
   ws.player = player;
   ws.room = room;
@@ -362,15 +441,53 @@ async function handleJoin(ws, msg) {
   console.log(`[ws] ${player.id} "${name}" joined ${worldId} (${dim})`);
 }
 
+/**
+ * Movement validation (server-authoritative position):
+ *  - non-finite or out-of-world coordinates -> frame silently dropped;
+ *  - displacement is charged against two token buckets: "controllable"
+ *    (horizontal + upward, 25 b/s sustained, 25-block burst) and "fall"
+ *    (downward, 90 b/s — free fall legitimately reaches ~81 b/s);
+ *  - a move that exceeds its budget is DROPPED (the server keeps the last
+ *    valid position) unless a grace teleport applies: the first move after
+ *    join, a dimension change, or a resync at most once per
+ *    GRACE_COOLDOWN_MS (covers client-side respawn, which has no wire
+ *    signal). Grace teleports refill both budgets.
+ */
 function handleMove(ws, msg) {
   const { player, room } = ws;
   const x = Number(msg.x), y = Number(msg.y), z = Number(msg.z);
   if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return;
+  if (Math.abs(x) > MAX_COORD_XZ || Math.abs(z) > MAX_COORD_XZ ||
+      y < MOVE_MIN_Y || y > MOVE_MAX_Y) return;
   const yaw = Number.isFinite(Number(msg.yaw)) ? Number(msg.yaw) : 0;
   const pitch = Number.isFinite(Number(msg.pitch)) ? Number(msg.pitch) : 0;
   const newDim = DIMENSIONS.includes(msg.dim) ? msg.dim : player.dim;
-
   const dimChanged = newDim !== player.dim;
+
+  const now = Date.now();
+  refillBucket(player.ctrlBudget, now);
+  refillBucket(player.fallBudget, now);
+  const dxz = Math.hypot(x - player.x, z - player.z);
+  const up = Math.max(0, y - player.y);
+  const down = Math.max(0, player.y - y);
+  const ctrl = Math.hypot(dxz, up);
+  const withinBudget =
+    ctrl <= player.ctrlBudget.tokens + 1e-6 &&
+    down <= player.fallBudget.tokens + 1e-6;
+
+  if (withinBudget && !dimChanged) {
+    player.ctrlBudget.tokens = Math.max(0, player.ctrlBudget.tokens - ctrl);
+    player.fallBudget.tokens = Math.max(0, player.fallBudget.tokens - down);
+  } else if (player.pendingGrace || now - player.lastTeleportAt >= GRACE_COOLDOWN_MS) {
+    // Grace teleport: join spawn, dimension travel, or respawn resync.
+    player.lastTeleportAt = now;
+    player.ctrlBudget.tokens = player.ctrlBudget.capacity;
+    player.fallBudget.tokens = player.fallBudget.capacity;
+  } else {
+    return; // speed/teleport violation: keep the last authoritative position
+  }
+  player.pendingGrace = false;
+
   Object.assign(player, { x, y, z, yaw, pitch, dim: newDim });
 
   if (dimChanged) {
@@ -383,34 +500,86 @@ function handleMove(ws, msg) {
   }
 }
 
+/**
+ * Edit validation (server-authoritative world state):
+ *  - integer coords, block id 0..40, |x|,|z| <= 30,000,000, 0 <= y < 128;
+ *  - y === 0 is the bedrock floor: NO edit (break or place) is accepted there;
+ *  - the edit is bound to the sender's server-tracked dimension; a client
+ *    `dim` field is accepted for compat but must match (else rejected);
+ *  - reach: distance from the player's collision column (server-tracked feet
+ *    position, height 1.8) to the block center must be <= 7 (client reach 6);
+ *  - rate: 20 edits/s per connection (token bucket); excess edits are dropped.
+ */
 function handleEdit(ws, msg) {
   const { player, room } = ws;
   const { x, y, z, block } = msg;
-  const dim = msg.dim === undefined ? player.dim : msg.dim;
-  if (
-    !Number.isInteger(x) || !Number.isInteger(y) || !Number.isInteger(z) ||
-    y < 0 || y >= WORLD_HEIGHT || !validBlockId(block) || !DIMENSIONS.includes(dim)
-  ) {
-    return send(ws, { t: 'error', code: 'bad_edit', message: 'invalid edit (ints, 0<=y<128, block 0..40, valid dim)' });
+  if (!Number.isInteger(x) || !Number.isInteger(y) || !Number.isInteger(z) || !validBlockId(block)) {
+    return send(ws, { t: 'error', code: 'bad_edit', message: 'invalid edit (integer coords, block 0..40)' });
   }
+  if (Math.abs(x) > MAX_COORD_XZ || Math.abs(z) > MAX_COORD_XZ || y < 0 || y >= WORLD_HEIGHT) {
+    return send(ws, { t: 'error', code: 'bad_edit', message: 'edit out of world bounds' });
+  }
+  if (y === 0) {
+    return send(ws, { t: 'error', code: 'bad_edit', message: 'y=0 is unbreakable bedrock' });
+  }
+  if (msg.dim !== undefined && msg.dim !== player.dim) {
+    return send(ws, { t: 'error', code: 'bad_edit', message: 'edit dim does not match your dimension' });
+  }
+  const dim = player.dim;
+  const cy = y + 0.5 - clamp(y + 0.5, player.y, player.y + PLAYER_HEIGHT);
+  const dist = Math.hypot(x + 0.5 - player.x, cy, z + 0.5 - player.z);
+  if (dist > MAX_REACH) {
+    return send(ws, { t: 'error', code: 'bad_edit', message: `edit out of reach (max ${MAX_REACH})` });
+  }
+  if (!takeTokens(player.editBucket)) return; // over 20 edits/s: dropped
   room.world.edits[dim][`${x},${y},${z}`] = block;
   markDirty(room);
   broadcast(room, { t: 'edit', id: player.id, x, y, z, block, dim },
     { dim, except: player.id });
 }
 
+/**
+ * Chat: control chars stripped, trimmed, capped at 256 chars, then HTML-
+ * escaped (&<>"') on broadcast. Rate limited to 3 messages per 2 s per
+ * connection; a breach drops the message and warns the sender.
+ */
 function handleChat(ws, msg) {
   const { player, room } = ws;
-  const text = String(msg.text ?? '').trim().slice(0, 256);
+  const text = String(msg.text ?? '')
+    .replace(CONTROL_CHARS_RE, '')
+    .trim()
+    .slice(0, CHAT_MAX);
   if (!text) return;
-  broadcast(room, { t: 'chat', id: player.id, name: player.name, text });
+  const now = Date.now();
+  player.chatTimes = player.chatTimes.filter((t) => now - t < CHAT_RATE.perMs);
+  if (player.chatTimes.length >= CHAT_RATE.msgs) {
+    return send(ws, {
+      t: 'error',
+      code: 'chat_rate',
+      message: `chat limited to ${CHAT_RATE.msgs} messages per ${CHAT_RATE.perMs / 1000}s`,
+    });
+  }
+  player.chatTimes.push(now);
+  broadcast(room, {
+    t: 'chat', id: player.id, name: escapeHtml(player.name), text: escapeHtml(text),
+  });
 }
 
 wss.on('connection', (ws) => {
   ws.isAlive = true;
+  // Global inbound rate limit: 60 msg/s sustained, burst 120. Each message
+  // over the limit is dropped and counts a strike; 3 strikes close the
+  // socket with 1008 "rate limit".
+  ws.msgBucket = makeBucket(MSG_RATE.burst, MSG_RATE.perSec);
+  ws.strikes = 0;
   ws.on('pong', () => { ws.isAlive = true; });
 
   ws.on('message', (raw) => {
+    if (!takeTokens(ws.msgBucket)) {
+      ws.strikes += 1;
+      if (ws.strikes >= MSG_RATE.maxStrikes) ws.close(1008, 'rate limit');
+      return;
+    }
     let msg;
     try {
       msg = JSON.parse(raw.toString());
@@ -483,6 +652,6 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 await fs.mkdir(SAVES_DIR, { recursive: true });
 
 server.listen(PORT, () => {
-  console.log(`Voxelheim server listening on http://localhost:${PORT}`);
+  console.log(`Loomfall server listening on http://localhost:${PORT}`);
   console.log(`  WebSocket endpoint: ws://localhost:${PORT}/ws`);
 });
