@@ -1,10 +1,23 @@
-# CI pipeline for MinecraftV2.
+# Unified release CI for MinecraftV2 (Loomfall).
 #
-# Three independent jobs, each of which skips gracefully (job stays green)
-# when its target does not exist yet on the branch being built:
-#   - content-validation : needs content/       (dependency-free node script)
-#   - audio-verification : needs audio/         (installs Playwright + Chromium in $RUNNER_TEMP)
-#   - game-tests         : needs package.json   (root package.json is owned elsewhere; never created here)
+# Every suite we built is represented as its own job. Each job feature-detects
+# its target and skips GREEN when that target is absent, so this workflow stays
+# green standalone on feature/ci and lights up progressively as branches merge
+# to master:
+#   - content-validation : needs content/                         (dependency-free node)
+#   - audio-verification : needs audio/                           (Playwright + Chromium in $RUNNER_TEMP)
+#   - game-tests         : needs root package.json `test` script
+#   - backend-load       : always self-tests load+chaos vs reference mock; gates real server when present
+#   - authority-audit    : always self-tests authority vs strict ref server; gates real server when present
+#   - persistence        : always self-tests durability vs ref server; runs full suite vs real server when present
+#   - soak               : always self-tests soak vs reference mock; longer soak vs real server when present
+#   - integration-smoke  : needs server/index.js + public/ + scripts/integration-smoke.mjs  (assembled-game go/no-go)
+#   - e2e-multiplayer    : needs deploy/e2e-multiplayer.mjs + server/index.js               (2-client MP proof)
+#   - qa-p0              : needs a QA P0 entrypoint (qa/ runner, qa:p0 npm script, or scripts/qa-p0.mjs)
+#
+# Where a job needs Chromium it installs it via `npx playwright install
+# --with-deps chromium` into $RUNNER_TEMP (or /tmp/pw) — never into the repo (a
+# root package.json is owned by another branch and must not appear here).
 name: CI
 
 on:
@@ -395,3 +408,178 @@ jobs:
             --server-cwd "$PWD" \
             --duration-sec 120 --sample-ms 3000 \
             --report "$RUNNER_TEMP/soak-real.json"
+
+  # ---------------------------------------------------------------------------
+  # Assembled-game go/no-go smoke. This is the integration gate for the fully
+  # assembled game: it runs only when the real server (server/index.js), the
+  # client (public/) AND the integration harness (scripts/integration-smoke.mjs)
+  # are all present; otherwise it skips cleanly (job stays green) so feature/ci
+  # stays green standalone. When present it installs playwright-core into
+  # $RUNNER_TEMP (never the repo) plus a headless Chromium via
+  # `npx playwright install --with-deps chromium`, installs the game's own deps,
+  # then drives the assembled client+server end to end via
+  # scripts/integration-smoke.mjs (PW_DIR points it at the out-of-repo install).
+  # ---------------------------------------------------------------------------
+  integration-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check for integration-smoke target
+        id: smoke
+        run: |
+          if [ -f server/index.js ] && [ -d public ] && [ -f scripts/integration-smoke.mjs ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "server/index.js, public/, or scripts/integration-smoke.mjs absent — skipping"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install playwright-core + Chromium (outside the repo)
+        if: steps.smoke.outputs.present == 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/pw"
+          cd "$RUNNER_TEMP/pw"
+          npm init -y
+          npm i playwright-core playwright
+          npx playwright install --with-deps chromium
+
+      - name: Install game deps
+        if: steps.smoke.outputs.present == 'true'
+        run: |
+          if [ -f package.json ]; then
+            npm ci || npm install
+          fi
+
+      - name: Integration smoke (assembled-game go/no-go)
+        if: steps.smoke.outputs.present == 'true'
+        run: PW_DIR="$RUNNER_TEMP/pw" node scripts/integration-smoke.mjs
+
+  # ---------------------------------------------------------------------------
+  # Definitive 2-client multiplayer proof. Runs only when the deploy harness
+  # (deploy/e2e-multiplayer.mjs) AND the real server (server/index.js) are both
+  # present; otherwise it skips cleanly (job stays green). Installs Playwright +
+  # Chromium in CI — like the audio job — never into the repo. The harness
+  # (owned by the deploy branch) resolves playwright-core from /tmp/pw and
+  # launches a Chromium at a fixed absolute path, so we install into /tmp/pw and
+  # expose the CI-installed Chromium at that path as CI plumbing only (no repo
+  # files touched). Runs the real server + real ES-module client end to end.
+  # ---------------------------------------------------------------------------
+  e2e-multiplayer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check for e2e-multiplayer target
+        id: e2e
+        run: |
+          if [ -f deploy/e2e-multiplayer.mjs ] && [ -f server/index.js ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy/e2e-multiplayer.mjs or server/index.js absent — skipping"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Playwright + Chromium (outside the repo)
+        if: steps.e2e.outputs.present == 'true'
+        run: |
+          # The harness resolves playwright-core via createRequire from /tmp/pw,
+          # so install there (never the repo).
+          mkdir -p /tmp/pw
+          cd /tmp/pw
+          npm init -y
+          npm i playwright-core playwright
+          npx playwright install --with-deps chromium
+          # The harness launches Chromium by a fixed absolute path; expose the
+          # CI-installed Chromium there (best-effort CI plumbing, not repo code).
+          CHROME="$(find "$HOME/.cache/ms-playwright" -type f -name chrome -path '*chrome-linux*' 2>/dev/null | head -n1)"
+          if [ -n "$CHROME" ]; then
+            sudo mkdir -p /opt/pw-browsers/chromium-1194/chrome-linux
+            sudo ln -sf "$CHROME" /opt/pw-browsers/chromium-1194/chrome-linux/chrome
+          fi
+
+      - name: Install game deps
+        if: steps.e2e.outputs.present == 'true'
+        run: |
+          if [ -f package.json ]; then
+            npm ci || npm install
+          fi
+
+      - name: Run 2-client multiplayer e2e (real server + client)
+        if: steps.e2e.outputs.present == 'true'
+        run: node deploy/e2e-multiplayer.mjs --report "$RUNNER_TEMP/e2e-multiplayer.json"
+
+  # ---------------------------------------------------------------------------
+  # QA P0 acceptance suite. The P0 entrypoint is owned by another branch
+  # (reportedly feature/qa-suite) and is absent here, so this job feature-detects
+  # a P0 runner — a qa/ runner (qa/run-p0.mjs or qa/p0.mjs), a root `qa:p0` npm
+  # script, or scripts/qa-p0.mjs — and skips cleanly (job stays green) when none
+  # is present, keeping feature/ci green standalone. When a runner lands it
+  # installs Playwright + Chromium in CI (the P0 suite drives the real browser
+  # client through its window.__qa hooks) into $RUNNER_TEMP — never the repo —
+  # installs the game's deps, then runs the detected entrypoint.
+  # ---------------------------------------------------------------------------
+  qa-p0:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Detect QA P0 entrypoint
+        id: qa
+        run: |
+          if [ -f qa/run-p0.mjs ]; then
+            echo "cmd=node qa/run-p0.mjs" >> "$GITHUB_OUTPUT"
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          elif [ -f qa/p0.mjs ]; then
+            echo "cmd=node qa/p0.mjs" >> "$GITHUB_OUTPUT"
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          elif [ -f package.json ] && node -e "const s=require('./package.json').scripts||{}; process.exit(s['qa:p0']?0:1)"; then
+            echo "cmd=npm run qa:p0" >> "$GITHUB_OUTPUT"
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          elif [ -f scripts/qa-p0.mjs ]; then
+            echo "cmd=node scripts/qa-p0.mjs" >> "$GITHUB_OUTPUT"
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no QA P0 entrypoint (qa/ runner, qa:p0 npm script, or scripts/qa-p0.mjs) — skipping"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Playwright + Chromium (outside the repo)
+        if: steps.qa.outputs.present == 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/pw"
+          cd "$RUNNER_TEMP/pw"
+          npm init -y
+          npm i playwright-core playwright
+          npx playwright install --with-deps chromium
+
+      - name: Install game deps
+        if: steps.qa.outputs.present == 'true'
+        run: |
+          if [ -f package.json ]; then
+            npm ci || npm install
+          fi
+
+      - name: Run QA P0 suite
+        if: steps.qa.outputs.present == 'true'
+        env:
+          QA_CMD: ${{ steps.qa.outputs.cmd }}
+          PW_DIR: ${{ runner.temp }}/pw
+        run: |
+          echo "running QA P0: $QA_CMD"
+          eval "$QA_CMD"
