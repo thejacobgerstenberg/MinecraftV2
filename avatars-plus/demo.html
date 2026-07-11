@@ -1,0 +1,651 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Loomfall — Identity &amp; Expression Demo</title>
+<link rel="icon" href="data:," />
+
+<!-- Resolve all relative URLs (importmap, module imports, css links) against the
+     package directory so the demo works both at "/" and "/avatars-plus/demo.html". -->
+<base href="/avatars-plus/" />
+
+<!-- Vendored lf-* UI kit: design tokens + base, then each component used here. -->
+<link rel="stylesheet" href="./vendor/ui-kit/tokens.css" />
+<link rel="stylesheet" href="./vendor/ui-kit/base.css" />
+<link rel="stylesheet" href="./vendor/ui-kit/components/button.css" />
+<link rel="stylesheet" href="./vendor/ui-kit/components/slider.css" />
+<link rel="stylesheet" href="./vendor/ui-kit/components/tabs.css" />
+<link rel="stylesheet" href="./vendor/ui-kit/components/modal.css" />
+<link rel="stylesheet" href="./vendor/ui-kit/components/toggle.css" />
+<link rel="stylesheet" href="./vendor/ui-kit/components/tooltip.css" />
+<link rel="stylesheet" href="./vendor/ui-kit/components/progress.css" />
+
+<style>
+  /* Demo chrome only (not an lf-* element) — leans on --lf-* tokens for cohesion. */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--lf-color-bg-root);
+    color: var(--lf-color-text-body);
+    font: 13px/1.5 var(--lf-font-ui);
+    overflow: hidden;
+  }
+  #app { position: fixed; inset: 0; }
+  canvas { display: block; }
+
+  #hud {
+    position: fixed;
+    top: var(--lf-space-3); left: var(--lf-space-3);
+    width: 296px;
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
+    background: var(--lf-color-bg-panel);
+    border: var(--lf-border-hem);
+    border-radius: var(--lf-radius-lg);
+    padding: var(--lf-space-4);
+    z-index: var(--lf-z-hud);
+  }
+  #hud h1 {
+    margin: 0 0 2px; font-size: 16px; letter-spacing: 0.02em;
+    color: var(--lf-brand-primary);
+  }
+  #hud .sub { color: var(--lf-color-text-dim); margin: 0 0 var(--lf-space-3); font-size: 11px; }
+  .hud-row { display: flex; gap: var(--lf-space-2); flex-wrap: wrap; margin-bottom: var(--lf-space-2); }
+  .stat {
+    display: flex; justify-content: space-between;
+    border-top: 1px solid var(--lf-color-border-hem);
+    padding: 5px 0; color: var(--lf-color-text-dim);
+  }
+  .stat b { color: var(--lf-color-text-heading); font-weight: 600; }
+  h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--lf-color-text-dim); margin: var(--lf-space-3) 0 var(--lf-space-2);
+  }
+  .wire {
+    font-family: var(--lf-font-mono); font-size: 11px;
+    color: var(--lf-brand-primary-glow);
+    background: var(--lf-color-bg-input);
+    border: 1px solid var(--lf-color-border-hem);
+    border-radius: var(--lf-radius-md);
+    padding: 6px 8px; word-break: break-all; user-select: all;
+  }
+  #log {
+    margin-top: var(--lf-space-2); font-size: 10.5px; color: var(--lf-color-text-dim);
+    height: 44px; overflow: hidden;
+    border-top: 1px solid var(--lf-color-border-hem); padding-top: 6px;
+  }
+  #hint {
+    position: fixed; bottom: var(--lf-space-3); right: var(--lf-space-3);
+    color: var(--lf-color-text-dim); font-size: 10.5px;
+    background: var(--lf-color-bg-panel); border: var(--lf-border-hem);
+    border-radius: var(--lf-radius-md); padding: 5px 9px; z-index: var(--lf-z-hud);
+  }
+
+  /* Customizer overlay host (the CharacterCustomizer renders inside it). */
+  .ap-overlay {
+    position: fixed; inset: 0; z-index: 40;
+    display: flex; align-items: center; justify-content: center;
+    background: color-mix(in srgb, var(--lf-color-bg-root) 72%, transparent);
+    padding: var(--lf-space-4);
+  }
+  .ap-overlay[hidden] { display: none; }
+  .ap-cust-panel {
+    width: min(720px, 96vw); max-height: 92vh; overflow: auto;
+    background: var(--lf-color-bg-panel);
+    border: var(--lf-border-hem); border-radius: var(--lf-radius-lg);
+    padding: var(--lf-space-4);
+  }
+  .ap-cust-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: var(--lf-space-3);
+  }
+  .ap-cust-head span { color: var(--lf-brand-primary); font-weight: 600; }
+  .ap-cust-body { display: flex; gap: var(--lf-space-4); flex-wrap: wrap; }
+  #apPreview {
+    width: 280px; height: 360px; flex: 0 0 auto;
+    background: var(--lf-color-bg-input);
+    border: 1px solid var(--lf-color-border-hem); border-radius: var(--lf-radius-md);
+  }
+  #apCustMount { flex: 1 1 300px; min-width: 280px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<div id="hud">
+  <h1>Loomfall · Identity</h1>
+  <p class="sub">Skins · Emotes · Third-person camera · Nameplates</p>
+
+  <div class="hud-row">
+    <lf-button id="btnView" variant="secondary">View: third-back (F5)</lf-button>
+  </div>
+  <div class="hud-row">
+    <lf-button id="btnEmotes">Emotes (E)</lf-button>
+    <lf-button id="btnCustomize">Customize</lf-button>
+  </div>
+
+  <div class="stat"><span>FPS</span><b id="statFps">—</b></div>
+  <div class="stat"><span>View mode</span><b id="statView">third-back</b></div>
+  <div class="stat"><span>Peers</span><b id="statPeers">0</b></div>
+  <div class="stat"><span>Emote</span><b id="statEmote">—</b></div>
+
+  <h2>Skin wire string</h2>
+  <div class="wire" id="wire" title="encodeDescriptor() — the multiplayer wire format">—</div>
+
+  <div id="log"></div>
+</div>
+
+<div id="hint">F5 cycle view · E emote wheel · drag customizer sliders</div>
+
+<!-- Customizer overlay (CharacterCustomizer mounts its UI + live preview inside) -->
+<div id="apCustomizer" class="ap-overlay" hidden>
+  <div class="ap-cust-panel">
+    <div class="ap-cust-head">
+      <span>Character Customizer</span>
+      <lf-button id="apCustClose" variant="secondary">Close</lf-button>
+    </div>
+    <div class="ap-cust-body">
+      <canvas id="apPreview"></canvas>
+      <div id="apCustMount"></div>
+    </div>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "../avatars/vendor/three.module.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from "three";
+import createAvatarPlus from "./avatar-plus.js";
+import { PeerAvatarsPlus } from "./peer-avatars-plus.js";
+import { ThirdPersonCamera } from "./camera.js";
+import { CharacterCustomizer } from "./customizer.js";
+import { EMOTES } from "./emotes.js";
+import {
+  normalizeDescriptor,
+  defaultDescriptor,
+  encodeDescriptor,
+  THEME_IDS,
+} from "./skin-descriptor.js";
+// Side-effect imports: register the custom elements used by the harness/customizer.
+import "./emote-wheel.js";
+import "./vendor/ui-kit/components/button.js";
+import "./vendor/ui-kit/components/slider.js";
+import "./vendor/ui-kit/components/tabs.js";
+import "./vendor/ui-kit/components/modal.js";
+import "./vendor/ui-kit/components/toggle.js";
+import "./vendor/ui-kit/components/tooltip.js";
+import "./vendor/ui-kit/components/progress.js";
+
+const clamp01 = (v) => (Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0);
+const EMOTE_IDS = EMOTES.map((e) => e.id);
+
+/* ------------------------------------------------------------------ log --- */
+const logEl = document.getElementById("log");
+const logLines = [];
+function log(msg) {
+  logLines.unshift(msg);
+  if (logLines.length > 4) logLines.pop();
+  if (logEl) logEl.textContent = logLines.join("\n");
+}
+
+/* --------------------------------------------------------------- renderer -- */
+const app = document.getElementById("app");
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+if ("outputColorSpace" in renderer) renderer.outputColorSpace = THREE.SRGBColorSpace;
+app.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x14101f); // Void Ink (matches --lf-color-bg-root)
+scene.fog = new THREE.Fog(0x14101f, 26, 70);
+
+const camera = new THREE.PerspectiveCamera(
+  72,
+  window.innerWidth / window.innerHeight,
+  0.05,
+  200
+);
+camera.position.set(0, 3, 6);
+
+/* ---------------------------------------------------------------- lights -- */
+scene.add(new THREE.HemisphereLight(0xbcd3e6, 0x2a2418, 0.8));
+scene.add(new THREE.AmbientLight(0x3a3450, 0.4));
+const sun = new THREE.DirectionalLight(0xfff2d8, 1.0);
+sun.position.set(10, 16, 8);
+scene.add(sun);
+
+/* ------------------------------------------------- voxel world + solidity -- */
+// Integer 1m grid. Ground blocks sit with their TOP at y=0 (feet plane). Solid
+// pillars/walls rise from y=0; isSolid() below is the collision oracle the
+// ThirdPersonCamera ray-marches against.
+const GROUND_MIN = -12;
+const GROUND_MAX = 12;
+
+// Each pillar: axis-aligned box footprint [x0, x0+w) x [z0, z0+d), height h.
+const PILLARS = [
+  { x0: -6, z0: -6, w: 1, d: 1, h: 4 },
+  { x0: 5, z0: -6, w: 1, d: 1, h: 3 },
+  { x0: -6, z0: 5, w: 1, d: 1, h: 3 },
+  { x0: 3, z0: -2, w: 1, d: 5, h: 3 }, // a wall the patrol brushes past
+];
+
+/**
+ * World solidity oracle injected into the camera. Solid below the floor plane
+ * and inside any pillar box. Continuous coords -> boolean. Never throws.
+ * @param {number} x @param {number} y @param {number} z
+ * @returns {boolean}
+ */
+function isSolid(x, y, z) {
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return false;
+  if (y <= 0) return true; // floor
+  for (let i = 0; i < PILLARS.length; i++) {
+    const p = PILLARS[i];
+    if (x >= p.x0 && x < p.x0 + p.w && z >= p.z0 && z < p.z0 + p.d && y >= 0 && y <= p.h) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// --- ground instanced mesh (visual; solidity handled analytically above) ---
+{
+  const side = GROUND_MAX - GROUND_MIN;
+  const geo = new THREE.BoxGeometry(1, 1, 1);
+  const mat = new THREE.MeshLambertMaterial({ color: 0x2e2645 });
+  const ground = new THREE.InstancedMesh(geo, mat, side * side);
+  const m = new THREE.Matrix4();
+  const tint = new THREE.Color();
+  let i = 0;
+  for (let gx = GROUND_MIN; gx < GROUND_MAX; gx++) {
+    for (let gz = GROUND_MIN; gz < GROUND_MAX; gz++) {
+      m.makeTranslation(gx + 0.5, -0.5, gz + 0.5);
+      ground.setMatrixAt(i, m);
+      // subtle checker so motion + camera framing read clearly
+      const dark = (gx + gz) & 1;
+      tint.setHex(dark ? 0x272038 : 0x322a4c);
+      ground.setColorAt(i, tint);
+      i++;
+    }
+  }
+  ground.instanceMatrix.needsUpdate = true;
+  if (ground.instanceColor) ground.instanceColor.needsUpdate = true;
+  scene.add(ground);
+}
+
+// --- pillars/walls instanced mesh (visual; matches isSolid boxes) ---
+{
+  let count = 0;
+  for (const p of PILLARS) count += p.w * p.d * p.h;
+  const geo = new THREE.BoxGeometry(1, 1, 1);
+  const mat = new THREE.MeshLambertMaterial({ color: 0x6a5f8c }); // hem stone
+  const pillars = new THREE.InstancedMesh(geo, mat, count);
+  const m = new THREE.Matrix4();
+  let i = 0;
+  for (const p of PILLARS) {
+    for (let dx = 0; dx < p.w; dx++) {
+      for (let dz = 0; dz < p.d; dz++) {
+        for (let k = 0; k < p.h; k++) {
+          m.makeTranslation(p.x0 + dx + 0.5, k + 0.5, p.z0 + dz + 0.5);
+          pillars.setMatrixAt(i++, m);
+        }
+      }
+    }
+  }
+  pillars.instanceMatrix.needsUpdate = true;
+  scene.add(pillars);
+}
+
+/* ------------------------------------------------------- local player ----- */
+let currentDescriptor = null;
+try {
+  const raw = localStorage.getItem("loomfall.profile");
+  if (raw) currentDescriptor = normalizeDescriptor(JSON.parse(raw));
+} catch (_e) {
+  /* ignore malformed storage */
+}
+if (!currentDescriptor) {
+  currentDescriptor = normalizeDescriptor({
+    ...defaultDescriptor("warpwold-mender"),
+    threadHue: 128,
+    accent: 44,
+    accentStrength: 0.6,
+    weave: 1,
+  });
+}
+
+const local = createAvatarPlus({
+  name: "You",
+  self: true,
+  descriptor: currentDescriptor,
+  maxDistance: 48,
+  onStep: () => {
+    // In-game this is where footstep audio fires:
+    //   audio.play(`step.${material}`, { pos, velocity });
+  },
+});
+scene.add(local.group);
+
+/* ------------------------------------------------- third-person camera ---- */
+const tpCamera = new ThirdPersonCamera(camera, {
+  isSolid,
+  eyeHeight: 1.62,
+  backDistance: 3.2,
+  frontDistance: 2.4,
+  collisionRadius: 0.25,
+});
+
+/* --------------------------------------------------------- peer bots ------ */
+const peers = new PeerAvatarsPlus(scene, { maxDistance: 48 });
+
+const BOTS = [
+  { id: "bot-thren", name: "Thren", team: "a", theme: "warpwold-mender",
+    cx: -4, cz: -4, r: 2.4, phase: 0.0, hp: 82, status: "Mending" },
+  { id: "bot-vesh", name: "Vesh", team: "b", theme: "cinderloom-scaldwarden",
+    cx: 5, cz: 3, r: 1.9, phase: 2.1, hp: 55, status: "Scaldward" },
+  { id: "bot-ise", name: "Ise", team: null, theme: "frostlace-snowline",
+    cx: -2, cz: 6, r: 2.6, phase: 4.0, hp: 100, status: "" },
+];
+
+for (const b of BOTS) {
+  peers.upsert({
+    id: b.id,
+    name: b.name,
+    team: b.team,
+    descriptor: normalizeDescriptor(defaultDescriptor(b.theme)),
+    x: b.cx + Math.cos(b.phase) * b.r,
+    y: 0,
+    z: b.cz + Math.sin(b.phase) * b.r,
+    yaw: 0,
+    health: b.hp,
+    maxHealth: 100,
+    status: b.status,
+  });
+}
+
+/* --------------------------------------------------- emote wheel wiring --- */
+const wheel = document.createElement("lf-emote-wheel");
+document.body.appendChild(wheel);
+wheel.addEventListener("lf-emote", (e) => {
+  const id = e && e.detail && e.detail.id;
+  if (!id) return;
+  // Play locally...
+  local.emote(id);
+  // ...and broadcast to every peer bot (simulated network fan-out).
+  for (const bid of peers.ids) peers.receiveEmote(bid, id);
+  log(`emote → ${id} (broadcast to ${peers.count} peers)`);
+});
+
+/* ---------------------------------------------------- customizer wiring --- */
+const overlay = document.getElementById("apCustomizer");
+const customizer = new CharacterCustomizer({
+  mount: document.getElementById("apCustMount"),
+  previewCanvas: document.getElementById("apPreview"),
+  descriptor: currentDescriptor,
+  storageKey: "loomfall.profile",
+  onChange: (d) => applyDescriptor(d, /*syncCustomizer*/ false),
+});
+
+function openCustomizer() {
+  if (overlay) overlay.hidden = false;
+  try { customizer.open(); } catch (_e) { /* never throw */ }
+}
+function closeCustomizer() {
+  try { customizer.close(); } catch (_e) { /* never throw */ }
+  if (overlay) overlay.hidden = true;
+}
+
+/**
+ * Apply a descriptor to the local avatar and refresh the exported wire string.
+ * @param {object} d - a (possibly partial) descriptor.
+ * @param {boolean} [syncCustomizer=true] - also push into the customizer UI.
+ */
+function applyDescriptor(d, syncCustomizer = true) {
+  currentDescriptor = normalizeDescriptor(d);
+  local.setDescriptor(currentDescriptor);
+  if (syncCustomizer && customizer && typeof customizer.setDescriptor === "function") {
+    try { customizer.setDescriptor(currentDescriptor); } catch (_e) { /* ignore */ }
+  }
+  updateWire();
+}
+
+function updateWire() {
+  const wireEl = document.getElementById("wire");
+  if (wireEl) wireEl.textContent = encodeDescriptor(currentDescriptor);
+}
+updateWire();
+
+/* ------------------------------------------------------------ HUD wiring -- */
+const statFps = document.getElementById("statFps");
+const statView = document.getElementById("statView");
+const statPeers = document.getElementById("statPeers");
+const statEmote = document.getElementById("statEmote");
+const btnView = document.getElementById("btnView");
+
+/** Set an lf-button's visible label without clobbering its rendered internals. */
+function setBtnLabel(el, text) {
+  if (!el) return;
+  const label = el.querySelector(".lf-button__label");
+  if (label) label.textContent = text;
+  else el.textContent = text;
+}
+
+function cycleView() {
+  tpCamera.cycleViewMode();
+  setBtnLabel(btnView, `View: ${tpCamera.viewMode} (F5)`);
+  log(`view → ${tpCamera.viewMode}`);
+}
+
+if (btnView) btnView.addEventListener("click", cycleView);
+const btnEmotes = document.getElementById("btnEmotes");
+if (btnEmotes) btnEmotes.addEventListener("click", () => wheel.toggle());
+const btnCustomize = document.getElementById("btnCustomize");
+if (btnCustomize) btnCustomize.addEventListener("click", openCustomizer);
+const apCustClose = document.getElementById("apCustClose");
+if (apCustClose) apCustClose.addEventListener("click", closeCustomizer);
+
+window.addEventListener("keydown", (e) => {
+  if (e.key === "F5") { e.preventDefault(); cycleView(); }
+  else if (e.key === "e" || e.key === "E") { e.preventDefault(); wheel.toggle(); }
+});
+
+/* -------------------------------------------------------- local patrol ---- */
+// Waypoint loop threading the pillars/wall so third-person collision pull-in
+// is visible. Feet-origin (y = 0).
+const PATROL = [
+  { x: 0, z: 0 },
+  { x: 0, z: -6 },
+  { x: -5, z: -6 },
+  { x: -5, z: 4 },
+  { x: 2, z: 4 },
+  { x: 2, z: -2 },
+];
+let wpIndex = 0;
+const PLAYER_SPEED = 2.3;
+
+// Persistent player kinematic state (also used by framePose()).
+const playerFeet = { x: PATROL[0].x, y: 0, z: PATROL[0].z };
+let playerYaw = 0;
+const playerPitch = 0;
+
+/**
+ * Advance the local avatar along the patrol; updates playerFeet/playerYaw and
+ * pushes position/look/velocity into the avatar handle.
+ * @param {number} dt
+ */
+function stepPatrol(dt) {
+  const wp = PATROL[wpIndex];
+  let dx = wp.x - playerFeet.x;
+  let dz = wp.z - playerFeet.z;
+  const dist = Math.hypot(dx, dz);
+  let vx = 0;
+  let vz = 0;
+  if (dist > 0.05) {
+    const inv = 1 / dist;
+    const dirx = dx * inv;
+    const dirz = dz * inv;
+    const stepLen = Math.min(dist, PLAYER_SPEED * dt);
+    playerFeet.x += dirx * stepLen;
+    playerFeet.z += dirz * stepLen;
+    vx = dirx * PLAYER_SPEED;
+    vz = dirz * PLAYER_SPEED;
+    // yaw=0 faces -Z; forward = (-sin y, 0, -cos y) => yaw = atan2(-dirx, -dirz)
+    playerYaw = Math.atan2(-dirx, -dirz);
+  } else {
+    wpIndex = (wpIndex + 1) % PATROL.length;
+  }
+  local.setPosition(playerFeet.x, playerFeet.y, playerFeet.z);
+  local.setLook(playerYaw, playerPitch);
+  local.setVelocity(vx, 0, vz);
+}
+
+/* --------------------------------------------------------- bot ambience --- */
+let botTimer = 0;
+let broadcastTimer = 3.0;
+function stepBots(dt) {
+  for (const b of BOTS) {
+    b.phase += dt * 0.35;
+    const bx = b.cx + Math.cos(b.phase) * b.r;
+    const bz = b.cz + Math.sin(b.phase) * b.r;
+    // tangent of the orbit -> facing yaw
+    const yaw = Math.atan2(Math.sin(b.phase), -Math.cos(b.phase));
+    peers.move({ id: b.id, x: bx, y: 0, z: bz, yaw });
+  }
+  // Periodically drain a little health + broadcast a random peer emote.
+  botTimer += dt;
+  if (botTimer >= 5) {
+    botTimer = 0;
+    const b = BOTS[(Math.random() * BOTS.length) | 0];
+    b.hp = b.hp <= 20 ? 100 : Math.max(10, b.hp - (8 + ((Math.random() * 20) | 0)));
+    peers.move({ id: b.id, health: b.hp, maxHealth: 100 });
+  }
+  broadcastTimer += dt;
+  if (broadcastTimer >= 4) {
+    broadcastTimer = 0;
+    const bid = peers.ids[(Math.random() * peers.count) | 0];
+    const emoteId = EMOTE_IDS[(Math.random() * EMOTE_IDS.length) | 0];
+    if (bid) {
+      peers.receiveEmote(bid, emoteId);
+      log(`peer ${bid} → ${emoteId}`);
+    }
+  }
+}
+
+/* ---------------------------------------------------------------- loop ---- */
+let fpsAvg = 60;
+let fpsAcc = 0;
+let fpsFrames = 0;
+let last = performance.now();
+
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000) || 0;
+  last = now;
+
+  stepPatrol(dt);
+  stepBots(dt);
+
+  // Camera first (so the nameplate fade below sees the final camera position).
+  tpCamera.update(dt, playerFeet, playerYaw, playerPitch);
+  local.setNameVisible(tpCamera.shouldShowLocalAvatar());
+  local.group.visible = tpCamera.shouldShowLocalAvatar();
+
+  local.update(dt, camera.position);
+  peers.update(dt, camera.position);
+
+  renderer.render(scene, camera);
+
+  // --- readouts ---
+  fpsAcc += dt;
+  fpsFrames++;
+  if (fpsAcc >= 0.5) {
+    fpsAvg = fpsFrames / fpsAcc;
+    fpsFrames = 0;
+    fpsAcc = 0;
+    if (statFps) statFps.textContent = String(Math.round(fpsAvg));
+  }
+  if (statView) statView.textContent = tpCamera.viewMode;
+  if (statPeers) statPeers.textContent = String(peers.count);
+  if (statEmote) statEmote.textContent = local.currentEmote() || "—";
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* --------------------------------------------------------------- resize --- */
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+/* ---------------------------------------------------- headless harness ---- */
+/**
+ * Force the camera to a view mode, re-frame from the last player state, render
+ * a frame, and report where the camera landed. For screenshot capture.
+ * @param {"first"|"third-back"|"third-front"} [mode]
+ */
+function framePose(mode) {
+  if (mode) tpCamera.setViewMode(mode);
+  tpCamera.update(1 / 60, playerFeet, playerYaw, playerPitch);
+  local.setNameVisible(tpCamera.shouldShowLocalAvatar());
+  local.group.visible = tpCamera.shouldShowLocalAvatar();
+  renderer.render(scene, camera);
+  return {
+    mode: tpCamera.viewMode,
+    camera: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+    showLocal: tpCamera.shouldShowLocalAvatar(),
+  };
+}
+
+/**
+ * Play an emote and resolve once it has advanced to a representative mid-pose
+ * (so a screenshot lands on the expressive part of the motion).
+ * @param {string} id
+ * @returns {Promise<{id:string, viewMode:string}>}
+ */
+function captureEmote(id) {
+  return new Promise((resolve) => {
+    const em = EMOTES.find((e) => e.id === id);
+    const durMs = em && Number.isFinite(em.duration) ? em.duration * 1000 : 1000;
+    const midMs = Math.max(200, durMs * 0.4);
+    try { local.emote(id); } catch (_e) { /* never throw */ }
+    setTimeout(() => resolve({ id, viewMode: tpCamera.viewMode }), midMs);
+  });
+}
+
+window.apDemo = {
+  THREE,
+  scene,
+  camera,
+  renderer,
+  local,
+  peers,
+  customizer,
+  tpCamera,
+  EMOTE_IDS,
+  THEME_IDS,
+  setViewMode: (m) => tpCamera.setViewMode(m),
+  cycleViewMode: () => cycleView(),
+  playEmote: (id) => local.emote(id),
+  stopEmote: () => local.stopEmote(),
+  openCustomizer,
+  closeCustomizer,
+  applyDescriptor: (d) => applyDescriptor(d, true),
+  getDescriptor: () => normalizeDescriptor(currentDescriptor),
+  exportDescriptor: () => encodeDescriptor(currentDescriptor),
+  getFps: () => Math.round(fpsAvg),
+  framePose,
+  captureEmote,
+};
+
+log("ready — F5 to cycle view, E for emotes");
+</script>
+</body>
+</html>
