@@ -43,6 +43,8 @@ export const TILE_NAMES = [
   'thread_block', 'weave_block', 'loom_block',
   'wool_white', 'wool_red', 'wool_blue', 'wool_green', 'wool_yellow', 'wool_black',
   'portal_frame',
+  // --- emitter blocks (appended, graphics-wiring phase) ---
+  'lantern',
 ];
 
 // ---------------------------------------------------------------------------
@@ -870,6 +872,42 @@ export const PAINTERS = {
     for (let i = 0; i < 3; i++) { // sparks
       ctx.fillStyle = css(g2, 0.9);
       ctx.fillRect(12 + ((rng() * 8) | 0), 3 + ((rng() * 3) | 0), 1, 1);
+    }
+  },
+
+  lantern(ctx, px, rng, S) {
+    // Hanging iron-cage lantern with an Everthread-gold glowing core, on a
+    // transparent bg (tiling-exempt art tile, same convention as torch).
+    const frame = T(S, P.iron_dark), glint = T(S, P.iron_glint);
+    const g1 = A(S, P.gold), g2 = A(S, P.gold_glow), g3 = A(S, P.gold_pale);
+    // Halo behind the cage so the glow reads at a distance.
+    ctx.fillStyle = css(A(S, P.ember_hot), 0.28);
+    ctx.fillRect(9, 9, 14, 16);
+    // Hook + hanger ring.
+    ctx.fillStyle = css(frame);
+    ctx.fillRect(15, 3, 2, 3);
+    ctx.fillRect(13, 6, 6, 2);
+    // Cage body: vertical bars + top/bottom caps around the glass core.
+    ctx.fillRect(10, 8, 12, 2);   // top cap
+    ctx.fillRect(10, 24, 12, 2);  // bottom cap
+    ctx.fillRect(10, 8, 2, 18);   // left bar
+    ctx.fillRect(20, 8, 2, 18);   // right bar
+    ctx.fillRect(15, 8, 2, 18);   // centre bar
+    // Glowing core between the bars.
+    ctx.fillStyle = css(g1);
+    ctx.fillRect(12, 10, 8, 14);
+    ctx.fillStyle = css(g2);
+    ctx.fillRect(13, 11, 6, 12);
+    ctx.fillStyle = css(g3);
+    ctx.fillRect(14, 13, 4, 8);
+    // Re-stroke the centre bar over the glow, plus glints on the caps.
+    ctx.fillStyle = css(frame, 0.9);
+    ctx.fillRect(15, 10, 2, 14);
+    ctx.fillStyle = css(glint, 0.7);
+    ctx.fillRect(10, 8, 12, 1);
+    for (let i = 0; i < 2; i++) { // stray sparks under the base
+      ctx.fillStyle = css(g2, 0.8);
+      ctx.fillRect(12 + ((rng() * 8) | 0), 27 + ((rng() * 2) | 0), 1, 1);
     }
   },
 

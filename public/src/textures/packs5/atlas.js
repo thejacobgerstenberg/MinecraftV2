@@ -155,6 +155,10 @@ export const BLOCK_TILES = {
   27: { name: 'purpur', tiles: { all: 'purpur' } },
   28: { name: 'lava', tiles: { all: 'lava' } },
   29: { name: 'portal', tiles: { all: 'portal' } },
+  // ids 30-31 appended by the graphics-wiring phase (emitter blocks; mirrors
+  // blocks.js — append-only, same as TILE_NAMES).
+  30: { name: 'torch', tiles: { all: 'torch' } },
+  31: { name: 'lantern', tiles: { all: 'lantern' } },
 };
 
 /** Resolve the tile name for a face: 'top' | 'bottom' | 'side'. */

@@ -10,7 +10,10 @@
 //                tint (brand secondary), so overworld sunsets carry the
 //                brand's violet undertone.
 //   cinderloom — ember atmosphere: warm smoky gradient (CINDERLOOM ramp),
-//                dimmer/redder sun, a drifting DARK SMOKE cloud deck (own
+//                dimmer/redder sun (time-of-day aware: ~0.9x with a lighter
+//                amber tint at high sun so daylight stays readable, easing
+//                to the moody 0.68x ember red toward dusk/night — see
+//                CINDER_DAY), a drifting DARK SMOKE cloud deck (own
 //                fbm plane parented into the sky rig), faint ash-haze
 //                horizon so sky.getFogColor() feeds ash-coloured fog.
 //   nevermend  — pale void: desaturated icy gradient (NEVERMEND ramp),
@@ -87,6 +90,31 @@ const GRADES = {
     starBoost: 1.5, smoke: 0, aurora: 1,  // denser star feel + aurora
   },
 };
+
+// ---------------------------------------------------------------------------
+// Cinderloom DAYLIGHT relief (time-of-day aware). The moody GRADES.cinderloom
+// key light (0.68x sun pulled 0.80 toward C4 ember red, fill pulled 0.50
+// toward near-black C2) is tuned for dusk/night; at high sun it crushed the
+// day beat into black silhouettes. So while the sun is HIGH the sun/fill
+// grade eases toward these lighter values (~0.9x sun, lighter amber ember
+// tint, gentler fill pull) and eases back to the moody grade as the sun
+// drops. The relief is zero at/below sun altitude 0.12, which keeps dawn
+// (ToD 0.25, alt ~0.04), dusk (0.78) and night (0.85) bit-identical to the
+// shipped look; it is fully in by altitude 0.50 (ToD ~0.31-0.69).
+// ---------------------------------------------------------------------------
+const CINDER_DAY = {
+  sunC: C[6].clone().lerp(C[7], 0.35), // golden ember (F7A93E toward FFDF96):
+                                       // the ramp's red stops have ~zero green
+                                       // and starve foliage into silhouettes
+  sunA: 0.45,                          // shallower pull: keep some natural sun
+  sunI: 0.90,                          // ~0.9x at midday (was 0.68x all day)
+  hemiC: C[6],                         // light-amber fill, same reasoning
+  hemiA: 0.22,
+  hemiI: 1.15,                         // gentle fill boost: shadow sides must
+                                       // survive the emberwarp grade's crush
+};
+const CINDER_DAY_LO = 0.12; // sun altitude where the relief starts
+const CINDER_DAY_HI = 0.50; // sun altitude where the relief is fully in
 
 // Aurora colours: hemstone cyan (NEVERMEND N6) saturated into the oath band
 // (cyan-green ~176 deg) for the bright lower edge, fading to hem-pale with a
@@ -203,14 +231,24 @@ export class DimensionSky {
     this._fade = 1;
     this._blend = cloneGrade(GRADES.warpwold);
 
-    // The tint object handed to sky.setPaletteTint — colour fields reference
-    // the blend's Colors permanently; only the amounts are rewritten.
+    // Cinderloom daylight-relief weight (cinderloom blend weight x how high
+    // the sun is). 0 leaves the blend grade untouched (dusk/night/dawn and
+    // every other dimension); tracked so the tint is only re-installed when
+    // it actually moves.
+    this._cinderDay = 0;
+
+    // The tint object handed to sky.setPaletteTint — sky-gradient colour
+    // fields reference the blend's Colors permanently; sun/hemi go through
+    // scratch Colors so the cinderloom daylight relief can retint them
+    // per-frame without ever mutating the blend/crossfade state.
+    this._tintSunC = this._blend.sunC.clone();
+    this._tintHemiC = this._blend.hemiC.clone();
     this._tint = {
       horizon: this._blend.horizonC, horizonAmt: 0,
       zenith: this._blend.zenithC, zenithAmt: 0,
       glow: this._blend.glowC, glowAmt: 0,
-      sun: this._blend.sunC, sunAmt: 0, sunIntensity: 1,
-      hemi: this._blend.hemiC, hemiAmt: 0, hemiIntensity: 1,
+      sun: this._tintSunC, sunAmt: 0, sunIntensity: 1,
+      hemi: this._tintHemiC, hemiAmt: 0, hemiIntensity: 1,
       cloudLit: this._blend.cloudLitC, cloudShadow: this._blend.cloudShadowC,
       cloudAmt: 0,
       starBoost: 1,
@@ -416,13 +454,16 @@ export class DimensionSky {
   _syncTint() {
     const b = this._blend;
     const t = this._tint;
+    const day = this._cinderDay; // 0 => exactly the blend grade (dusk/night)
     t.horizonAmt = b.horizonA;
     t.zenithAmt = b.zenithA;
     t.glowAmt = b.glowA;
-    t.sunAmt = b.sunA;
-    t.sunIntensity = b.sunI;
-    t.hemiAmt = b.hemiA;
-    t.hemiIntensity = b.hemiI;
+    this._tintSunC.copy(b.sunC).lerp(CINDER_DAY.sunC, day);
+    t.sunAmt = lerp(b.sunA, CINDER_DAY.sunA, day);
+    t.sunIntensity = lerp(b.sunI, CINDER_DAY.sunI, day);
+    this._tintHemiC.copy(b.hemiC).lerp(CINDER_DAY.hemiC, day);
+    t.hemiAmt = lerp(b.hemiA, CINDER_DAY.hemiA, day);
+    t.hemiIntensity = lerp(b.hemiI, CINDER_DAY.hemiI, day);
     t.cloudAmt = b.cloudA;
     t.starBoost = b.starBoost;
   }
@@ -431,18 +472,36 @@ export class DimensionSky {
     const d = typeof dt === 'number' && dt > 0 ? dt : 0.016;
     this._time += d;
 
+    // Live sun altitude: gates the aurora (night) and the cinderloom
+    // daylight relief (high sun).
+    const a = this._sky.sunDir ? this._sky.sunDir.y : 0;
+
     // Crossfade toward the target dimension grade.
+    let dirty = false;
     if (this._fade < 1) {
       this._fade = Math.min(1, this._fade + d / this._fadeTime);
       const f = this._fade * this._fade * (3 - 2 * this._fade); // ease
       lerpGrade(this._blend, this._from, this._to, f);
+      dirty = true;
+    }
+
+    // Cinderloom daylight relief: cinderloom blend weight (the smoke field is
+    // 1 only in the cinderloom grade) x how high the sun is. Re-grades only
+    // when the weight actually moves, so static dusk/night frames re-install
+    // nothing.
+    const cinderDay =
+      this._blend.smoke * smoothstep(a, CINDER_DAY_LO, CINDER_DAY_HI);
+    if (Math.abs(cinderDay - this._cinderDay) > 1e-3) {
+      this._cinderDay = cinderDay;
+      dirty = true;
+    }
+    if (dirty) {
       this._syncTint();
       if (this._enabled) this._sky.setPaletteTint(this._tint); // re-grade
     }
 
     // Aurora visibility: mainly night/dusk (driven by the live sun altitude),
     // scaled by the nevermend blend weight.
-    const a = this._sky.sunDir ? this._sky.sunDir.y : 0;
     const night = 1 - smoothstep(a, -0.10, 0.12);
     const aur = this._enabled ? this._blend.aurora * night : 0;
     for (let i = 0; i < this._ribbons.length; i++) {

@@ -8,7 +8,7 @@
 // QA hooks: window.__game (see docs/DEV.md).
 
 import * as THREE from 'three';
-import { CHUNK_SX, CHUNK_SZ, CHUNK_SY } from './constants.js';
+import { CHUNK_SX, CHUNK_SZ, CHUNK_SY, SEA_LEVEL } from './constants.js';
 import { getBlockDef } from './blocks/blocks.js';
 import { buildAtlas } from './textures/TextureAtlas.js';
 import { PACKS } from './textures/texturePacks.js';
@@ -27,9 +27,11 @@ import { prngSample } from './qa/prng.js';
 import { NetClient } from './net/NetClient.js';
 import { PeerAvatars } from './net/PeerAvatars.js';
 import { isInLiquid } from './gameplay/physics.js';
-import { PostFX } from '../graphics/src/postprocessing.js';
-import { DistanceFog } from '../graphics/src/fog.js';
-import { Particles } from '../graphics/src/particles.js';
+// GraphicsStack facade (graphics-lab): single owner of the PostFX chain,
+// distance fog, particles, animated water and the pooled torch lights.
+// Cracks / view model / biome grading remain direct module wiring below.
+import { GraphicsStack } from '../graphics/integrate.js';
+import { registerEmitterLights } from '../graphics/emitters.js';
 import { BlockCracks } from '../graphics/src/blockcrack.js';
 import { FirstPersonViewModel } from '../graphics/src/viewmodel.js';
 import { BiomeGrading } from '../graphics/src/biomelut.js';
@@ -487,20 +489,21 @@ const DIM_GRADE = {
   end: 'the_fraying',
 };
 
-/** Post-processing tier: 'off' bypasses the chain, others map to PostFX. */
+/**
+ * Graphics Quality tier -> the GraphicsStack facade. 'off' bypasses the
+ * PostFX chain; every other tier fans out through gfx.setQuality (PostFX
+ * preset incl. SSAO/god-rays for high/ultra, water reflection quality,
+ * pooled torch-light budget). The default 'medium' tier keeps SSAO/god rays
+ * off (same policy as the pre-facade wiring).
+ */
 function applyGraphicsQuality(q) {
-  if (!G || !G.fx) return;
-  if (q === 'off') {
-    G.fx.post.setEnabled(false);
-  } else {
-    G.fx.post.setEnabled(true);
-    G.fx.post.setQuality(q || 'medium');
-    // SSAO + god rays are preset toggles (on in the high/ultra presets);
-    // the default 'medium' tier keeps them off.
-    if ((q || 'medium') === 'medium') {
-      G.fx.post.toggle('ssao', false);
-      G.fx.post.toggle('godrays', false);
-    }
+  if (!G || !G.gfx) return;
+  const tier = (q === 'off' ? 'medium' : q) || 'medium';
+  G.gfx.setQuality(tier);
+  G.gfx.toggle('post', q !== 'off');
+  if (q !== 'off' && tier === 'medium' && G.fx.post) {
+    G.fx.post.toggle('ssao', false);
+    G.fx.post.toggle('godrays', false);
   }
 }
 
@@ -522,6 +525,10 @@ function hotSwapTexturePack(packId) {
   ui.hotbar.setSlots(G.inventory.slots);
   ui.hotbar.setSelected(G.inventory.selected);
   ui.inventoryUI.setBlocks(G.inventory.creativeBlocks);
+  // Pack-swap hook: keep the GraphicsStack's pack atlas + tiled materials on
+  // the same pack. No-op when the swap ORIGINATED from gfx.setTexturePack
+  // (its wrapper set G.pack before routing here — see bootSession).
+  G.gfx?.setTexturePack(packId);
 }
 
 function updateFog() {
@@ -581,24 +588,11 @@ async function bootSession(worldMeta) {
   const scene = new THREE.Scene();
   const sky = new Sky(scene);
 
-  // --- Graphics FX (graphics package: post chain, distance fog, particles) ---
+  // --- Graphics FX ------------------------------------------------------------
+  // The GraphicsStack facade (constructed after the world exists, below) owns
+  // the post chain, distance fog, particles, animated water and torch lights.
+  // Cracks + view model are direct wiring (the facade has no equivalents).
   const gq = settings.graphicsQuality || 'medium';
-  const post = new PostFX(renderer, scene, camera, {
-    quality: gq === 'off' ? 'medium' : gq,
-  });
-  if (gq === 'off') post.setEnabled(false);
-  // Linear mode pairs with the chunk fog-culling wall (see updateFog); the
-  // color is synced to the live sky every frame so pop-in dissolves into the
-  // horizon at any time of day / weather / dimension.
-  // SSAO + god rays live in the PostFX presets (high/ultra); keep the
-  // default 'medium' tier lean — they stay opt-in via Graphics Quality.
-  if ((gq === 'off' ? 'medium' : gq) === 'medium') {
-    post.toggle('ssao', false);
-    post.toggle('godrays', false);
-  }
-  const fog = new DistanceFog(scene, { mode: 'linear', near: 60, far: 120 });
-  const particles = new Particles(scene, { camera });
-  particles.setWaterLevel(null); // splash rings are driven by its own rain (unused)
 
   // Progressive crack decals driven by the hold-to-break accumulator
   // (updateMining: stage = floor(progress * 5)). blend 'normal': three.js
@@ -621,13 +615,6 @@ async function bootSession(worldMeta) {
       },
     },
   });
-  // Per-dimension atmosphere: a one-call post-tonemap color grade (it lives
-  // entirely inside the PostFX composite — our Sky/fog stay untouched).
-  const grading = new BiomeGrading(post);
-  grading.setBiome(DIM_GRADE[dim] || 'sennmeadows');
-
-  const fx = { post, fog, particles, cracks, viewmodel, grading };
-
   // --- Weather (weather package; visuals overworld-only) ---------------------
   // Our Sky owns background/lights and DistanceFog owns scene.fog, so the
   // weather package's SkyController is neutralized right away — we keep its
@@ -647,15 +634,6 @@ async function bootSession(worldMeta) {
     underwater: false,
     skyColor: new THREE.Color(DIMENSIONS[dim].fog),
   };
-  // Particles get a weather-less view of the ctx: precip visuals belong to
-  // the weather package (Particles would spawn its own rain/snow otherwise).
-  const particlesCtx = {
-    camera,
-    renderer,
-    underwater: false,
-    get elapsed() { return fxCtx.elapsed; },
-  };
-
   // Dedicated lights for skyless dimensions (nether/end); off in overworld.
   const dimLights = {
     group: new THREE.Group(),
@@ -695,6 +673,87 @@ async function bootSession(worldMeta) {
   const controls = new Controls(canvas, camera);
   controls.sensitivity = BASE_SENSITIVITY * settings.sensitivity;
 
+  // --- GraphicsStack facade (graphics-lab integrate.js, INTEGRATION.md) ------
+  // Single owner of PostFX / DistanceFog / Particles / Water / TorchLights.
+  // Our game keeps: the client-owned day/night Sky (facade sky OFF), the
+  // adversarially-verified ChunkRenderer meshes (worldMesh OFF), the weather
+  // package precip (facade ctx.weather stays 'clear' so its particles never
+  // double-spawn rain/snow), and the brand biome grading (facade biome OFF —
+  // wired directly onto the facade's PostFX below).
+  const GFX_REGION = 96; // provider window (world coords -48..47, spawn-centred)
+  const gfxOx = -GFX_REGION / 2;
+  const gfxOz = -GFX_REGION / 2;
+  const volumeProvider = {
+    // World.getBlock is WORLD-space; the provider contract is LOCAL
+    // 0..size-1, so offset by the slice origin. Reads follow the live
+    // session world across dimension travel (G.world is replaced there).
+    getBlock: (x, y, z) => (G && G.world ? G.world : world).getBlock(gfxOx + x, y, gfxOz + z),
+    size: { sx: GFX_REGION, sy: CHUNK_SY, sz: GFX_REGION },
+    ids: 'builder',
+    waterLevel: SEA_LEVEL, // 40 — NOT the lab default 10 (INTEGRATION finding 10)
+    emissiveOf: (id) => getBlockDef(id).emissive, // exact registry levels
+  };
+  const gfx = new GraphicsStack({
+    quality: gq === 'off' ? 'medium' : gq,
+    texturePack: settings.texturePack,
+    dimension: 'warpwold',
+    enable: {
+      worldMesh: false, // ChunkRenderer streams the chunk meshes
+      sky: false, dimensionSky: false, shadows: false, // game Sky owns the light rig
+      underwater: false, underwaterfx: false, // no underwater camera path in this build
+      ambient: false, // no ambient-life field (kept deterministic for QA)
+      biome: false,   // brand grading wired directly below (DIM_GRADE keys)
+      wind: false,    // facade materials are unused (our own mesher/materials)
+      // water, fog, post, particles, torchlights stay ON
+    },
+  });
+  await gfx.init({
+    scene, camera, renderer, volumeProvider,
+    // Our chunk water tops render lowered at SEA_LEVEL + 0.9 (ChunkMesher
+    // liquid rule); the facade's ANIMATED plane sits a hair above so it is
+    // the visible ocean surface, while dry beach columns (terrain top faces
+    // at >= SEA_LEVEL + 1) still occlude it.
+    waterLevel: SEA_LEVEL + 0.95,
+  });
+  // The facade's fog defaults to exp2 haze; this game pairs LINEAR fog with
+  // the ChunkRenderer fog-culling wall (see updateFog), same as before.
+  if (gfx.exposes.fog) gfx.exposes.fog.setMode('linear');
+  // Graphics Quality dropdown parity with the pre-facade wiring: 'off'
+  // bypasses the chain; the default 'medium' tier keeps SSAO/god rays off
+  // (they remain preset-on in high/ultra via PostFX.setQuality).
+  if (gq === 'off') gfx.toggle('post', false);
+  if ((gq === 'off' ? 'medium' : gq) === 'medium' && gfx.exposes.post) {
+    gfx.exposes.post.toggle('ssao', false);
+    gfx.exposes.post.toggle('godrays', false);
+  }
+
+  // Pack-swap hook, both directions (INTEGRATION Step 3e adapted): the
+  // settings-drawer path (hotSwapTexturePack) notifies the facade at its
+  // tail; external callers of gfx.setTexturePack (e.g. the acceptance gate)
+  // also hot-swap the game's own atlas — ONE call swaps every consumer.
+  const facadeSetPack = gfx.setTexturePack.bind(gfx);
+  gfx.setTexturePack = (id) => {
+    facadeSetPack(id);
+    const packId = id == null || id === '' ? 'default' : String(id);
+    if (G && G.gfx === gfx && PACKS[packId] && G.pack !== packId) {
+      settings.texturePack = packId;
+      lastPackSeen = packId; // keep applySettings' pack edge detector coherent
+      hotSwapTexturePack(packId);
+    }
+  };
+
+  // Per-dimension atmosphere: a one-call post-tonemap color grade (it lives
+  // entirely inside the facade's PostFX composite — Sky/fog stay untouched).
+  const grading = new BiomeGrading(gfx.exposes.post);
+  grading.setBiome(DIM_GRADE[dim] || 'sennmeadows');
+
+  const fx = {
+    post: gfx.exposes.post,
+    fog: gfx.exposes.fog,
+    particles: gfx.exposes.particles,
+    cracks, viewmodel, grading,
+  };
+
   const chunkRenderer = new ChunkRenderer(scene, world, atlas, {
     fastLighting: quality.fastLighting,
   });
@@ -732,9 +791,11 @@ async function bootSession(worldMeta) {
     getDim: () => S.dim,
     player,
     applyBlock: (x, y, z, id) => {
+      const prev = S.world.getBlock(x, y, z);
       S.world.setBlock(x, y, z, id);
       recordEdit(S.dim, x, y, z, id);
       S.net.sendEdit(x, y, z, id);
+      emittersMarkDirty(prev, id); // portal fills/collapses move light sources
     },
     onHint: (text) => ui.chat.addMessage({ system: true, text }),
     onCharge: (p) => setPortalVignette(p * 0.85),
@@ -773,7 +834,7 @@ async function bootSession(worldMeta) {
     outline,
     fx,
     fxCtx,
-    particlesCtx,
+    gfx,
     weather,
     // Weather machine (overworld-only): `state` is the logical weather,
     // `presented` is what the WeatherSystem currently shows (snow biomes
@@ -817,8 +878,81 @@ async function bootSession(worldMeta) {
     loadingShown: true,
     active: true,
     tmpDir: new THREE.Vector3(),
+    // Dynamic emitter-light tracker state (graphics-lab emitters — see the
+    // rescanEmitters block below). `dirty` forces a rescan on the next frame.
+    emitters: {
+      handle: null, cx: 0, cz: 0, dirty: true, lastScanAt: -Infinity, lastChunks: -1,
+    },
   };
   G = S;
+
+  // --- Dynamic emitter lights (graphics-lab emitters.js, EMITTERS.md) ---------
+  // Every EXPOSED emissive block near the player (torch 30 / lantern 31 /
+  // glowstone 24 / lava 28 / portal 29) gets a pooled flickering point light
+  // in its best ADJACENT AIR cell (the adjacent-air rule — a light registered
+  // inside the opaque emitter would illuminate nothing). The scan runs over a
+  // sliding window centred on the player; registerEmitterLights speaks LOCAL
+  // volume coords, so the register() boundary offsets them back to world
+  // space. Rescans: emissive edits (dirty flag), player recentering, and
+  // chunk streaming, throttled below.
+  const EMITTER_SCAN_XZ = 64;       // scan window edge, blocks
+  const EMITTER_SCAN_MIN_S = 2.5;   // min seconds between passive rescans
+  const EMITTER_RECENTER_DIST = 16; // player travel that re-centres the window
+  const EMITTER_MAX_LIGHTS = 160;   // registration budget (pool draws nearest N)
+
+  function rescanEmitters() {
+    const tm = S.gfx.exposes.torches;
+    if (!tm) return;
+    const px = Math.floor(S.player.position.x + S.player.size.x / 2);
+    const pz = Math.floor(S.player.position.z + S.player.size.z / 2);
+    const ox = px - EMITTER_SCAN_XZ / 2;
+    const oz = pz - EMITTER_SCAN_XZ / 2;
+    if (S.emitters.handle) S.emitters.handle.unregister();
+    S.emitters.handle = registerEmitterLights({
+      volume: {
+        // Unloaded chunks read as air (World.getBlock never generates).
+        getBlock: (x, y, z) => S.world.getBlock(ox + x, y, oz + z),
+        size: { sx: EMITTER_SCAN_XZ, sy: CHUNK_SY, sz: EMITTER_SCAN_XZ },
+      },
+      // Local scan coords -> world coords at the register boundary.
+      torchManager: {
+        register: (pos, opts) => tm.register({ x: pos.x + ox, y: pos.y, z: pos.z + oz }, opts),
+        unregister: (id) => tm.unregister(id),
+      },
+      emissiveOf: (id) => getBlockDef(id).emissive,
+      minLevel: 8,
+      maxLights: EMITTER_MAX_LIGHTS,
+    });
+    S.emitters.cx = px;
+    S.emitters.cz = pz;
+    S.emitters.dirty = false;
+    S.emitters.lastScanAt = S.elapsed;
+    S.emitters.lastChunks = S.chunkRenderer.stats.chunksLoaded;
+  }
+
+  /** Flag a rescan when any of the given block ids is an emissive emitter. */
+  function emittersMarkDirty(...ids) {
+    if (S.emitters.dirty) return;
+    for (const id of ids) {
+      if (getBlockDef(id).emissive > 0) { S.emitters.dirty = true; return; }
+    }
+  }
+
+  /** Per-frame emitter upkeep (cheap; the actual scan is throttled). */
+  function emittersTick() {
+    const em = S.emitters;
+    const since = S.elapsed - em.lastScanAt;
+    if (em.dirty) {
+      if (since >= 0.15 || em.lastScanAt === -Infinity) rescanEmitters();
+      return;
+    }
+    if (since < EMITTER_SCAN_MIN_S) return;
+    const px = S.player.position.x + S.player.size.x / 2;
+    const pz = S.player.position.z + S.player.size.z / 2;
+    const moved = Math.hypot(px - em.cx, pz - em.cz) >= EMITTER_RECENTER_DIST;
+    const streamed = S.chunkRenderer.stats.chunksLoaded !== em.lastChunks;
+    if (moved || streamed) rescanEmitters();
+  }
 
   // Thunder pairs with the flash: the visible peak is ~90 ms after strike
   // start (weather/README.md "Light before sound"), so the crack lands just
@@ -843,7 +977,11 @@ async function bootSession(worldMeta) {
   net.onPeerMove((msg) => peers.move(msg));
   net.onEdit((msg) => {
     recordEdit(msg.dim, msg.x, msg.y, msg.z, msg.block);
-    if (msg.dim === S.dim) S.world.setBlock(msg.x, msg.y, msg.z, msg.block);
+    if (msg.dim === S.dim) {
+      const prev = S.world.getBlock(msg.x, msg.y, msg.z);
+      S.world.setBlock(msg.x, msg.y, msg.z, msg.block);
+      emittersMarkDirty(prev, msg.block);
+    }
   });
   // One of OUR edits was rejected (rate cap, reach, bounds, protected cell,
   // dim mismatch, invalid): roll the optimistic local change back to the
@@ -1140,6 +1278,7 @@ async function bootSession(worldMeta) {
     S.world.setBlock(x, y, z, 0);
     recordEdit(S.dim, x, y, z, 0);
     S.net.sendEdit(x, y, z, 0);
+    emittersMarkDirty(id); // breaking a torch/lantern/glowstone drops its light
     // Debris burst tinted with the broken block's atlas tile + break sound.
     S.fx.particles.spawnBlockBreak(center, blockDebrisColor(S, id));
     audio.blockBreak(id, center);
@@ -1266,6 +1405,12 @@ async function bootSession(worldMeta) {
     // Only into air or liquid.
     const curDef = getBlockDef(S.world.getBlock(nx, ny, nz));
     if (!(curDef.id === 0 || curDef.liquid)) return;
+    // Torch placement rule: needs solid, non-liquid ground directly below
+    // (kept simple per the emitter-blocks spec — no wall mounting).
+    if (getBlockDef(id).name === 'torch') {
+      const below = getBlockDef(S.world.getBlock(nx, ny - 1, nz));
+      if (!below.solid || below.liquid) return;
+    }
     // Reject cells intersecting the player AABB.
     const p = S.player.position;
     const sz = S.player.size;
@@ -1277,6 +1422,7 @@ async function bootSession(worldMeta) {
     S.world.setBlock(nx, ny, nz, id);
     recordEdit(S.dim, nx, ny, nz, id);
     S.net.sendEdit(nx, ny, nz, id);
+    emittersMarkDirty(id); // placed torch/lantern/glowstone casts light
     audio.blockPlace(id, { x: nx + 0.5, y: ny + 0.5, z: nz + 0.5 });
     {
       const def = getBlockDef(id);
@@ -1416,14 +1562,15 @@ async function bootSession(worldMeta) {
       S.chunkRenderer.setLightLevel(level);
     }
 
-    // Distance fog (sky-matched color, weather haze) + particle systems.
+    // Game-owned ctx (cracks/viewmodel; also the source for the facade sync).
     S.fxCtx.elapsed = S.elapsed;
     S.fxCtx.timeOfDay = S.dim === 'overworld' ? timeOfDay : 0.5;
     S.fxCtx.weather = (S.wx.presented === 'rain' || S.wx.presented === 'storm')
       ? 'rain' : S.wx.presented === 'snow' ? 'snow' : 'clear';
-    S.fx.fog.update(dt, S.fxCtx);
-    if (simActive) S.fx.particles.update(dt, S.particlesCtx);
     S.fx.cracks.update(dt, S.fxCtx);
+
+    // Dynamic emitter lights: throttled rescan on edits/recenter/streaming.
+    emittersTick();
     // View model: keep the held item in sync with the hotbar selection.
     {
       const held = S.inventory.selectedBlock || null;
@@ -1478,10 +1625,23 @@ async function bootSession(worldMeta) {
     // HUD.
     ui.hud.setHealth(S.player.health);
 
-    // Post chain (bloom + ACES + vignette + FXAA) or plain render when 'off'
-    // (PostFX.render falls back to renderer.render internally when disabled).
-    S.fx.post.update(dt, S.fxCtx);
-    S.fx.post.render(dt);
+    // GraphicsStack frame: sync the game-owned state into the facade's shared
+    // ctx (skyColor exact-tracks our Sky/weather grading so fog matches the
+    // horizon; ctx.weather deliberately stays 'clear' — precip visuals belong
+    // to the weather package, and syncing it would make the facade Particles
+    // double-spawn rain/snow). Then advance every facade-owned module
+    // (water waves/reflection, fog, particles, pooled torch lights, PostFX
+    // night boost) in the proven demo order and render through the PostFX
+    // chain — it self-bypasses to a plain render when Graphics Quality is
+    // 'off'. dt 0 while the sim is frozen keeps pause behavior (no drifting
+    // debris/flicker under the pause menu).
+    {
+      const gctx = S.gfx.exposes.ctx;
+      gctx.timeOfDay = S.fxCtx.timeOfDay;
+      gctx.skyColor.copy(S.fxCtx.skyColor); // water/fog read ctx.skyColor live
+      S.gfx.update(simActive ? dt : 0);
+      S.gfx.render();
+    }
 
     // FPS (1 s rolling, real frame time — not the clamped sim dt) + debug.
     S.fpsFrames++;
@@ -1571,12 +1731,14 @@ function teardownSession() {
 
   audio.stopAll(); // music, ambience beds, rain loop, live voices
   S.weather.dispose();
-  S.fx.post.dispose();
-  S.fx.fog.dispose();
-  S.fx.particles.dispose();
   S.fx.cracks.dispose();
   S.fx.viewmodel.dispose();
-  S.fx.grading.dispose();
+  S.fx.grading.dispose(); // detach the grade before its PostFX host goes down
+  if (S.emitters.handle) S.emitters.handle.unregister();
+  // Facade teardown disposes everything it owns: PostFX, fog, particles,
+  // water, torch lights, materials, its pack atlas, and its resize listener.
+  // The renderer is page-lifetime (passed in at init) and is left alone.
+  S.gfx.dispose();
 
   S.outline.geometry.dispose();
   S.outline.material.dispose();
@@ -1608,6 +1770,7 @@ function teardownSession() {
   G = null;
   window.__game = null;
   window.__qa = null;
+  window.gfx = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1618,6 +1781,11 @@ function teardownSession() {
 function applyDimensionEnvironment(dimId) {
   const spec = DIMENSIONS[dimId];
   updateFog();
+  // Facade water is overworld-only: the nether "sea" is lava at y~31 and the
+  // end floats over void (INTEGRATION.md Step 3c). Emitter lights re-scan
+  // against the rebuilt world on the next frame.
+  if (G.gfx) G.gfx.toggle('water', dimId === 'overworld');
+  G.emitters.dirty = true;
   if (dimId === 'overworld') {
     G.sky.group.visible = true;
     G.dimLights.group.visible = false;
@@ -1975,7 +2143,8 @@ function publishHooks() {
       on: (type, handler) => G.weather.on(type, handler),
     },
     audio, // GameAudio wrapper — audio.state is the QA stub-check surface
-    fx: G.fx, // { post: PostFX, fog: DistanceFog, particles: Particles }
+    fx: G.fx, // { post: PostFX, fog: DistanceFog, particles: Particles } (facade-owned)
+    gfx: G.gfx, // GraphicsStack facade (also published as window.gfx below)
     // Mobs (public/mobs/ MobManager): mobs.mobs snapshot, spawn(archetype,
     // pos), spawnBoss(pos), setDimension, setDay — see public/mobs/README.md.
     mobs: G.mobs,
@@ -2001,6 +2170,11 @@ function publishHooks() {
     quality,
   };
   window.__qa = makeQaHook();
+  // INTEGRATION.md Step 1 statement 7 — the named-global convention: the
+  // acceptance gate (graphics-lab/verify-integration.mjs) probes the live
+  // GraphicsStack through window.gfx (PostFX RT chain, water uniforms,
+  // setTexturePack). Cleared in teardownSession.
+  window.gfx = G.gfx;
 }
 
 /**

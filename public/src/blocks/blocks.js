@@ -84,6 +84,11 @@ export const BLOCKS = [
   def(28, 'lava', { all: 'lava', solid: false, transparent: true, liquid: true, emissive: 15, hardness: -1, tool: 'none' }),
   // ids >= 29 appended by later phases (worldgen/dimensions).
   def(29, 'portal', { all: 'portal', solid: false, transparent: true, liquid: false, emissive: 12, hardness: -1, tool: 'none' }),
+  // ids 30-31 appended by the graphics-wiring phase (light-emitter blocks).
+  // Non-solid transparent art tiles; their cast light comes from the pooled
+  // dynamic lights wired in main.js (graphics-lab emitters — see EMITTERS.md).
+  def(30, 'torch', { all: 'torch', solid: false, transparent: true, emissive: 14, hardness: 0.1, tool: 'none' }),
+  def(31, 'lantern', { all: 'lantern', solid: false, transparent: true, emissive: 15, hardness: 0.1, tool: 'none' }),
 ];
 
 // Fast id -> name and name -> id lookups.
@@ -103,5 +108,5 @@ export function getBlockDef(id) {
 // obsidian/end-stone frame lights a portal (see gameplay/portals.js).
 export const CREATIVE_BLOCKS = [
   1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17,
-  18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 8, 28, 29,
+  18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 8, 28, 29, 30, 31,
 ];

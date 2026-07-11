@@ -10,8 +10,11 @@
 // manager keeps a small POOL of warm point lights (the budget) and, every
 // frame, snaps them onto the N registered torches nearest the camera:
 //
-//   * register(pos) -> id / unregister(id): positions live in plain parallel
-//     arrays (px/py/pz) — hundreds of registrations are just array pushes.
+//   * register(pos, { intensity }) -> id / unregister(id): positions live in
+//     plain parallel arrays (px/py/pz) — hundreds of registrations are just
+//     array pushes. The optional per-torch `intensity` (default 1) scales the
+//     pooled light while that torch owns it (e.g. emissive level 0-15 mapped
+//     to level/15 by emitters.js registerEmitterLights).
 //   * Nearest-N selection is an allocation-free top-K insertion scan
 //     (O(count * K), K <= 14, count <= ~500 -> trivial; no per-frame sort of
 //     the whole set, no comparator closures, no scratch object churn).
@@ -130,6 +133,7 @@ export class TorchLightManager {
     this._px = [];
     this._py = [];
     this._pz = [];
+    this._sc = [];   // per-torch intensity scale (default 1)
     this._idToIndex = new Map();
     this._nextId = 1;
 
@@ -149,13 +153,17 @@ export class TorchLightManager {
   // -- registration ---------------------------------------------------------
 
   // pos: THREE.Vector3 or {x,y,z}. Returns an id for unregister().
-  register(pos) {
+  // opts.intensity (optional, default 1): per-torch multiplier on the pooled
+  // light's flickering intensity — lets emissive-level-derived emitters glow
+  // proportionally without a second pool.
+  register(pos, { intensity = 1 } = {}) {
     const id = this._nextId++;
     const i = this._ids.length;
     this._ids.push(id);
     this._px.push(centreAxis(pos.x));
     this._py.push(Number.isInteger(pos.y) ? pos.y + 0.55 : pos.y);
     this._pz.push(centreAxis(pos.z));
+    this._sc.push(Number.isFinite(intensity) && intensity > 0 ? intensity : 1);
     this._idToIndex.set(id, i);
     return id;
   }
@@ -170,12 +178,14 @@ export class TorchLightManager {
       this._px[i] = this._px[last];
       this._py[i] = this._py[last];
       this._pz[i] = this._pz[last];
+      this._sc[i] = this._sc[last];
       this._idToIndex.set(movedId, i);
     }
     this._ids.pop();
     this._px.pop();
     this._py.pop();
     this._pz.pop();
+    this._sc.pop();
     this._idToIndex.delete(id);
     // Any slot holding this torch fades out naturally in update() (its id no
     // longer resolves in the map).
@@ -194,6 +204,7 @@ export class TorchLightManager {
       light,
       id: -1,        // torch id currently owned (-1 = free)
       seed: 0,       // hash seed derived from id at assignment
+      scale: 1,      // per-torch intensity scale captured at assignment
       x: 0, y: 0, z: 0,
       alpha: 0,      // current fade level 0..1
       target: 0,     // fade destination
@@ -309,6 +320,7 @@ export class TorchLightManager {
         if (slot.id >= 0 || slot.alpha > 0.001) continue;
         slot.id = id;
         slot.seed = Math.imul(id, 0x9e3779b1) | 0;
+        slot.scale = this._sc[idx];
         slot.x = this._px[idx];
         slot.y = this._py[idx];
         slot.z = this._pz[idx];
@@ -340,7 +352,8 @@ export class TorchLightManager {
         continue;
       }
       const seed = slot.seed;
-      light.intensity = this._base * (FLICK_LO + FLICK_SPAN * flickerNoise(seed, t)) * slot.alpha;
+      light.intensity = this._base * slot.scale
+        * (FLICK_LO + FLICK_SPAN * flickerNoise(seed, t)) * slot.alpha;
       light.position.set(
         slot.x + (smoothNoise(seed + 11, t * JITTER_FREQ) - 0.5) * (2 * JITTER),
         slot.y + (smoothNoise(seed + 23, t * JITTER_FREQ) - 0.5) * (2 * JITTER),
@@ -361,6 +374,7 @@ export class TorchLightManager {
     this._px.length = 0;
     this._py.length = 0;
     this._pz.length = 0;
+    this._sc.length = 0;
     this._idToIndex.clear();
     this._scene = null;
   }

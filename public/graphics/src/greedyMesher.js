@@ -164,8 +164,18 @@ const FACES = RAW_FACES.map((f) => {
   };
 });
 
+// LUTs are sized past the lab palette (0..LUT_IDS-1): the GraphicsStack
+// emissive meshing pass (integrate.js) feeds RAW builder ids (glowstone 24,
+// lava 28, portal 29) through this mesher with the stack atlas resolving
+// their tiles via its builder-id fallthrough. Ids outside src/blocks.js keep
+// working: atlas mode resolves per-id tiles through atlas.faceTile, flat-color
+// mode falls back to the air color (faceColor's unknown-id behavior). Lab ids
+// 0-10 produce bit-identical output to the previous BLOCKS-sized LUTs.
+const LUT_IDS = 256;
+const LUT_INDEX = Array.from({ length: LUT_IDS }, (_, id) => id);
+
 // Precomputed flat-color LUT (same construction as voxelMesher's COLOR_LUT).
-const COLOR_LUT = BLOCKS.map((_, id) =>
+const COLOR_LUT = LUT_INDEX.map((id) =>
   BUCKET_NAMES.map((name) => faceColor(id, name))
 );
 
@@ -185,7 +195,7 @@ function buildAtlasLUTs(atlas) {
       return m ? (m[face] || m.side || null) : null;
     };
 
-  const originLUT = BLOCKS.map((_, id) =>
+  const originLUT = LUT_INDEX.map((id) =>
     BUCKET_NAMES.map((face) => {
       const name = faceTileOf(id, face);
       const t = name ? atlas.tileUV(name) : null;
@@ -196,8 +206,9 @@ function buildAtlasLUTs(atlas) {
     })
   );
 
-  const tintLUT = BLOCKS.map((b) =>
+  const tintLUT = LUT_INDEX.map((id) =>
     BUCKET_NAMES.map((face) => {
+      const b = BLOCKS[id] || {}; // ids past the lab palette: neutral shades
       let shade = 1.0;
       if (face === 'top') shade = b.topShade ?? 1.0;
       else if (face === 'bottom') shade = b.bottomShade ?? 1.0;

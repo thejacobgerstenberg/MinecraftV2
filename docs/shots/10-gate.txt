@@ -1,0 +1,17 @@
+[boot] node server/index.js  PORT=3601 WORLD_DIR=/tmp/verify-saves-poTmy1
+
+verify-integration — GraphicsStack acceptance gate
+boot: --game-dir /home/user/MinecraftV2  url: http://127.0.0.1:3601
+  note: entered world via menu (Play -> Create); spawn chunks meshed
+
+  PASS  console clean                             zero console/page errors from load through world entry
+  PASS  GraphicsStack live (window.gfx)           window.gfx is a GraphicsStack with a live ctx (init() completed)
+  PASS  AO in chunk geometry                      convention: AO baked in 'color' — 68.8% of 151586 sampled faces have intra-face vertex-color spread > 0.02 (203 colored meshes; threshold 10%)
+  PASS  sky responds to time of day               path=__game.sky hook — bg day=[0.537,0.756,0.939] vs midnight=[0.012,0.022,0.075] (Δbg=2.123, Δfog=2.123); 100.0% of sky-band pixels changed
+  PASS  PostFX in the render chain                post.enabled=true; 24 offscreen render-target writes observed across a 3-frame window
+  PASS  water animated                            uTime 4.38->5.22; 11.72% of lower-half pixels changed across 2 frames
+  PASS  setTexturePack('gritty') changes terrain  atlas canvas hash changed (-287706078 -> -1312267280); 90.2% of centre-frame pixels changed on screen
+  INFO  fps budget (advisory)                     15.6 fps over 5s rAF sample; 272 draw calls, 404217 tris/frame — SwiftShader (software GL): absolute fps is NOT representative of real GPUs; advisory only, never gates
+
+GATE: PASS — GraphicsStack is live in the game.
+screenshots + server.log: /tmp/claude-0/-home-user-MinecraftV2/0f1c9509-c35e-5aff-8157-82f024fa979b/scratchpad/gate-shots
