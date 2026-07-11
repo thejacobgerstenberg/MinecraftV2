@@ -1,0 +1,11 @@
+{
+  "name": "loomfall-content-pack",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Loomfall ContentPack loader - framework-free content/UX JSON facade (node >= 18 + browser, zero deps).",
+  "type": "module",
+  "main": "loader.js",
+  "scripts": {
+    "test": "node loader.test.mjs"
+  }
+}

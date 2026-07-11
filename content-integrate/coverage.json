@@ -1,0 +1,256 @@
+{
+  "generatedAt": "2026-07-11T20:06:52.410Z",
+  "contentDir": "/tmp/claude-0/-home-user-MinecraftV2/97d2c063-abec-5582-8174-3e66bef1d68c/scratchpad/ci-src/canon",
+  "uxDir": "/tmp/claude-0/-home-user-MinecraftV2/97d2c063-abec-5582-8174-3e66bef1d68c/scratchpad/ci-src/ux",
+  "load": {
+    "ok": true,
+    "loaded": [
+      "achievements.json",
+      "bestiary.json",
+      "books.json",
+      "boss.json",
+      "molthkin.json",
+      "deathmessages.json",
+      "dialogue.json",
+      "items.json",
+      "naming.json",
+      "splashes.json",
+      "structures.json",
+      "tips.json",
+      "captions.json",
+      "bindings.default.json",
+      "tutorial.json"
+    ],
+    "failed": []
+  },
+  "totals": {
+    "checked": 820,
+    "resolved": 818,
+    "coveragePct": 99.8
+  },
+  "systems": [
+    {
+      "system": "pack-load",
+      "checked": 15,
+      "resolved": 15,
+      "unresolved": [],
+      "coverage": 100
+    },
+    {
+      "system": "achievements",
+      "checked": 61,
+      "resolved": 61,
+      "unresolved": [],
+      "coverage": 100
+    },
+    {
+      "system": "recipes",
+      "checked": 141,
+      "resolved": 141,
+      "unresolved": [],
+      "coverage": 100
+    },
+    {
+      "system": "mob-drops",
+      "checked": 26,
+      "resolved": 26,
+      "unresolved": [],
+      "coverage": 100
+    },
+    {
+      "system": "structures",
+      "checked": 92,
+      "resolved": 92,
+      "unresolved": [],
+      "coverage": 100
+    },
+    {
+      "system": "bosses",
+      "checked": 26,
+      "resolved": 26,
+      "unresolved": [],
+      "coverage": 100
+    },
+    {
+      "system": "dialogue-telegraphs",
+      "checked": 42,
+      "resolved": 42,
+      "unresolved": [],
+      "coverage": 100
+    },
+    {
+      "system": "tutorial",
+      "checked": 111,
+      "resolved": 111,
+      "unresolved": [],
+      "coverage": 100
+    },
+    {
+      "system": "deathmessages",
+      "checked": 36,
+      "resolved": 36,
+      "unresolved": [],
+      "coverage": 100
+    },
+    {
+      "system": "books",
+      "checked": 41,
+      "resolved": 39,
+      "unresolved": [
+        "book('deepest_spindle') — no book placed here",
+        "book('selvage_outpost') — no book placed here"
+      ],
+      "coverage": 95.1
+    },
+    {
+      "system": "captions",
+      "checked": 76,
+      "resolved": 76,
+      "unresolved": [],
+      "coverage": 100
+    },
+    {
+      "system": "bindings",
+      "checked": 28,
+      "resolved": 28,
+      "unresolved": [],
+      "coverage": 100
+    },
+    {
+      "system": "consumer-stubs",
+      "checked": 119,
+      "resolved": 119,
+      "unresolved": [],
+      "coverage": 100
+    },
+    {
+      "system": "stale-verify",
+      "checked": 6,
+      "resolved": 6,
+      "unresolved": [],
+      "coverage": 100
+    }
+  ],
+  "notes": [
+    "pack.load() -> ok=true loaded=15 failed=[]",
+    "deathmessages: builder currently emits only 'void_unravel' + 'mob:<canonicalId>'; the 7 env causes (fall/lava/drowning/explosion/starvation/fire/cinderloom_heat) are authored but never produced by main.js yet.",
+    "bindings overlap: 25 ux actions consumed by builder Controls.js; ux-only actions (builder has NO handler yet): [interact, eat]",
+    "bindings key conflicts (builder must adopt canon): sprint: ux primary 'ControlLeft' vs builder hardcoded [ShiftLeft]; sneak: ux primary 'ShiftLeft' vs builder hardcoded [KeyC|ControlLeft]",
+    "achievements stub: stats() would report {total:60, wired:29} — unwired triggers (no engine yet, matches builder behavior): 31"
+  ],
+  "staleIds": {
+    "verification": "verified against /tmp/claude-0/-home-user-MinecraftV2/97d2c063-abec-5582-8174-3e66bef1d68c/scratchpad/ci-src/builder/content-snapshot",
+    "entries": [
+      {
+        "file": "molthkin.json",
+        "kind": "missing-in-builder",
+        "id": "molthkin encounter file (canon: 3 phases, own gauntlet, hp 280 dmg 11 spd 2; builder MobManager inlines a simplified 2-phase model)"
+      },
+      {
+        "file": "achievements.json",
+        "kind": "stale",
+        "id": "stitch_ground_beneath_hooves — name 'Ground Beneath Its Own Hooves' -> 'Ground Beneath Every Stride' + description rewrite"
+      },
+      {
+        "file": "bestiary.json",
+        "kind": "stale",
+        "id": "skeinling — gained husbandry {breedable:true, breedingFood:raw_skein, tameable:false}"
+      },
+      {
+        "file": "bestiary.json",
+        "kind": "stale",
+        "id": "bobbin_deer — gained husbandry {breedable:true, breedingFood:sennit_grain}"
+      },
+      {
+        "file": "bestiary.json",
+        "kind": "stale",
+        "id": "spoolmare — gained husbandry {breedable:false, tameable:true, tameFood:raw_skein, mountRequires:saddle_frame} + visual.silhouette rewritten to six-legged spool-strider"
+      },
+      {
+        "file": "items.json",
+        "kind": "missing-in-builder",
+        "id": "sennit_grain (tier 0 foraged grain, bobbin-deer breeding feed) — builder has 40/41 items"
+      },
+      {
+        "file": "items.json",
+        "kind": "stale",
+        "id": "saddle_frame — recipe.note extended ('the frame will not sit an unbonded mare')"
+      },
+      {
+        "file": "boss.json",
+        "kind": "stale",
+        "id": "last_needle.gauntlet — NEW structure:selvage_outpost, ordered:false, seals [seal_measured, seal_folded, seal_pinned, seal_sewn], sealRules"
+      },
+      {
+        "file": "boss.json",
+        "kind": "stale",
+        "id": "last_needle.summonRequirement — kill_count:selvage_warden:4 -> all_of[seal_released:seal_measured..seal_sewn]"
+      },
+      {
+        "file": "structures.json",
+        "kind": "missing-in-builder",
+        "id": "selvage_outpost (nevermend_gauntlet unique_set of four named posts w/ seal-holder wiring)"
+      },
+      {
+        "file": "structures.json",
+        "kind": "missing-in-builder",
+        "id": "deepest_spindle (molthkin arena)"
+      },
+      {
+        "file": "structures.json",
+        "kind": "stale",
+        "id": "twice_ford / spoolmare_picket / spindlegate / eye_of_the_last_hem — descriptions updated"
+      },
+      {
+        "file": "dialogue.json",
+        "kind": "missing-in-builder",
+        "id": "molthkin actor {phaseIntros, attackTelegraphs, onFelled}"
+      },
+      {
+        "file": "splashes.json",
+        "kind": "stale",
+        "id": "'Spoolmares: horses, but stringier!' -> 'Spoolmares: mares in name only!'"
+      },
+      {
+        "file": "tips.json",
+        "kind": "stale",
+        "id": "bond-a-spoolmare tip text rewritten (six thread-legs strider flavor)"
+      },
+      {
+        "file": "naming.json",
+        "kind": "stale",
+        "id": "mobs.Spoolmares description rewritten to loom-spun six-legged strider"
+      },
+      {
+        "file": "books.json",
+        "kind": "stale",
+        "id": "warning_the_water_that_was — text changed"
+      },
+      {
+        "file": "books.json",
+        "kind": "stale",
+        "id": "hymn_the_drumming_song — text changed"
+      },
+      {
+        "file": "GAME_GUIDE.md",
+        "kind": "stale",
+        "id": "spoolmare sections rewritten + controls table fixed (Sneak 'Left Shift', Sprint 'Left Ctrl')"
+      },
+      {
+        "file": "boss.md",
+        "kind": "stale",
+        "id": "gauntlet paragraph expanded with selvage_outpost named-post seal wiring"
+      },
+      {
+        "file": "(builder code)",
+        "kind": "stale-code",
+        "id": "main.js L1063 hardcodes 'The Last Needle is bound…' chat line instead of dialogue.json lastNeedle.onBound"
+      },
+      {
+        "file": "(builder code)",
+        "kind": "stale-code",
+        "id": "MobManager molthkin config: 2-phase (phase1HpFrac 0.5) vs canon molthkin.json 3 phases"
+      }
+    ]
+  }
+}
