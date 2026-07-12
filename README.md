@@ -61,21 +61,26 @@ The server is authoritative and hardened: payload caps, rate limits, movement/re
 | `1`–`9` / scroll wheel | Select hotbar slot |
 | `E` | Block palette / inventory |
 | `T` | Chat |
+| Hold `Tab` | Player roster (names, dimension badges, ping) |
+| `F5` | Cycle camera view (first-person → third-back → third-front) |
+| `F6` | Spectator free-cam (WASD + `Space`/`Ctrl` vertical, `Shift` boost) |
 | `F3` | Debug overlay (position, biome, FPS, seed, …) |
 | `Esc` | Pause menu (settings, achievements, travel, save & quit) |
+
+Chat commands: `/w <name> <message>` sends a private whisper, `/r <message>` replies to the last whisper, `/mute <name>` / `/unmute <name>` hide a player's whispers, `/block <name>` / `/unblock <name>` hide their whispers and public chat, and `/emote <id>` plays an avatar gesture (e.g. wave, dance).
 
 ## Features
 
 - **Procedural worlds** — 6+ biomes, carved caves, ore seams, trees; named saved worlds with shareable seeds.
 - **Three dimensions** — the *Warpwold* overworld, the scorched *Cinderloom*, and the void-realm *Nevermend*, reached through portals you build block by block.
 - **Five procedural texture packs** with live in-game hot-swap — every texture drawn in code, no image assets.
-- **Real-time multiplayer** — shared named worlds, animated peer avatars, synced edits, chat, server-side validation.
+- **Real-time multiplayer** — shared named worlds, animated skinned avatars with emotes, synced edits, chat with private whispers and mute/block, a hold-`Tab` player roster, camera view cycling and a spectator free-cam, server-side validation.
 - **Timed block breaking** with progressive crack decals, block particles, and a first-person held-block view model.
 - **Mobs and combat** — 13 original species plus a boss, day/night and per-dimension spawn rules, melee combat, a death/respawn flow with canon death messages.
 - **Day/night cycle and weather** — sun, moon, stars, clouds, rain, snow, and lightning storms with thunder.
 - **Procedural audio** — block sounds, footsteps, ambience beds, per-dimension music, all synthesized at runtime; three volume buses.
 - **Post-processing** — bloom, tone-mapping, FXAA, distance fog, per-dimension color grading, with a graphics-quality setting and an adaptive performance governor.
-- **Achievements, splashes, tips, and lore** woven through the UI — 60 achievements defined, 26 wired to live triggers.
+- **Achievements, splashes, tips, and lore** woven through the UI — 60 achievements defined, 31 wired to live triggers.
 - **Physics with feel** — sprint-jump impulse, sneak edge-guarding, terminal velocity, creative flight.
 - **Movement, reach, and edit validation server-side** — speed budgets, reach caps, rate limits (see `docs/PROTOCOL.md`).
 

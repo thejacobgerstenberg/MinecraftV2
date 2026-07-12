@@ -310,12 +310,43 @@ export class SocialLayer {
   /* ------------------------------ tab / list ------------------------- */
 
   /**
+   * True while Tab should keep its native focus-navigation role instead of
+   * driving the hold-Tab roster: any menu screen (pause / settings / worlds /
+   * main) is open, or focus sits on a form control / editable field (settings
+   * sliders, chat input, shadow-DOM widgets). Never throws.
+   * @returns {boolean}
+   * @private
+   */
+  _tabBelongsToUi() {
+    return safe(() => {
+      if (typeof document === "undefined") return false;
+      if (document.querySelector(".menu-screen.visible")) return true;
+      // Deep active element: follow shadow roots (volume sliders, lf-* widgets).
+      let el = document.activeElement;
+      while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
+      if (!el || el === document.body) return false;
+      const tag = el.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "BUTTON") return true;
+      if (el.isContentEditable) return true;
+      if (typeof el.closest === "function" && el.closest(".menu-screen")) return true;
+      return false;
+    }) === true;
+  }
+
+  /**
    * @param {KeyboardEvent} e
    * @param {boolean} down
    * @private
    */
   _handleTabKey(e, down) {
     if (!e || e.key !== this._tabKey) return;
+    // Accessibility guard: while a menu/settings screen is open or a form
+    // control has focus, leave Tab entirely alone (no preventDefault, no
+    // roster) so keyboard navigation keeps working in-game.
+    if (this._tabBelongsToUi()) {
+      this.hidePlayerList();
+      return;
+    }
     safe(() => {
       if (typeof e.preventDefault === "function") e.preventDefault();
     });

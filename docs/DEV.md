@@ -343,13 +343,24 @@ fast-lighting mode, into `ChunkRenderer.setLightLevel`).
   the first pointerdown/keydown/menu click. Before that, every `play()` is
   harmless (suspended context) and still counted in `__game.audio.state`.
 
-Deferred graphics-lab modules (one line each, per the integration plan):
-water plane + `UnderwaterOverlay` (single global-level plane would
-double-render/z-fight our per-block meshed water), `ShadowController` (needs
-lit materials + `applyToScene` after every chunk build; software-rasterizer
-fast path uses unlit materials), torch flames/`TorchLightManager` +
-view model + block cracks + wind sway + biome grading (no torches/held-item
-rendering/progressive breaking yet — natural next-stage candidates).
+Graphics-lab modules now WIRED via the GraphicsStack facade (see the
+`window.gfx` row above): the animated water plane (facade plane at
+`SEA_LEVEL + 0.95` sits just above our meshed chunk water tops, so it is the
+visible ocean surface), `TorchLightManager` pooled dynamic lights (placed
+torches/lanterns/glowstone/lava/portal), PostFX, distance fog, and particles
+— plus direct wiring of the first-person view model, progressive block-crack
+decals, and biome grading (game-owned `BiomeGrading`, facade `biome` off).
+
+Facade modules deliberately left OFF (one line each): `worldMesh`
+(ChunkRenderer streams the adversarially-verified chunk meshes),
+sky/dimensionSky (the game's day/night `Sky` owns the light rig),
+`ShadowController` (needs lit materials + `applyToScene` after every chunk
+build; the software-rasterizer fast path uses unlit materials),
+`UnderwaterOverlay`/underwaterfx (no underwater camera path in this build),
+ambient-life field (kept deterministic for QA), wind sway (facade materials
+are unused — our own mesher/materials), and `ctx.weather` stays `'clear'`
+(precip belongs to the weather package; syncing would double-spawn
+rain/snow).
 
 ### Local storage keys
 
