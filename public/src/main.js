@@ -21,6 +21,12 @@ import { Player } from './gameplay/Player.js';
 import { Controls } from './gameplay/Controls.js';
 import { raycastVoxel } from './gameplay/raycast.js';
 import { Inventory } from './gameplay/Inventory.js';
+// Survival inventory stack (this stage): the 41-slot stack model, the
+// items.json recipe matcher (2x2 personal grid) and the local item-entity
+// manager for drops. Creative sessions keep the original Inventory above.
+import { InventoryModel } from './gameplay/InventoryModel.js';
+import { Crafting } from './gameplay/Crafting.js';
+import { ItemEntities, drawSackIcon } from './gameplay/ItemEntities.js';
 import { PortalSystem, PORTAL_BLOCK, FRAME_TARGETS } from './gameplay/portals.js';
 import { DIMENSIONS } from './dimensions/dimensions.js';
 import { prngSample } from './qa/prng.js';
@@ -64,6 +70,7 @@ import { pack } from './systems/contentpack.js';
 import { initAchievements } from './systems/achievements.js';
 import {
   loadNaming, blockDisplayName, biomeDisplayName, canonBlockIdFor, CANON_BLOCK_ID,
+  prettyName,
 } from './systems/naming.js';
 import { loadDeathMessages, deathMessageFor } from './systems/deathmessages.js';
 import { initDeathScreen } from './ui/deathscreen.js';
@@ -80,6 +87,15 @@ import { AudioStack } from '../audio-integrate/integrate.js';
 
 const VERSION = '0.1.0';
 const NAME_KEY = 'loomfall.name';
+// Survival inventory persistence (per world, localStorage; server-side
+// inventory sync is a documented follow-up — see docs/DEV.md).
+const INV_KEY_PREFIX = 'loomfall.inv.';
+const INV_SAVE_DEBOUNCE_MS = 400;
+// Q-drop toss: forward speed + upward pop, and the delay before the thrown
+// stack can be walked back over (so a drop doesn't insta-return).
+const DROP_TOSS_SPEED = 4.5;
+const DROP_TOSS_UP = 2.2;
+const DROP_PICKUP_DELAY_S = 1.2;
 const DAY_LENGTH_S = 600; // full day/night cycle: 10 minutes
 const START_TIME_OF_DAY = 0.42; // late morning, so new worlds open in daylight
 const REACH = 6.0; // block interaction raycast distance — unified with the
@@ -161,11 +177,14 @@ async function apiGetWorlds() {
   return res.json();
 }
 
-async function apiCreateWorld({ name, seed }) {
+async function apiCreateWorld({ name, seed, mode }) {
+  const body = { name };
+  if (seed != null) body.seed = seed;
+  if (mode === 'survival' || mode === 'creative') body.mode = mode;
   const res = await fetch('/api/worlds', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(seed != null ? { name, seed } : { name }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`POST /api/worlds -> ${res.status}`);
   return res.json();
@@ -321,6 +340,62 @@ const settings = {};
 /** Current game session (null on the title screen). */
 let G = null;
 
+// ---------------------------------------------------------------------------
+// Item id helpers (numeric engine block ids + string content item ids)
+// ---------------------------------------------------------------------------
+
+/** Page-lifetime icon cache for STRING item ids (hash-tinted sack canvas —
+ *  same art the item entities carry; numeric block ids crop the atlas via
+ *  the per-session icon factory). */
+const itemIconCache = new Map();
+function itemIconFor(id) {
+  let icon = itemIconCache.get(id);
+  if (!icon) {
+    icon = drawSackIcon(id);
+    itemIconCache.set(id, icon);
+  }
+  return icon;
+}
+
+/** Icon for any inventory id: block ids crop the live atlas; string content
+ *  item ids use the procedural sack icon. */
+function iconForAny(id) {
+  if (typeof id === 'number') return G ? G.iconFor(id) : null;
+  return itemIconFor(id);
+}
+
+/** Display name for any inventory id (canon naming for blocks, items.json
+ *  displayName for content items). */
+function displayNameFor(id) {
+  if (typeof id === 'number') return blockDisplayName(getBlockDef(id).name);
+  for (const it of pack.items() || []) {
+    if (it && it.id === id) return it.displayName || prettyName(String(id));
+  }
+  return prettyName(String(id));
+}
+
+/** Re-render the hotbar from the active inventory (stacks in survival,
+ *  bare block ids in creative — the hotbar shows counts only for stacks). */
+function refreshHotbarUI(S = G) {
+  if (!S) return;
+  if (S.mode === 'survival') {
+    ui.hotbar.setSlots(S.invModel.slots.slice(0, 9));
+    ui.hotbar.setSelected(S.invModel.selected);
+  } else {
+    ui.hotbar.setSlots(S.inventory.slots);
+    ui.hotbar.setSelected(S.inventory.selected);
+  }
+}
+
+/** Persist the survival inventory for its world (localStorage v1). */
+function saveSurvivalInventory(S) {
+  if (!S || S.mode !== 'survival' || !S.invModel) return;
+  try {
+    localStorage.setItem(
+      INV_KEY_PREFIX + S.worldMeta.id, JSON.stringify(S.invModel.serialize()));
+  } catch { /* storage unavailable — session-only inventory */ }
+}
+
 let renderer = null; // one WebGLRenderer for the page (context is per-canvas)
 let quality = null; // AutoQuality — adaptive resolution + fast-lighting flag
 
@@ -372,6 +447,10 @@ const achievements = initAchievements({
       CREATIVE_BLOCKS.map((id) => canonBlockIdFor(getBlockDef(id).name)).filter(Boolean),
     ),
     enterableDimensions: new Set(Object.values(CANON_DIM)),
+    // Late-bound (resolved inside achievements.load(), after the ContentPack
+    // recipes arrive): items whose recipe fits the survival 2x2 personal
+    // grid can actually be crafted -> their craft_item triggers wire.
+    craftableItemIds: () => new Set(new Crafting({ items: pack.items() }).craftableWithin(2)),
   },
 });
 achievements.load();
@@ -440,9 +519,9 @@ ui.menus = initMenus({
   packsList,
   getWorlds: apiGetWorlds,
   onPlayWorld: (world) => { startGame(world); },
-  onCreateWorld: async ({ name, seed }) => {
+  onCreateWorld: async ({ name, seed, mode }) => {
     try {
-      const world = await apiCreateWorld({ name, seed });
+      const world = await apiCreateWorld({ name, seed, mode });
       gameEvents.emit('world:created', { id: world.id, name: world.name });
       startGame(world);
     } catch (err) {
@@ -490,7 +569,10 @@ ui.menus = initMenus({
 Object.assign(settings, ui.menus.getSettings());
 
 ui.hud = initHUD();
-ui.hotbar = initHotbar({ iconFor: (id) => (G ? G.iconFor(id) : null) });
+ui.hotbar = initHotbar({
+  iconFor: (id) => iconForAny(id),
+  nameFor: (id) => displayNameFor(id),
+});
 ui.chat = initChat({
   onSend: (text) => {
     handleChatSend(text); // whisper//emote command routing (PlayerStack)
@@ -537,12 +619,12 @@ const chatForStack = {
   removeEventListener: () => {},
 };
 ui.inventoryUI = initInventory({
-  iconFor: (id) => (G ? G.iconFor(id) : null),
+  iconFor: (id) => iconForAny(id),
+  nameFor: (id) => displayNameFor(id),
   onPick: (id) => {
-    if (!G) return;
+    if (!G || G.mode === 'survival') return; // palette is creative-only
     G.inventory.setSlot(G.inventory.selected, id);
-    ui.hotbar.setSlots(G.inventory.slots);
-    ui.hotbar.setSelected(G.inventory.selected);
+    refreshHotbarUI();
     audioStack.pickup(); // gap-fill: 'pop' on an inventory palette pick
   },
 });
@@ -704,9 +786,8 @@ function hotSwapTexturePack(packId) {
   G.pack = packId;
   // Refresh UI icons (they are crops of the atlas canvas).
   G.iconFor.invalidate();
-  ui.hotbar.setSlots(G.inventory.slots);
-  ui.hotbar.setSelected(G.inventory.selected);
-  ui.inventoryUI.setBlocks(G.inventory.creativeBlocks);
+  refreshHotbarUI();
+  if (G.mode !== 'survival') ui.inventoryUI.setBlocks(G.inventory.creativeBlocks);
   // Pack-swap hook: keep the GraphicsStack's pack atlas + tiled materials on
   // the same pack. No-op when the swap ORIGINATED from gfx.setTexturePack
   // (its wrapper set G.pack before routing here — see bootSession).
@@ -943,7 +1024,34 @@ async function bootSession(worldMeta) {
   const chunkRenderer = new ChunkRenderer(scene, world, atlas, {
     fastLighting: quality.fastLighting,
   });
-  const inventory = new Inventory();
+
+  // --- Game mode + inventory ---------------------------------------------------
+  // The world's mode rides the welcome payload (server world meta; older
+  // saves default to creative). Creative keeps the original 9-id-slot
+  // palette inventory + flight + instant-break-in-flight EXACTLY as before;
+  // survival gets the 41-slot stack model, item-entity drops, timed breaking
+  // always, and no flight.
+  const mode = welcome.world.mode === 'survival' ? 'survival' : 'creative';
+  let inventory; // the ACTIVE inventory (published as __game.inventory)
+  let invModel = null; // InventoryModel (survival only)
+  let crafting = null; // items.json recipe book (survival only)
+  let itemEntities = null; // local drop entities (survival only)
+  if (mode === 'survival') {
+    invModel = new InventoryModel({ items: pack.items() });
+    crafting = new Crafting({ items: pack.items() });
+    // Restore the per-world snapshot (localStorage v1 — see docs/DEV.md).
+    try {
+      const raw = localStorage.getItem(INV_KEY_PREFIX + welcome.world.id);
+      if (raw) invModel.deserialize(JSON.parse(raw));
+    } catch { /* corrupt/unavailable — start empty */ }
+    itemEntities = new ItemEntities(scene, {
+      getWorld: () => (G && G.world ? G.world : world),
+      atlas,
+    });
+    inventory = invModel;
+  } else {
+    inventory = new Inventory();
+  }
   const iconFor = makeIconFactory(atlas);
 
   // --- PlayerStack facade (public/avatars-integrate/integrate.js) -----------
@@ -1050,7 +1158,13 @@ async function bootSession(worldMeta) {
     player,
     controls,
     chunkRenderer,
-    inventory,
+    mode, // 'creative' | 'survival' (world meta; QA hook __game.mode)
+    inventory, // active inventory: creative Inventory OR the InventoryModel
+    invModel, // InventoryModel (null in creative)
+    crafting, // Crafting recipe book (null in creative)
+    itemEntities, // ItemEntities manager (null in creative)
+    invSaveTimer: null, // debounced survival-inventory persistence
+    lastFlightHintAt: -Infinity, // survival "no flight" chat-hint throttle
     iconFor,
     stack, // PlayerStack facade (peer avatars + social layer + 3rd-person cam)
     peers, // = stack.peersManager (PeerAvatarsPlus) — kept for QA-hook parity
@@ -1282,7 +1396,29 @@ async function bootSession(worldMeta) {
     S.inventory.cycle(dir);
     ui.hotbar.setSelected(S.inventory.selected);
   });
-  controls.on('toggleFlight', () => { if (gameplayActive()) S.player.toggleFlight(); });
+  controls.on('toggleFlight', () => {
+    if (!gameplayActive()) return;
+    if (S.mode === 'survival') {
+      // Flight is woven out of survival — the double-space path no-ops with
+      // a throttled chat hint instead.
+      const now = performance.now();
+      if (now - S.lastFlightHintAt >= 3000) {
+        S.lastFlightHintAt = now;
+        ui.chat.addMessage({
+          system: true, text: 'Flight is woven out of survival mode.',
+        });
+      }
+      return;
+    }
+    S.player.toggleFlight();
+  });
+  // Q / Ctrl+Q: drop the selected stack as an item entity (survival only;
+  // creative has nothing to drop). The E-screen has its own hover-Q path.
+  controls.on('drop', (opts) => {
+    if (!gameplayActive() || S.mode !== 'survival') return;
+    const stack = S.invModel.dropSelected(!!(opts && opts.all));
+    if (stack) dropStackAsEntity(stack, { toss: true });
+  });
   controls.on('toggleDebug', () => {
     S.debugVisible = !S.debugVisible;
     ui.debug.setVisible(S.debugVisible);
@@ -1343,14 +1479,52 @@ async function bootSession(worldMeta) {
   window.addEventListener('keydown', S.onViewKeys);
 
   // --- UI per-session state ----------------------------------------------------
-  ui.hotbar.setSlots(inventory.slots);
-  ui.hotbar.setSelected(inventory.selected);
-  ui.inventoryUI.setBlocks(inventory.creativeBlocks);
+  if (mode === 'survival') {
+    // Inventory screen session: the full stack UI over the model + the 2x2
+    // recipe book. Drops from the screen (hover-Q, overflow on close) spawn
+    // item entities; crafting fires the achievement events.
+    ui.inventoryUI.setSession({
+      mode: 'survival',
+      model: invModel,
+      crafting,
+      onDropStack: (stack) => dropStackAsEntity(stack, { toss: true }),
+      onCraft: (result) => {
+        audioStack.pickup();
+        gameEvents.emit('item:crafted', { itemId: result.id, count: result.count });
+        gameEvents.emit('item:collected', { itemId: result.id, count: result.count });
+      },
+      onSound: () => audio.ui(),
+    });
+    // Hotbar mirror + debounced per-world persistence on every model change.
+    invModel.onChange(() => {
+      if (G !== S) return;
+      refreshHotbarUI(S);
+      if (S.invSaveTimer) clearTimeout(S.invSaveTimer);
+      S.invSaveTimer = setTimeout(() => {
+        S.invSaveTimer = null;
+        saveSurvivalInventory(S);
+      }, INV_SAVE_DEBOUNCE_MS);
+    });
+  } else {
+    ui.inventoryUI.setSession({
+      mode: 'creative',
+      getSlots: () => S.inventory.slots,
+      getSelected: () => S.inventory.selected,
+      onSelectSlot: (i) => {
+        S.inventory.select(i);
+        ui.hotbar.setSelected(S.inventory.selected);
+      },
+    });
+    ui.inventoryUI.setBlocks(inventory.creativeBlocks);
+  }
+  refreshHotbarUI(S);
   ui.hud.setHealth(player.health);
   ui.hud.showCrosshair(true);
   ui.chat.addMessage({
     system: true,
-    text: `Joined "${welcome.world.name}" — T to chat, E for blocks, F3 for debug`,
+    text: mode === 'survival'
+      ? `Joined "${welcome.world.name}" (Survival) — E inventory, Q drop, T chat, F3 debug`
+      : `Joined "${welcome.world.name}" — T to chat, E for blocks, F3 for debug`,
   });
   // Server MOTD (deploy env), shown once as a system line on join.
   if (typeof welcome.motd === 'string' && welcome.motd) {
@@ -1399,6 +1573,62 @@ async function bootSession(worldMeta) {
     const dir = S.camera.getWorldDirection(S.tmpDir);
     const eye = S.player.eyePosition;
     return raycastVoxel(S.world, eye, { x: dir.x, y: dir.y, z: dir.z }, REACH);
+  }
+
+  /** Block id in the player's hand, or null (survival: numeric-id stacks
+   *  only — string content items are not placeable blocks). */
+  function heldBlockId() {
+    if (S.mode === 'survival') {
+      const stack = S.invModel.selectedStack;
+      return stack && typeof stack.id === 'number' ? stack.id : null;
+    }
+    return S.inventory.selectedBlock || null;
+  }
+
+  /** Spawn a dropped stack as an item entity (survival). `toss` throws it
+   *  forward from the eyes (Q-drop); otherwise it pops out at the feet. */
+  function dropStackAsEntity(stack, { toss = false } = {}) {
+    if (S.mode !== 'survival' || !S.itemEntities || !stack) return;
+    const eye = S.player.eyePosition;
+    if (toss) {
+      const dir = S.camera.getWorldDirection(S.tmpDir);
+      S.itemEntities.spawn(stack.id, stack.count,
+        { x: eye.x + dir.x * 0.5, y: eye.y - 0.2 + dir.y * 0.5, z: eye.z + dir.z * 0.5 },
+        {
+          vel: {
+            x: dir.x * DROP_TOSS_SPEED,
+            y: Math.max(0.5, dir.y * DROP_TOSS_SPEED) + DROP_TOSS_UP,
+            z: dir.z * DROP_TOSS_SPEED,
+          },
+          pickupDelay: DROP_PICKUP_DELAY_S,
+        });
+    } else {
+      S.itemEntities.spawn(stack.id, stack.count,
+        { x: eye.x, y: S.player.position.y + 0.6, z: eye.z },
+        { pickupDelay: DROP_PICKUP_DELAY_S });
+    }
+  }
+
+  /** Walk-over pickup callback: route into the stack model; pop + hotbar
+   *  flash + "+N" toast + collect events for what actually fit.
+   *  @returns {number} how many were taken */
+  function tryPickupEntity(id, count) {
+    const leftover = S.invModel.add(id, count);
+    const taken = count - leftover;
+    if (taken > 0) {
+      audioStack.pickup();
+      const hot = S.invModel.slots.findIndex(
+        (slot, i) => i < 9 && slot && slot.id === id);
+      if (hot !== -1) ui.hotbar.flash(hot);
+      ui.hotbar.showPickup(`+${taken} ${displayNameFor(id)}`);
+      // Achievements: numeric block drops collect their canonical material;
+      // string ids (mob loot, crafted drops) are already canonical.
+      const itemId = typeof id === 'number'
+        ? canonBlockIdFor(getBlockDef(id).name)
+        : id;
+      if (itemId) gameEvents.emit('item:collected', { itemId, count: taken });
+    }
+    return taken;
   }
 
   // --- Combat / death / mob events ---------------------------------------------
@@ -1454,9 +1684,17 @@ async function bootSession(worldMeta) {
         });
         break;
       case 'mobDrop':
-        audioStack.pickup(pos || undefined); // gap-fill: 'pop' on loot pickup
         gameEvents.emit('mob:drop', { itemId: detail.itemId, count: detail.count });
-        gameEvents.emit('item:collected', { itemId: detail.itemId, count: detail.count });
+        if (S.mode === 'survival' && S.itemEntities && pos) {
+          // Survival: the loot lands as an item entity (string content id —
+          // sack cube); 'item:collected' fires when it is walked over.
+          S.itemEntities.spawn(detail.itemId, detail.count || 1,
+            { x: pos.x, y: pos.y + 0.4, z: pos.z }, { pickupDelay: 0.4 });
+        } else {
+          // Creative: instant auto-collect, as before.
+          audioStack.pickup(pos || undefined); // gap-fill: 'pop' on loot pickup
+          gameEvents.emit('item:collected', { itemId: detail.itemId, count: detail.count });
+        }
         break;
       case 'mobAttack':
         if (detail.explosion) {
@@ -1643,14 +1881,20 @@ async function bootSession(worldMeta) {
     // Debris burst tinted with the broken block's atlas tile + break sound.
     S.fx.particles.spawnBlockBreak(center, blockDebrisColor(S, id));
     audio.blockBreak(id, center);
-    // Achievements/events: breaking a canon-mapped block "collects" its
-    // canonical material in this creative build (see systems/achievements.js).
+    // Achievements/events. Survival: the block drops an item entity (simple
+    // 1:1 — the block id yields itself; ores yield the ore BLOCK in v1) and
+    // 'item:collected' fires at PICKUP time instead. Creative keeps the
+    // original instant "collect" on break.
     {
       const canonId = canonBlockIdFor(def.name);
       gameEvents.emit('block:broken', {
         blockId: id, name: def.name, canonId, dim: S.dim,
       });
-      if (canonId) gameEvents.emit('item:collected', { itemId: canonId, count: 1 });
+      if (S.mode === 'survival') {
+        S.itemEntities.spawn(id, 1, center, { pickupDelay: 0.4 });
+      } else if (canonId) {
+        gameEvents.emit('item:collected', { itemId: canonId, count: 1 });
+      }
     }
     // Breaking a frame block (obsidian/end stone) collapses adjacent fills.
     if (id in FRAME_TARGETS) S.portals.handleFrameBreak(x, y, z);
@@ -1752,14 +1996,15 @@ async function bootSession(worldMeta) {
     if (!t.hit || t.nx == null) return;
     const { nx, ny, nz } = t;
     if (ny < 0 || ny >= CHUNK_SY) return;
-    const id = S.inventory.selectedBlock;
-    if (!id) return;
+    const id = heldBlockId();
+    if (!id) return; // empty hand (or a non-block item in survival)
     // Portal blocks never place directly: inside a valid obsidian/end-stone
     // frame they light the whole interior, anywhere else they do nothing
     // but hint (see gameplay/portals.js).
     if (id === PORTAL_BLOCK) {
       if (S.portals.handlePortalPlacement(nx, ny, nz)) {
         gameEvents.emit('portal:lit', { dim: S.dim });
+        if (S.mode === 'survival') S.invModel.consumeSelected(1);
       }
       return;
     }
@@ -1783,6 +2028,8 @@ async function bootSession(worldMeta) {
     S.world.setBlock(nx, ny, nz, id);
     recordEdit(S.dim, nx, ny, nz, id);
     S.net.sendEdit(nx, ny, nz, id);
+    // Survival: placing consumes one from the selected stack.
+    if (S.mode === 'survival') S.invModel.consumeSelected(1);
     emittersMarkDirty(id); // placed torch/lantern/glowstone casts light
     audio.blockPlace(id, { x: nx + 0.5, y: ny + 0.5, z: nz + 0.5 });
     {
@@ -1808,8 +2055,12 @@ async function bootSession(worldMeta) {
       pose: S.player.sneaking ? 'sneaking' : 'standing',
       breakProgress: S.mining.progress, // hold-to-break accumulator (0..1)
       targetBlock,
-      heldCount: S.inventory.selectedBlock ? 1 : null, // creative: no stack counts
-      itemEntities: [], // no item entities in this build
+      // Survival: real stack count of the selected slot; creative keeps the
+      // original 1/null convention (no stack counts).
+      heldCount: S.mode === 'survival'
+        ? (S.invModel.selectedStack ? S.invModel.selectedStack.count : null)
+        : (S.inventory.selectedBlock ? 1 : null),
+      itemEntities: S.itemEntities ? S.itemEntities.list() : [],
     };
     for (let i = S.qaRecorders.length - 1; i >= 0; i--) {
       const r = S.qaRecorders[i];
@@ -1845,6 +2096,15 @@ async function bootSession(worldMeta) {
         environmentTick(dt); // fall / lava / drowning hazards (canon causes)
         S.portals.update(dt); // dwell-to-travel charging + cooldown
         updateMining(dt); // hold-to-break progress (see breakTimeFor)
+        // Survival drops: physics + walk-over pickup (LOCAL-ONLY entities —
+        // see docs/PROTOCOL.md "Item entities" v1 note).
+        if (S.itemEntities) {
+          S.itemEntities.update(dt, {
+            x: S.player.position.x + S.player.size.x / 2,
+            y: S.player.position.y + S.player.size.y * 0.5,
+            z: S.player.position.z + S.player.size.z / 2,
+          }, tryPickupEntity);
+        }
       }
       // __qa sim ticks (50 ms cadence; recorders sample at tick resolution).
       S.tickAcc += dt;
@@ -1937,7 +2197,7 @@ async function bootSession(worldMeta) {
     emittersTick();
     // View model: keep the held item in sync with the hotbar selection.
     {
-      const held = S.inventory.selectedBlock || null;
+      const held = heldBlockId();
       if (held !== S.vmHeld) {
         S.vmHeld = held;
         S.fx.viewmodel.setItem(held ? `block:${held}` : null);
@@ -2111,6 +2371,17 @@ function teardownSession() {
   S.controls.dispose();
   S.chunkRenderer.dispose();
   S.mobs.dispose();
+
+  // Survival: return any cursor/craft-grid stacks to the model (setSession
+  // closes the screen and stashes loose stacks first), then flush the
+  // pending inventory save and drop the item entities.
+  ui.inventoryUI.setSession(null);
+  if (S.invSaveTimer) {
+    clearTimeout(S.invSaveTimer);
+    S.invSaveTimer = null;
+  }
+  saveSurvivalInventory(S);
+  S.itemEntities?.dispose();
 
   audio.stopAll(); // music, ambience beds, rain loop, live voices
   S.weather.dispose();
@@ -2324,6 +2595,8 @@ async function switchDimension(dimId, opts = {}) {
 
   // Teardown current chunk meshes, then rebuild the world for the target dim.
   S.chunkRenderer.dispose();
+  // Item entities belong to the departed world (local-only drops).
+  S.itemEntities?.clear();
   S.dim = dimId;
   // Arrival teleport must not inherit pre-travel hazard state (a fall begun
   // in the old dimension never lands on the arrival body).
@@ -2511,7 +2784,21 @@ function publishHooks() {
     player: G.player,
     world: G.world,
     controls: G.controls,
+    // Game mode ('creative' | 'survival', world meta) + the mode's inventory:
+    // `inventory` is the ACTIVE inventory (creative Inventory, or the
+    // InventoryModel in survival); `inventoryModel` is the survival stack
+    // model (null in creative); `itemEntities` is the local drop manager
+    // (null in creative); `crafting` is the items.json recipe book.
+    mode: G.mode,
     inventory: G.inventory,
+    inventoryModel: G.invModel,
+    itemEntities: G.itemEntities,
+    crafting: G.crafting,
+    // DEV hook (survival): grant items straight into the stack model —
+    // `__game.grant('loose_thread', 4)` / `__game.grant(2, 64)`. Returns the
+    // leftover that did not fit (null in creative).
+    grant: (id, count = 1) =>
+      (G && G.mode === 'survival' ? G.invModel.add(id, count) : null),
     net: G.net,
     chunkRenderer: G.chunkRenderer,
     sky: G.sky,

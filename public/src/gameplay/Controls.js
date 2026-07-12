@@ -19,6 +19,8 @@
 //   ControlLeft      — input.sprint (sprint while walking; fast fly while
 //                      flying)
 //   KeyE             — emits 'toggleInventory'
+//   KeyQ             — emits 'drop' with {all} (Ctrl+Q = whole stack;
+//                      survival drop-selected — creative ignores it)
 //   KeyT             — emits 'openChat'
 //   F3               — emits 'toggleDebug' (preventDefault'ed)
 //   Digit1..Digit9   — emits 'selectSlot' with index 0..8
@@ -40,7 +42,7 @@ const DOUBLE_TAP_MS = 300;
 const PITCH_LIMIT = Math.PI / 2 - 0.001;
 
 const EVENT_NAMES = [
-  'break', 'breakStart', 'breakEnd', 'place', 'selectSlot', 'scroll',
+  'break', 'breakStart', 'breakEnd', 'place', 'selectSlot', 'scroll', 'drop',
   'toggleInventory', 'togglePause', 'toggleFlight', 'toggleDebug', 'openChat',
 ];
 
@@ -200,6 +202,7 @@ export class Controls {
         return;
       }
       case 'KeyE': if (!e.repeat) this._emit('toggleInventory'); return;
+      case 'KeyQ': if (!e.repeat) this._emit('drop', { all: !!e.ctrlKey }); return;
       case 'KeyT': if (!e.repeat) this._emit('openChat'); return;
       case 'F3':
         e.preventDefault();
