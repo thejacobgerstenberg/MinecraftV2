@@ -308,6 +308,24 @@ export function initMenus(opts = {}) {
     seedInput.type = 'text';
     seedInput.placeholder = 'Seed (optional)';
     seedInput.maxLength = 32;
+    // Game mode: creative (default — today's palette/flight behavior) or
+    // survival (drops, stacks, crafting, no flight). Persisted per world.
+    const modeRow = el('div', 'world-mode-row', create);
+    el('span', 'world-mode-label', modeRow, 'Mode');
+    let selectedMode = 'creative';
+    const modeBtns = {};
+    for (const m of ['creative', 'survival']) {
+      const b = button(m.charAt(0).toUpperCase() + m.slice(1),
+        'vx-btn vx-btn--small world-mode-btn', modeRow, () => {
+          selectedMode = m;
+          for (const key of Object.keys(modeBtns)) {
+            modeBtns[key].classList.toggle('vx-btn--primary', key === selectedMode);
+          }
+        });
+      b.dataset.mode = m;
+      modeBtns[m] = b;
+    }
+    modeBtns.creative.classList.add('vx-btn--primary');
     const createBtn = button('Create', 'vx-btn vx-btn--primary', row, () => {
       const name = nameInput.value.trim();
       if (!name) {
@@ -322,7 +340,7 @@ export function initMenus(opts = {}) {
       const seed = seedInput.value.trim() || null;
       nameInput.value = '';
       seedInput.value = '';
-      if (typeof onCreateWorld === 'function') onCreateWorld({ name, seed });
+      if (typeof onCreateWorld === 'function') onCreateWorld({ name, seed, mode: selectedMode });
     });
     createBtn.classList.add('world-create-btn');
     nameInput.addEventListener('input', () => {
@@ -357,6 +375,7 @@ export function initMenus(opts = {}) {
           const info = el('div', 'world-info', row);
           el('div', 'world-name', info, world.name ?? 'Unnamed world');
           const bits = [];
+          bits.push(world.mode === 'survival' ? 'Survival' : 'Creative');
           if (world.seed != null && world.seed !== '') bits.push(`Seed: ${world.seed}`);
           const date = fmtDate(world.createdAt);
           if (date) bits.push(date);

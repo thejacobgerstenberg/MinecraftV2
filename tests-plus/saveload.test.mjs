@@ -225,11 +225,13 @@ if (loadError) {
       const savePath = path.join(worldDir, `${worldId}.json`);
 
       // The record we EXPECT to see on disk after all edits (players is a
-      // live-only field, never serialized).
+      // live-only field, never serialized). `mode` defaults to 'creative'
+      // when the POST omits it (survival-inventory stage).
       const expectedRecord = {
         id: created.id,
         name: created.name,
         seed: created.seed,
+        mode: 'creative',
         createdAt: created.createdAt,
         edits: EXPECTED_EDITS,
       };
@@ -256,12 +258,16 @@ if (loadError) {
       // --- 3. Read the SERIALIZED world from disk --------------------------
       const onDisk = await readSaveWithRetry(savePath);
 
-      // On-disk schema: exactly the five canonical keys, edits exactly the
-      // three dimension buckets (no live-only `players`).
+      // On-disk schema: exactly the six canonical keys (`mode` = game mode,
+      // 'creative' | 'survival', added in the survival-inventory stage;
+      // older saves without it normalize to 'creative' on load), edits
+      // exactly the three dimension buckets (no live-only `players`).
       assert.deepStrictEqual(
         Object.keys(onDisk).sort(),
-        ['createdAt', 'edits', 'id', 'name', 'seed'],
+        ['createdAt', 'edits', 'id', 'mode', 'name', 'seed'],
         'on-disk record has exactly the canonical top-level keys');
+      assert.ok(onDisk.mode === 'creative' || onDisk.mode === 'survival',
+        'mode is a valid game mode');
       assert.deepStrictEqual(
         Object.keys(onDisk.edits).sort(),
         ['end', 'nether', 'overworld'],

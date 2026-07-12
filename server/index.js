@@ -205,6 +205,10 @@ function randomSuffix() {
   return Math.random().toString(36).slice(2, 6).padEnd(4, '0');
 }
 
+/** Game modes a world can be created with. Older saves have no `mode`
+ * field and default to 'creative' (the original behavior). */
+const GAME_MODES = ['creative', 'survival'];
+
 /** Ensure a world record has the canonical shape (all dimension buckets). */
 function normalizeWorld(world) {
   if (!world.edits || typeof world.edits !== 'object') world.edits = {};
@@ -213,14 +217,17 @@ function normalizeWorld(world) {
       world.edits[dim] = {};
     }
   }
+  // Older saves default to creative; anything unrecognized also does.
+  if (!GAME_MODES.includes(world.mode)) world.mode = 'creative';
   return world;
 }
 
-function makeWorld(id, name, seed) {
+function makeWorld(id, name, seed, mode) {
   return normalizeWorld({
     id,
     name,
     seed: seed ?? hashSeed(id),
+    mode: GAME_MODES.includes(mode) ? mode : 'creative',
     createdAt: new Date().toISOString(),
     edits: { overworld: {}, nether: {}, end: {} },
   });
@@ -313,6 +320,7 @@ function worldSummary(world) {
     id: world.id,
     name: world.name,
     seed: world.seed,
+    mode: world.mode || 'creative',
     createdAt: world.createdAt,
     players: playersIn(world.id),
   };
@@ -345,12 +353,13 @@ app.post('/api/worlds', async (req, res) => {
     return res.status(400).json({ error: 'name is required' });
   }
   const seedOk = typeof body.seed === 'number' || typeof body.seed === 'string';
+  const mode = GAME_MODES.includes(body.mode) ? body.mode : 'creative';
   // Slug + short random suffix; retry on the (unlikely) collision.
   let id;
   do {
     id = `${slugify(name)}-${randomSuffix()}`;
   } while (rooms.has(id) || (await readWorldFromDisk(id)));
-  const world = makeWorld(id, name, seedOk ? body.seed : null);
+  const world = makeWorld(id, name, seedOk ? body.seed : null, mode);
   try {
     await writeWorldToDisk(world);
   } catch (err) {
@@ -497,6 +506,7 @@ async function handleJoin(ws, msg) {
       id: room.world.id,
       name: room.world.name,
       seed: room.world.seed,
+      mode: room.world.mode || 'creative',
       createdAt: room.world.createdAt,
       edits: room.world.edits,
     },
