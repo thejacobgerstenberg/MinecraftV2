@@ -24,7 +24,12 @@ npm install
 npm start
 ```
 
-Open **http://localhost:3000**, create a world (name + optional seed), and play. Worlds persist on the server across restarts. Requires Node.js >= 18.
+Open **http://localhost:3000**, create a world (name + optional seed + game mode), and play. Worlds persist on the server across restarts. Requires Node.js >= 18.
+
+**Game modes** (chosen at world creation, persisted per world):
+
+- **Creative** (default) — the classic sandbox: the full block palette on `E`, double-tap-`Space` flight, instant breaking while flying.
+- **Survival** — no flight, breaking is always timed, broken blocks drop as item entities you walk over to collect, placing consumes from your stacks, and `E` opens a full stack inventory (27 main slots + 4 armor + offhand) with a 2×2 personal crafting grid fed by `content/items.json` recipes.
 
 ## Multiplayer
 
@@ -53,13 +58,14 @@ The server is authoritative and hardened: payload caps, rate limits, movement/re
 | --- | --- |
 | `W` `A` `S` `D` | Move |
 | Mouse | Look (click the window to capture the pointer) |
-| `Space` | Jump — **double-tap to toggle flight**; hold to ascend while flying |
+| `Space` | Jump — **double-tap to toggle flight** (creative only); hold to ascend while flying |
 | `Left Shift` | Sneak — slower, you can't walk off edges; descend while flying |
 | `Left Ctrl` | Sprint (walking) / fast fly (flying) |
 | Hold **Left click** | Break block (break time scales with hardness; instant while flying) |
 | **Right click** | Place block |
 | `1`–`9` / scroll wheel | Select hotbar slot |
-| `E` | Block palette / inventory |
+| `E` | Block palette (creative) / stack inventory + 2×2 crafting (survival) |
+| `Q` / `Ctrl+Q` | Drop one / the whole selected stack (survival; also works on the hovered slot in the inventory screen) |
 | `T` | Chat |
 | Hold `Tab` | Player roster (names, dimension badges, ping) |
 | `F5` | Cycle camera view (first-person → third-back → third-front) |
@@ -80,7 +86,8 @@ Chat commands: `/w <name> <message>` sends a private whisper, `/r <message>` rep
 - **Day/night cycle and weather** — sun, moon, stars, clouds, rain, snow, and lightning storms with thunder.
 - **Procedural audio** — block sounds, footsteps, ambience beds, per-dimension music, all synthesized at runtime; three volume buses.
 - **Post-processing** — bloom, tone-mapping, FXAA, distance fog, per-dimension color grading, with a graphics-quality setting and an adaptive performance governor.
-- **Achievements, splashes, tips, and lore** woven through the UI — 60 achievements defined, 31 wired to live triggers.
+- **Survival mode** — per-world game mode with item-entity drops, walk-over pickup, stack inventory (hotbar + 27 main + 4 armor + offhand) with full cursor semantics, Q-drops, and a 2×2 personal crafting grid over the canon `items.json` recipes; inventory persists per world.
+- **Achievements, splashes, tips, and lore** woven through the UI — 60 achievements defined, 32 wired to live triggers.
 - **Physics with feel** — sprint-jump impulse, sneak edge-guarding, terminal velocity, creative flight.
 - **Movement, reach, and edit validation server-side** — speed budgets, reach caps, rate limits (see `docs/PROTOCOL.md`).
 
@@ -116,7 +123,7 @@ The pause menu also has a **Travel** row that jumps between dimensions directly 
 npm test
 ```
 
-Runs all 9 suites (plain Node, no framework, CI-ready) — the 8 legacy suites in `tests/` plus the adopted `tests-plus/` spec suites under `node --test` (`npm run test:plus` runs just the latter):
+Runs all 12 suites (plain Node, no framework, CI-ready) — the 11 suites in `tests/` plus the adopted `tests-plus/` spec suites under `node --test` (`npm run test:plus` runs just the latter):
 
 - `worldgen` — deterministic terrain: same seed, same world; biome/height invariants
 - `mesher` — chunk meshing: face culling, AO, geometry counts
@@ -126,6 +133,8 @@ Runs all 9 suites (plain Node, no framework, CI-ready) — the 8 legacy suites i
 - `net` — the live WebSocket protocol against a real server (join, move, edit, chat)
 - `security` — 42-check hardening regression: rate limits, reach/bounds/speed validation, sanitization
 - `desync` — server edit rejects + client rollback (no ghost blocks)
+- `inventory` / `crafting` — the survival stack model (cursor click matrix, shift-click routing, drops, serialization) and the items.json recipe matcher (shaped/mirrored/shapeless, ingredient consumption)
+- `gamemode` — per-world creative/survival mode: REST round-trip, welcome passthrough, legacy-save default
 - `tests-plus/` — adopted deep suites (node:test): physics **spec pins** (gravity −32 b/s², jump 8.4 b/s, walk 4.317 / sprint 5.612 / sneak 1.295 / fly 10.89 b/s, terminal −78.4 b/s, auto-step 0.6, reach 6), plus meshing, raycast, worldgen determinism, save/load, and protocol anticheat
 
 ## Project structure

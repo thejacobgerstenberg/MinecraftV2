@@ -34,23 +34,27 @@ orchestrator default probe path).
 
 ```json
 [{ "id": "my-world-k3f2", "name": "My World", "seed": 12345,
-   "createdAt": "2026-07-11T05:00:00.000Z", "players": 2 }]
+   "mode": "creative", "createdAt": "2026-07-11T05:00:00.000Z", "players": 2 }]
 ```
 
 `players` is the number of currently connected sockets in that world's room
-(0 when nobody is online).
+(0 when nobody is online). `mode` is the world's game mode
+(`creative` | `survival`).
 
 ### `POST /api/worlds`
-Body: `{ "name": string (required, 1..64 chars), "seed"?: number|string }`.
+Body: `{ "name": string (required, 1..64 chars), "seed"?: number|string,
+"mode"?: "creative"|"survival" }`.
 
 Creates a world. `id` is a slug of the name plus a short random suffix
 (e.g. `my-world-k3f2`), guaranteeing uniqueness and a filesystem-safe
 filename. If `seed` is omitted it is derived deterministically from the
-generated id (FNV-1a hash). Response `201`:
+generated id (FNV-1a hash). `mode` defaults to `creative`; any unknown
+value normalizes to `creative` (older saves without the field also read
+back as creative). Response `201`:
 
 ```json
 { "id": "my-world-k3f2", "name": "My World", "seed": 12345,
-  "createdAt": "...", "players": 0,
+  "mode": "creative", "createdAt": "...", "players": 0,
   "edits": { "overworld": {}, "nether": {}, "end": {} } }
 ```
 
@@ -299,7 +303,7 @@ pings automatically; no client action is needed.
 ```json
 { "t": "welcome", "id": "p1",
   "world": { "id": "my-world-k3f2", "name": "My World", "seed": 12345,
-             "createdAt": "...",
+             "mode": "creative", "createdAt": "...",
              "edits": { "overworld": {"5,64,-2": 3}, "nether": {}, "end": {} } },
   "peers": [ { "id": "p2", "name": "Alex-ish", "x": 0, "y": 80, "z": 0,
                "yaw": 0, "pitch": 0, "dim": "overworld" } ] }
@@ -308,6 +312,13 @@ pings automatically; no client action is needed.
 - `motd` (optional): present only when the server was started with the
   `MOTD` env var (trimmed, capped at 256 chars); the client shows it as a
   system chat line on join.
+- `world.mode` is the world's game mode (`creative` | `survival`); clients
+  enforce it (survival: no flight, stack inventory, item-entity drops).
+  **Item entities are LOCAL-ONLY in v1**: the protocol has no item-entity
+  channel — each client simulates, drops, and picks up its own entities,
+  while block-edit sync remains the authoritative world state (peers do not
+  see your drops; two players breaking the same block each get a local
+  drop). A server-owned entity channel is a documented follow-up.
 - `world.edits` contains **all** dimensions so the client can switch
   dimensions without refetching.
 - `peers` lists every *other* connected player in the world, in **any**

@@ -45,8 +45,13 @@ object — there are no test doubles.** The same lifecycle applies to
 | `__game.version` | string | game version, e.g. `"0.1.0"` |
 | `__game.player` | `Player` | `position` (AABB min corner / feet), `velocity`, `onGround`, `flying`, `health`, `respawn()`, `toggleFlight()` |
 | `__game.world` | `World` | `getBlock(x,y,z)`, `setBlock(x,y,z,id)`, `dirtyChunks`. **Replaced on dimension switch** |
-| `__game.controls` | `Controls` | `yaw`, `pitch`, `sensitivity`, `input` flags, `_debugSetLocked(true)` test hook (makes `isLocked` true so mouse break/place fire headlessly), `_emit(name, ...)` fires the same production handlers the DOM events use (`'break'` — per-click instant actions: mob attack, portal collapse, flight instant-break; `'breakStart'`/`'breakEnd'` — bracket the hold-to-break timed mining; `'place'`, `'togglePause'`, `'toggleInventory'`, `'openChat'`, `'toggleDebug'`, `'selectSlot'`, `'scroll'`, `'toggleFlight'`) |
-| `__game.inventory` | `Inventory` | `slots[9]`, `selected`, `selectedBlock`, `select(i)`, `cycle(dir)`, `setSlot(i,id)` |
+| `__game.controls` | `Controls` | `yaw`, `pitch`, `sensitivity`, `input` flags, `_debugSetLocked(true)` test hook (makes `isLocked` true so mouse break/place fire headlessly), `_emit(name, ...)` fires the same production handlers the DOM events use (`'break'` — per-click instant actions: mob attack, portal collapse, flight instant-break; `'breakStart'`/`'breakEnd'` — bracket the hold-to-break timed mining; `'place'`, `'drop'` with `{all}` — Q / Ctrl+Q survival drop; `'togglePause'`, `'toggleInventory'`, `'openChat'`, `'toggleDebug'`, `'selectSlot'`, `'scroll'`, `'toggleFlight'`) |
+| `__game.mode` | string | the world's game mode: `'creative'` \| `'survival'` (world meta, chosen at creation; older saves default creative) |
+| `__game.inventory` | active inventory | **creative**: the original `Inventory` (`slots[9]` of block ids, `selected`, `selectedBlock`, `select(i)`, `cycle(dir)`, `setSlot(i,id)`). **survival**: the same object as `__game.inventoryModel` |
+| `__game.inventoryModel` | `InventoryModel` \| null | survival stack model (null in creative): 41 slots (`hotbar 0..8, main 9..35, armor 36..39, offhand 40`) of `{id, count}` stacks, `selectedStack`, `add/remove/count/consumeSelected`, `clickSlot(i, button, cursor)` (UX_SPEC §6.10 matrix), `shiftClick(i)`, `swapSlots(a,b)`, `dropSlot/dropSelected`, `serialize()/deserialize()` — see `public/src/gameplay/InventoryModel.js` |
+| `__game.crafting` | `Crafting` \| null | items.json recipe book (survival): `match(grid)/preview(grid)/takeResult(grid, cursor)/craftableWithin(n)` — the E-screen 2x2 grid uses it live |
+| `__game.itemEntities` | `ItemEntities` \| null | survival drop manager: `list()` -> `[{id, count, x, y, z, age, resting}]`, `spawn(id, count, pos, opts?)`, `clear()`. Entities are **LOCAL-ONLY** (v1 — see docs/PROTOCOL.md) |
+| `__game.grant(id, count?)` | DEV hook | survival only: adds items straight into the stack model (`__game.grant('loose_thread', 4)`, `__game.grant(2, 64)`), returns the leftover that did not fit; returns null in creative |
 | `__game.net` | `NetClient` | `selfId`, `connected`, `sendChat/sendEdit/sendMove`, `close()` |
 | `__game.chunkRenderer` | `ChunkRenderer` | `stats` -> `{chunksLoaded, queueLength}`; `materials.opaque.map.image` is the **live atlas canvas** (sample pixels to verify texture-pack hot-swap). **Replaced on dimension switch** |
 | `__game.sky` | `Sky` | `group.visible` is false in nether/end |
@@ -151,6 +156,67 @@ Related QoL behaviors:
   which re-queries the exact generator noise); in Cinderloom/Nevermend the
   row shows the dimension name (their terrain has no biome field).
 
+## Game modes & survival inventory
+
+Worlds carry a **mode** (`creative` | `survival`), chosen at creation
+(world-select "Mode" row -> `POST /api/worlds {mode}`), stored in the world
+save, and echoed on `welcome.world.mode` so every client enforces it. Older
+saves without the field default to **creative**, which keeps EXACTLY the
+original behavior (palette inventory, double-space flight,
+instant-break-while-flying, no stacks/drops).
+
+**Survival** differences (`public/src/main.js`, `__game.mode ===
+'survival'`):
+
+- **No flight** — the double-space `toggleFlight` path no-ops with a
+  throttled chat hint ("Flight is woven out of survival mode"). Breaking is
+  therefore always timed (the instant-break concession only existed while
+  flying). The server's 25 b/s speed cap already bounds movement; no extra
+  server rule was added.
+- **Inventory** is the 41-slot `InventoryModel`
+  (`public/src/gameplay/InventoryModel.js`): hotbar 0-8, main 9-35, armor
+  36-39 (type-filtered), offhand 40; `{id, count}` stacks (blocks 64,
+  tools/armor unstackable). Persisted per world in localStorage
+  (`loomfall.inv.<worldId>`).
+- **Drops**: breaking a block spawns a LOCAL item entity
+  (`public/src/gameplay/ItemEntities.js`) — a small spinning cube with the
+  block's atlas tile — with gravity, ground rest, same-id merging (0.9
+  blocks) and a 5-minute despawn. Yields are **simple 1:1**: a block drops
+  its own id (**ores drop the ore BLOCK in v1** — smelting/tool-gating is a
+  documented follow-up). Mob `mobDrop` loot spawns entities with the STRING
+  content item id, rendered as a woven-sack cube tinted by an id hash
+  (documented v1 choice; real item art can replace `drawSackIcon`).
+  Walk within **1.5 blocks** to pick up: `model.add` (partial pickups leave
+  the remainder on the ground when the inventory is full) + pop sound +
+  hotbar slot flash + a "+N Item" toast. `Q` drops one of the selected
+  stack, `Ctrl+Q` the whole stack, with a small forward toss and a 1.2 s
+  re-pickup delay.
+- **Placing consumes** one from the selected stack (empty slot or a
+  string-id item in hand = nothing to place); lighting a portal consumes
+  the placed gate block.
+- **Inventory screen (E)** — hotbar row + 27-slot main grid + 4 armor +
+  offhand + a 2x2 personal crafting grid with a LIVE result preview
+  (`public/src/ui/inventory.js`). A cursor stack follows the pointer:
+  LMB pick/place/merge/swap, RMB pick-half/place-one, Shift-click
+  quick-move (armor/offhand routing included), double-LMB gather, `Q` /
+  `Ctrl+Q` drops the hovered stack, `1`-`9` hover-swaps with the hotbar.
+  Closing the screen returns the cursor + craft grid to the inventory
+  (overflow drops as entities). Tooltips show ContentPack display names.
+  Taking a craft result consumes ONE of each grid ingredient and fires
+  `item:crafted` (+ `item:collected`). The creative palette is NOT
+  reachable in survival; creative sessions get a small tab switch (Blocks
+  palette / hotbar view) and no stack UI.
+  (The ui-kit `lf-inventory-grid` was evaluated and not adopted: its
+  whole-stack attribute-swap model cannot express the cursor split/merge
+  semantics, typed slots, or the result-slot flow — rationale in the
+  `ui/inventory.js` header.)
+- **MULTIPLAYER (v1 simplification, documented in docs/PROTOCOL.md):**
+  item entities are LOCAL-ONLY — each client simulates and picks up its own
+  drops; block-edit sync remains the authoritative world state. Peers do
+  not see your drops, and two players breaking the same block each get a
+  local drop. A server-owned entity channel is the documented follow-up.
+  Inventory is also not dropped on death in v1 (kept across respawn).
+
 ## __qa adapter
 
 `window.__qa` implements a subset of the QA-plan hook contract
@@ -178,10 +244,10 @@ whole build is a dev build; deviation from the spec's gating note).
 | `getDimension()` | copy of the `DIMENSIONS[dim]` record (`{id, name, fog, skyType, portalBlock}`) |
 | `getFps()` | 1 s rolling average (same number as F3) |
 | `getCameraFov()` | live camera fov |
-| `recordTicks(n)` | Promise of `n` per-tick samples `{tick, pos, vel, onGround, pose, breakProgress, targetBlock, heldCount, itemEntities}` taken on the sim's **50 ms tick**. Caveats: `pose` is `'standing'` or `'sneaking'` (no other poses), `breakProgress` is the live hold-to-break accumulator (0..1), `heldCount` is `1`/`null` (creative — no stack counts), `itemEntities` is always `[]` (no item entities). Ticks pause with the sim (pause menu / inventory), so the promise stalls while paused; it rejects if the session ends |
+| `recordTicks(n)` | Promise of `n` per-tick samples `{tick, pos, vel, onGround, pose, breakProgress, targetBlock, heldCount, itemEntities}` taken on the sim's **50 ms tick**. Caveats: `pose` is `'standing'` or `'sneaking'` (no other poses), `breakProgress` is the live hold-to-break accumulator (0..1), `heldCount` is the selected stack's real count in survival (`1`/`null` in creative — no stack counts there), `itemEntities` is the live `__game.itemEntities.list()` snapshot in survival (`[]` in creative). Ticks pause with the sim (pause menu / inventory), so the promise stalls while paused; it rejects if the session ends |
 | `prngSample(kind, seed, n)` | first n outputs as decimal strings. `'legacy'` = exact `java.util.Random(seed).nextInt()` sequence and `'xoroshiro'` = exact xoroshiro128++ (incl. `'state:<s0>,<s1>'` raw-state form) — both match the QA plan's golden vectors (QA-S2-06). Extra kind `'noise2d'` samples the **engine's actual** `makeNoise2D(seed)` at a fixed lattice — the golden-vector probe for Loomfall's own worldgen noise (the engine uses neither java-Random nor xoroshiro). Implementation: `public/src/qa/prng.js` |
 
-Spec items **not implemented** (the engine has no equivalent): screens/`getScreen`, poses, game modes, block states/light levels, entities/item drops, health/hunger records, net-stats/TPS mirrors, `setSetting`/`tp`/`give`/`setBlock` mutators (use `__game.world.setBlock` + `__game.net.sendEdit` directly, or `__game.player.position` for teleports — note that in multiplayer a direct position write past the 25 b/s speed budget is REJECTED server-side (`error: move_rejected`): peers keep seeing the old spot until the player walks back, respawns, or changes dimension, because the server has no unconditional resync grace, see docs/PROTOCOL.md §7 rule 6), atlas hashes, audio probes.
+Spec items **not implemented** (the engine has no equivalent): screens/`getScreen`, poses, block states/light levels, health/hunger records, net-stats/TPS mirrors, `setSetting`/`tp`/`setBlock` mutators (game modes are now on `__game.mode`, survival item drops on `__game.itemEntities`, and `give` ≈ the `__game.grant(id, count)` DEV hook) (use `__game.world.setBlock` + `__game.net.sendEdit` directly, or `__game.player.position` for teleports — note that in multiplayer a direct position write past the 25 b/s speed budget is REJECTED server-side (`error: move_rejected`): peers keep seeing the old spot until the player walks back, respawns, or changes dimension, because the server has no unconditional resync grace, see docs/PROTOCOL.md §7 rule 6), atlas hashes, audio probes.
 
 ## Mobs + combat + death (mobs stage)
 
@@ -238,7 +304,8 @@ events). Integration points (`public/src/main.js`):
 | --- | --- | --- |
 | `block:broken` | `{blockId, name, canonId, dim}` | production break path (not portal collapse) |
 | `block:placed` | `{blockId, name, canonId, dim}` | production place path |
-| `item:collected` | `{itemId, count}` | mob loot drop lands, or a canon-mapped block is broken (creative "collect") |
+| `item:collected` | `{itemId, count}` | **creative**: mob loot drop lands, or a canon-mapped block is broken (instant "collect"). **survival**: an item entity is walked over and picked up, or a craft result is taken (numeric block drops report their canonical id) |
+| `item:crafted` | `{itemId, count}` | survival: a crafting result taken from the 2x2 grid (drives `craft_item:*` achievements) |
 | `mob:killed` | `{canonicalId, archetype}` | non-boss mob death |
 | `mob:drop` | `{itemId, count}` | each loot stack |
 | `boss:defeated` | `{canonicalId, achievement, victoryTrigger}` | The Last Needle bound |
@@ -259,16 +326,20 @@ engine-block -> canon-block mapping in `public/src/systems/naming.js`
 
 Reads achievements through the shared ContentPack (60 achievements; direct
 fetch of `/content/achievements.json` is the no-pack fallback). Only
-triggers whose events exist in this build are wired — **31 of 60**:
+triggers whose events exist in this build are wired — **32 of 60**:
 `first_block_broken`, `player_unpicked`, `survive_first_night`,
 `enter_dimension:cinderloom/nevermend`, `kill_entity:*` for implemented
 mobs (needlejack, emberspinner, waxling, scaldwarden, molthkin, unpicked,
 raveler, selvage_warden, last_needle), `collect_count:*` / `place_block:*`
 / `place_count:*` for canon ids obtainable via loot or the block mapping
-(incl. `knotlight` via the torch mapping).
-NOT wired (no engine system yet — no stub triggers): crafting, trading,
-biome entry (engine biomes don't map onto the canon trigger biomes),
-anchors/binding, smelting, taming, depth, thrum, frays, ending choices.
+(incl. `knotlight` via the torch mapping), and `craft_item:*` for recipes
+that FIT the survival 2x2 personal grid (today that wires
+`craft_item:woven_cloth` — "spin_the_loose_into_line"; the other
+`craft_item` targets need a 3x3 crafting table, a later feature).
+NOT wired (no engine system yet — no stub triggers): 3x3-recipe crafting +
+`craft_full_set:*`, trading, biome entry (engine biomes don't map onto the
+canon trigger biomes), anchors/binding, smelting, taming, depth, thrum,
+frays, ending choices.
 Unlocks persist per world in localStorage, raise a top-right slide-in toast
 + the `achievement` fanfare, and are listed (locked/unlocked, hidden ones
 masked) in the pause-menu **Achievements** screen.
@@ -377,6 +448,12 @@ rain/snow).
   social layer's WhisperController).
 - `loomfall.achievements.<worldId>` — per-world achievements state:
   `{unlocked: {id: isoTimestamp}, counters: {"collect:<itemId>"|"place:<canonId>": n}}`.
+- `loomfall.inv.<worldId>` — per-world SURVIVAL inventory snapshot
+  (`InventoryModel.serialize()`: `{version: 1, selected, slots[41]}`),
+  saved debounced (~400 ms) on every change and flushed on quit.
+  **Known v1 simplification:** inventory persistence is client-side
+  (localStorage), so it does not follow the player across browsers/machines;
+  server-side inventory sync is a documented follow-up.
 
 ### Notes for test authors
 
