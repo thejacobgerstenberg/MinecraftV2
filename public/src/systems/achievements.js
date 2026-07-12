@@ -24,8 +24,12 @@
 //   collect_count:<itemId>:<n>       <- 'item:collected' (counter)
 //   place_block:<canonId>            <- 'block:placed'
 //   place_count:<canonId>:<n>        <- 'block:placed' (counter)
-// Everything else (crafting, trading, biomes, anchors, binding, taming,
-// smelting, endings, ...) has no engine system yet and is NOT wired.
+//   craft_item:<itemId>              <- 'item:crafted' (survival 2x2 grid;
+//                                       wired only for recipes that FIT the
+//                                       personal grid — caps.craftableItemIds)
+// Everything else (crafting tables/full sets, trading, biomes, anchors,
+// binding, taming, smelting, endings, ...) has no engine system yet and is
+// NOT wired.
 
 const STORAGE_PREFIX = 'loomfall.achievements.';
 const TOAST_SECONDS = 4.5;
@@ -44,6 +48,10 @@ export function initAchievements({ bus, audio, pack = null, url = '/content/achi
     obtainableItemIds: caps.obtainableItemIds || new Set(),
     placeableCanonIds: caps.placeableCanonIds || new Set(),
     enterableDimensions: caps.enterableDimensions || new Set(['warpwold', 'cinderloom', 'nevermend']),
+    // Item ids craftable in this build (2x2 personal grid). May be passed as
+    // a FUNCTION returning a Set — it is resolved at load() time, after the
+    // ContentPack recipes are available.
+    craftableItemIds: caps.craftableItemIds || new Set(),
   };
 
   let defs = []; // achievements.json entries, in file order
@@ -134,7 +142,13 @@ export function initAchievements({ bus, audio, pack = null, url = '/content/achi
         ? { kind: 'count', counter: `place:${m[1]}`, need: Number(m[2]) }
         : null;
     }
-    return null; // crafting/trading/biome/anchor/binding/... — no engine yet
+    m = /^craft_item:(.+)$/.exec(trigger);
+    if (m) {
+      return capability.craftableItemIds.has(m[1])
+        ? { kind: 'craft', itemId: m[1] }
+        : null;
+    }
+    return null; // full sets/trading/biome/anchor/binding/... — no engine yet
   }
 
   function load() {
@@ -154,6 +168,14 @@ export function initAchievements({ bus, audio, pack = null, url = '/content/achi
         }
         defs = Array.isArray(list) && list.length ? [...list] : [];
         if (defs.length === 0) throw new Error('no achievement definitions available');
+        // Late-bound capability: craftable ids depend on the loaded recipes.
+        if (typeof capability.craftableItemIds === 'function') {
+          try {
+            capability.craftableItemIds = capability.craftableItemIds() || new Set();
+          } catch {
+            capability.craftableItemIds = new Set();
+          }
+        }
         byId = new Map(defs.map((d) => [d.id, d]));
         wired = new Map();
         for (const d of defs) {
@@ -273,6 +295,11 @@ export function initAchievements({ bus, audio, pack = null, url = '/content/achi
   });
   bus.on('night:survived', () => {
     fireEventMatchers((m) => m.kind === 'event' && m.event === 'night:survived');
+  });
+  bus.on('item:crafted', (d) => {
+    if (d && d.itemId) {
+      fireEventMatchers((m) => m.kind === 'craft' && m.itemId === d.itemId);
+    }
   });
   // Events with no wired achievement today (kept flowing for future data):
   // 'portal:lit', 'chat:sent', 'pack:switched', 'world:created',
