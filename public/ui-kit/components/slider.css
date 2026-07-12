@@ -1,0 +1,159 @@
+/* =========================================================================
+   Loomfall UI Kit — lf-slider
+   Requires tokens.css + base.css. Colors via var(--lf-*) tokens ONLY.
+   Native <input type="range"> restyled: gold filled track (via
+   --lf-slider-fill %, set by JS), square woven knob, value bubble on
+   hover/focus/drag. Demo: [data-demo-hover] shows the bubble.
+   ========================================================================= */
+
+lf-slider {
+  display: block;
+  max-width: 320px;
+}
+
+/* Spec 1.6 "Name: value" pattern — value sits right after the label. */
+lf-slider .lf-slider__labelrow {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-start;
+  gap: var(--lf-space-1);
+  margin-bottom: var(--lf-space-1);
+  font-size: var(--lf-text-sm);
+}
+
+lf-slider .lf-slider__label {
+  font-weight: 600;
+  color: var(--lf-color-text-body);
+}
+
+lf-slider .lf-slider__value {
+  color: var(--lf-color-text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+lf-slider .lf-slider__wrap {
+  position: relative;
+}
+
+/* ---- Track (filled up to --lf-slider-fill) -------------------------------
+   The input is 24px tall (WCAG 2.5.8 pointer target) while the VISUAL track
+   stays an 8px strip: the gradient is painted as a centered 100% x 8px
+   background layer, and the pill hem lives on .lf-slider__wrap::before. */
+lf-slider .lf-slider__range {
+  appearance: none;
+  -webkit-appearance: none;
+  display: block;
+  width: 100%;
+  height: var(--lf-hit-min, 24px); /* stretches to 44px on coarse pointers */
+  margin: var(--lf-space-3) 0 var(--lf-space-1);
+  border: 0;
+  border-radius: var(--lf-radius-pill);
+  background: linear-gradient(
+      to right,
+      var(--lf-color-button-primary-bg) var(--lf-slider-fill, 0%),
+      var(--lf-color-bg-input) var(--lf-slider-fill, 0%)
+    )
+    no-repeat center / 100% 8px;
+  cursor: pointer;
+}
+
+/* Pill hem around the 8px visual strip (centered in the hit box).
+   The input's top margin collapses through the wrap, so the input's top
+   edge coincides with the wrap's: strip top = (hit - 8px) / 2. */
+lf-slider .lf-slider__wrap::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc((var(--lf-hit-min, 24px) - 8px) / 2);
+  height: 8px;
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-pill);
+  pointer-events: none;
+}
+
+/* ---- Knob ------------------------------------------------------------------ */
+lf-slider .lf-slider__range::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--lf-radius-sm);
+  background: var(--lf-color-button-primary-bg);
+  border: var(--lf-border-width) solid var(--lf-brand-primary-deep-ochre);
+  box-shadow: inset 0 1px 0 var(--lf-brand-primary-glow);
+  transition: background-color var(--lf-dur-fast) var(--lf-ease);
+}
+
+lf-slider .lf-slider__range::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: var(--lf-radius-sm);
+  background: var(--lf-color-button-primary-bg);
+  border: var(--lf-border-width) solid var(--lf-brand-primary-deep-ochre);
+}
+
+/* Hover/drag brighten the knob (real + demo). */
+lf-slider:not([disabled]):hover .lf-slider__range::-webkit-slider-thumb,
+lf-slider[data-demo-hover]:not([disabled]) .lf-slider__range::-webkit-slider-thumb {
+  background: var(--lf-color-button-primary-hover-bg);
+}
+
+lf-slider:not([disabled]):hover .lf-slider__range::-moz-range-thumb,
+lf-slider[data-demo-hover]:not([disabled]) .lf-slider__range::-moz-range-thumb {
+  background: var(--lf-color-button-primary-hover-bg);
+}
+
+/* ---- Value bubble (dark loom-room card in both themes) -------------------- */
+lf-slider .lf-slider__bubble {
+  position: absolute;
+  bottom: calc(100% + var(--lf-space-1));
+  left: var(--lf-slider-fill, 0%);
+  transform: translateX(-50%);
+  padding: 2px var(--lf-space-2);
+  font-size: var(--lf-text-xs);
+  line-height: var(--lf-leading-tight);
+  font-variant-numeric: tabular-nums;
+  background: var(--lf-color-bg-tooltip);
+  color: var(--lf-color-tooltip-text);
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-sm);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--lf-dur-fast) var(--lf-ease);
+  z-index: var(--lf-z-tooltip);
+}
+
+lf-slider:not([disabled]):hover .lf-slider__bubble,
+lf-slider:not([disabled]):focus-within .lf-slider__bubble,
+lf-slider[data-demo-hover]:not([disabled]) .lf-slider__bubble {
+  opacity: 1;
+}
+
+/* ---- Disabled ---------------------------------------------------------------- */
+lf-slider[disabled] .lf-slider__label,
+lf-slider[disabled] .lf-slider__value {
+  color: var(--lf-color-text-disabled);
+}
+
+lf-slider[disabled] .lf-slider__range {
+  cursor: not-allowed;
+  background: linear-gradient(
+      to right,
+      var(--lf-color-text-disabled) var(--lf-slider-fill, 0%),
+      var(--lf-color-button-disabled-bg) var(--lf-slider-fill, 0%)
+    )
+    no-repeat center / 100% 8px;
+}
+
+lf-slider[disabled] .lf-slider__range::-webkit-slider-thumb {
+  background: var(--lf-color-button-disabled-bg);
+  border-color: var(--lf-color-text-disabled);
+  box-shadow: none;
+}
+
+lf-slider[disabled] .lf-slider__range::-moz-range-thumb {
+  background: var(--lf-color-button-disabled-bg);
+  border-color: var(--lf-color-text-disabled);
+}

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Voxelheim — Controls dev harness</title>
+<link rel="icon" href="data:,">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    min-height: 100vh;
+    background: #10141c;
+    color: #cfd8e3;
+    font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace;
+  }
+  .wrap { display: flex; gap: 16px; padding: 16px; }
+  .panel {
+    background: #171d29; border: 1px solid #2a3446; border-radius: 8px;
+    padding: 12px 16px; min-width: 300px;
+  }
+  h1 { font-size: 15px; margin: 0 0 8px; color: #8fd0ff; }
+  h2 { font-size: 13px; margin: 0 0 6px; color: #7ea6c9; }
+  .on  { color: #6fe08b; font-weight: bold; }
+  .off { color: #5a6675; }
+  #events { max-height: 480px; overflow-y: auto; }
+  #events div { color: #ffd479; }
+  .hint { color: #5a6675; font-size: 12px; margin-top: 8px; }
+  table td { padding: 0 10px 0 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="panel">
+    <h1>Voxelheim controls harness</h1>
+    <h2>Input state</h2>
+    <table id="state"></table>
+    <h2 style="margin-top:10px">Look</h2>
+    <table id="look"></table>
+    <p class="hint">status: <span id="status">loading…</span></p>
+  </div>
+  <div class="panel">
+    <h2>Emitted events (<span id="count">0</span>)</h2>
+    <div id="events"></div>
+  </div>
+</div>
+<script type="importmap">
+{ "imports": { "three": "../vendor/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { Controls } from '../src/gameplay/Controls.js';
+
+const camera = new THREE.PerspectiveCamera(75, 16 / 9, 0.1, 1000);
+const controls = new Controls(document.body, camera);
+
+const events = [];
+for (const name of Controls.EVENTS) {
+  controls.on(name, (...args) => events.push({ name, args }));
+}
+
+// Test surface for Playwright.
+window.TEST = { controls, camera, events, THREE, ready: true };
+
+// Live readout so screenshots prove behavior.
+const stateEl = document.getElementById('state');
+const lookEl = document.getElementById('look');
+const eventsEl = document.getElementById('events');
+const countEl = document.getElementById('count');
+const FLAGS = ['forward', 'back', 'left', 'right', 'jump', 'sprint', 'sneak'];
+
+function render() {
+  stateEl.innerHTML = FLAGS.map((f) =>
+    `<tr><td>${f}</td><td class="${controls.input[f] ? 'on' : 'off'}">${controls.input[f]}</td></tr>`
+  ).join('');
+  lookEl.innerHTML = [
+    ['yaw', controls.yaw.toFixed(4)],
+    ['pitch', controls.pitch.toFixed(4)],
+    ['camera.rotation.y', camera.rotation.y.toFixed(4)],
+    ['camera.rotation.x', camera.rotation.x.toFixed(4)],
+    ['isLocked', controls.isLocked],
+    ['mouseDX/DY', `${controls.input.mouseDX}, ${controls.input.mouseDY}`],
+  ].map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+  countEl.textContent = events.length;
+  eventsEl.innerHTML = events.slice(-24).map((e) =>
+    `<div>${e.name}${e.args.length ? '(' + e.args.join(', ') + ')' : ''}</div>`
+  ).join('');
+  requestAnimationFrame(render);
+}
+render();
+document.getElementById('status').textContent = 'ready';
+</script>
+</body>
+</html>

@@ -1,0 +1,56 @@
+{
+  "$schema": "../schemas/captions.schema.json",
+  "version": 1,
+  "captions": [
+    { "sound": "break.*", "text": "{material} breaks", "category": "action", "priority": 3, "durationMs": 2000, "directional": true },
+    { "sound": "place.*", "text": "{material} placed", "category": "action", "priority": 3, "durationMs": 2000, "directional": true },
+    { "sound": "step.*", "text": "Footsteps on {material}", "category": "action", "priority": 2, "durationMs": 1500, "directional": true },
+    { "sound": "break.glass", "text": "Glass shatters", "category": "action", "priority": 4, "durationMs": 2000, "directional": true },
+
+    { "sound": "mob.*.idle", "text": "{mob} calls nearby", "category": "mob", "priority": 5, "durationMs": 3000, "directional": true },
+    { "sound": "mob.*.hurt", "text": "{mob} is hurt", "category": "mob", "priority": 6, "durationMs": 2500, "directional": true },
+    { "sound": "mob.*.death", "text": "{mob} dies", "category": "mob", "priority": 6, "durationMs": 3000, "directional": true },
+    { "sound": "mob.grazer.idle", "text": "Grazer bleats softly", "category": "mob", "priority": 4, "durationMs": 3000, "directional": true },
+    { "sound": "mob.trader.idle", "text": "Trader murmurs", "category": "mob", "priority": 4, "durationMs": 3000, "directional": true },
+    { "sound": "mob.groaner.idle", "text": "Low groaning nearby", "category": "mob", "priority": 6, "durationMs": 3000, "directional": true },
+    { "sound": "mob.screecher.idle", "text": "A screech tears the air", "category": "mob", "priority": 7, "durationMs": 3000, "directional": true },
+    { "sound": "mob.exploder.idle", "text": "Hissing — it will burst!", "category": "alert", "priority": 8, "durationMs": 2500, "directional": true },
+    { "sound": "mob.exploder.death", "text": "Exploder bursts apart", "category": "alert", "priority": 8, "durationMs": 3000, "directional": true },
+
+    { "sound": "splash", "text": "Water splashes", "category": "ambient", "priority": 3, "durationMs": 2000, "directional": true },
+    { "sound": "wind", "text": "Wind whistles", "category": "ambient", "priority": 1, "durationMs": 4000 },
+    { "sound": "cave", "text": "Cave drone, water drips", "category": "ambient", "priority": 1, "durationMs": 4000 },
+    { "sound": "portal", "text": "Portal thrums open", "category": "action", "priority": 6, "durationMs": 3000 },
+
+    { "sound": "rain", "text": "Rain patters down", "category": "ambient", "priority": 2, "durationMs": 4000 },
+    { "sound": "thunder", "text": "Thunder cracks!", "category": "alert", "priority": 9, "durationMs": 4000, "directional": true },
+    { "sound": "thunder.distant", "text": "Thunder rumbles far off", "category": "alert", "priority": 8, "durationMs": 4000, "directional": true },
+
+    { "sound": "ui.click", "text": "Click", "category": "action", "priority": 3, "durationMs": 1000 },
+    { "sound": "hurt", "text": "You are hurt!", "category": "alert", "priority": 10, "durationMs": 2500 },
+    { "sound": "pop", "text": "Item picked up", "category": "action", "priority": 3, "durationMs": 1500 },
+
+    { "sound": "door.open", "text": "Door creaks open", "category": "action", "priority": 4, "durationMs": 2000, "directional": true },
+    { "sound": "door.close", "text": "Door shuts", "category": "action", "priority": 4, "durationMs": 2000, "directional": true },
+    { "sound": "chest.open", "text": "Chest opens", "category": "action", "priority": 4, "durationMs": 2000 },
+    { "sound": "eat", "text": "Eating", "category": "action", "priority": 3, "durationMs": 2000 },
+    { "sound": "drink", "text": "Drinking", "category": "action", "priority": 3, "durationMs": 2000 },
+    { "sound": "levelup", "text": "Bright chime rings", "category": "action", "priority": 6, "durationMs": 3000 },
+    { "sound": "achievement", "text": "Achievement chime", "category": "action", "priority": 6, "durationMs": 3000 },
+    { "sound": "explosion", "text": "Explosion!", "category": "alert", "priority": 10, "durationMs": 4000, "directional": true },
+
+    { "sound": "music.*", "text": "♪ Music plays", "category": "music", "priority": 1, "durationMs": 5000 },
+    { "sound": "music.calm", "text": "♪ Calm weaving music", "category": "music", "priority": 1, "durationMs": 5000 },
+    { "sound": "music.nether", "text": "♪ Smoldering furnace music", "category": "music", "priority": 1, "durationMs": 5000 },
+    { "sound": "music.upbeat", "text": "♪ Upbeat spindle-reel", "category": "music", "priority": 1, "durationMs": 5000 },
+    { "sound": "music.melancholy", "text": "♪ Melancholy thread-song", "category": "music", "priority": 1, "durationMs": 5000 },
+    { "sound": "music.mysterious", "text": "♪ Eerie Nevermend music", "category": "music", "priority": 1, "durationMs": 5000 },
+
+    { "sound": "boss.*.telegraph", "text": "{mob} rears to strike!", "category": "alert", "priority": 9, "durationMs": 3000, "directional": true },
+    { "sound": "boss.*.defeated", "text": "{mob} falls, defeated", "category": "alert", "priority": 8, "durationMs": 4000 },
+    { "sound": "boss.molthkin.telegraph", "text": "Molthkin winds up to strike!", "category": "alert", "priority": 9, "durationMs": 3000, "directional": true },
+    { "sound": "boss.molthkin.defeated", "text": "Molthkin unspools, defeated", "category": "alert", "priority": 8, "durationMs": 4000 },
+    { "sound": "boss.lastneedle.telegraph", "text": "The Last Needle draws back!", "category": "alert", "priority": 9, "durationMs": 3000, "directional": true },
+    { "sound": "boss.lastneedle.defeated", "text": "The Last Needle is bound", "category": "alert", "priority": 8, "durationMs": 4000 }
+  ]
+}

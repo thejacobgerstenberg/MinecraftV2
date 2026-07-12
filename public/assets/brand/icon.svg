@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Loomfall icon">
+  <!-- Loomfall icon: hemmed void-ink plate, loom-eye diamond, the Everthread
+       knotted west, passing OVER the west wall, through the eye, exiting UNDER
+       the east wall, falling and fraying. -->
+  <rect width="64" height="64" rx="14" fill="#14101F"/>
+  <rect x="1.5" y="1.5" width="61" height="61" rx="12.75" fill="none" stroke="#61539E" stroke-width="2"/>
+  <rect x="3.3" y="3.3" width="57.4" height="57.4" rx="11.6" fill="none" stroke="#EDE7DA" stroke-width="1" opacity="0.85"/>
+  <!-- base thread: through the eye, under the east wall, falling and fraying -->
+  <g stroke="#F2C14E" fill="none" stroke-linecap="round">
+    <path stroke-width="5.3" d="M9 30 H46.5 Q51.8 30 51.8 35.3 V44"/>
+    <path stroke-width="3.3" d="M51.8 44 C50.8 49.5 48 53.5 44.5 56.5"/>
+    <path stroke-width="3.3" d="M51.8 44 C52.2 50 51.5 54 50 58"/>
+    <path stroke-width="3.3" d="M51.8 44 C53.5 49 56 52 58.5 54"/>
+  </g>
+  <!-- loom-eye diamond -->
+  <path fill-rule="evenodd" fill="#EDE7DA" d="M29 13 L46 30 L29 47 L12 30 Z M29 21.5 L37.5 30 L29 38.5 L20.5 30 Z"/>
+  <!-- the thread passes OVER the west wall -->
+  <path d="M12 30 H24" stroke="#14101F" stroke-width="7.3" fill="none" stroke-linecap="butt"/>
+  <path d="M9 30 H26" stroke="#F2C14E" stroke-width="5.3" fill="none" stroke-linecap="round"/>
+  <circle cx="9" cy="30" r="4.4" fill="#F2C14E"/>
+</svg>

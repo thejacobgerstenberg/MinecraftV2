@@ -1,0 +1,107 @@
+/* =========================================================================
+   Loomfall UI Kit — lf-settings-shell
+   Settings screen frame: vertical category rail (tablist) + docked
+   content pane + Done footer. Selected tab = 2px gold edge marker
+   (shape cue) + heading color. Colors from tokens only.
+   ========================================================================= */
+
+lf-settings-shell {
+  display: block;
+  max-width: 720px;
+}
+
+lf-settings-shell .lf-settings-shell__frame {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lf-space-4);
+  background: var(--lf-color-bg-panel);
+  border: var(--lf-border-hem);
+  border-radius: var(--lf-radius-lg);
+  padding: var(--lf-space-4);
+}
+
+lf-settings-shell .lf-settings-shell__body {
+  display: flex;
+  gap: var(--lf-space-4);
+  align-items: stretch;
+  min-height: 280px;
+}
+
+/* ---- Category rail (vertical tablist) ------------------------------- */
+lf-settings-shell .lf-settings-shell__rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lf-space-1);
+  flex: 0 0 168px;
+  border-right: var(--lf-border-hem);
+  padding-right: var(--lf-space-3);
+}
+
+lf-settings-shell .lf-settings-shell__tab {
+  display: block;
+  text-align: left;
+  padding: var(--lf-space-2) var(--lf-space-3);
+  min-height: 32px;
+  border-radius: var(--lf-radius-sm);
+  color: var(--lf-color-text-dim);
+  /* Reserve the marker slot so selection doesn't shift layout. */
+  border-left: 2px solid transparent;
+}
+
+lf-settings-shell .lf-settings-shell__tab:hover,
+lf-settings-shell .lf-settings-shell__tab[data-demo-hover] {
+  background: var(--lf-color-bg-raised);
+  color: var(--lf-color-text-body);
+}
+
+lf-settings-shell .lf-settings-shell__tab:active,
+lf-settings-shell .lf-settings-shell__tab[data-demo-active] {
+  transform: translateY(1px);
+}
+
+/* Selected: gold edge marker (shape/position cue) + heading color +
+   raised face — never color alone. */
+lf-settings-shell .lf-settings-shell__tab[aria-selected="true"] {
+  /* link token = Everthread gold on dark, deep ochre on light — the
+     marker keeps a luminance edge against the raised face in both. */
+  border-left: 2px solid var(--lf-color-link);
+  background: var(--lf-color-bg-raised);
+  color: var(--lf-color-text-heading);
+  font-weight: 600;
+}
+
+/* ---- Content pane ---------------------------------------------------- */
+lf-settings-shell .lf-settings-shell__pane {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-height: 420px;
+  padding-right: var(--lf-space-2);
+}
+
+lf-settings-shell .lf-settings-shell__panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lf-space-4);
+}
+
+lf-settings-shell .lf-settings-shell__panel[hidden] {
+  display: none;
+}
+
+/* Optional labeled sub-groups authored inside panels. */
+lf-settings-shell .lf-settings-shell__panel > h3 {
+  font-family: var(--lf-font-display);
+  font-size: var(--lf-text-md);
+  font-weight: 600;
+  color: var(--lf-color-text-heading);
+  border-bottom: var(--lf-border-hem);
+  padding-bottom: var(--lf-space-1);
+}
+
+/* ---- Footer ----------------------------------------------------------- */
+lf-settings-shell .lf-settings-shell__footer {
+  display: flex;
+  justify-content: flex-end;
+  border-top: var(--lf-border-hem);
+  padding-top: var(--lf-space-3);
+}

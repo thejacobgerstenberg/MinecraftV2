@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Voxelheim — Texture Atlas Preview</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%23578a3c'/></svg>">
+<style>
+  body {
+    margin: 0;
+    padding: 20px 24px 40px;
+    background: #101014;
+    color: #cfd2da;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+  }
+  h1 { font-size: 18px; color: #e8eaf0; margin: 0 0 4px; }
+  .sub { font-size: 12px; color: #7c8090; margin: 0 0 20px; }
+  section { margin-bottom: 28px; }
+  h2 { font-size: 14px; color: #a7d18a; margin: 0 0 8px; font-weight: 600; }
+  h2 .id { color: #666b78; font-weight: 400; }
+  .atlas-wrap {
+    display: inline-block;
+    padding: 6px;
+    border: 1px solid #2a2c34;
+    border-radius: 4px;
+    /* checkerboard so transparency (glass, leaves holes, water) is visible */
+    background:
+      repeating-conic-gradient(#1b1d24 0% 25%, #24262f 0% 50%) 0 0 / 16px 16px;
+  }
+  .atlas-wrap canvas {
+    display: block;
+    image-rendering: pixelated;
+  }
+  .cap { font-size: 11px; color: #666b78; margin-top: 6px; }
+  #status { font-size: 12px; margin-top: 8px; }
+  #status.err { color: #ff6b6b; }
+</style>
+<script type="importmap">
+  { "imports": { "three": "../vendor/three.module.js" } }
+</script>
+</head>
+<body>
+<h1>Voxelheim texture atlases</h1>
+<p class="sub">All tiles procedural (Canvas2D). Atlases shown at 2&times; scale on a checkerboard to reveal transparency.</p>
+<div id="packs"></div>
+<div id="status">building…</div>
+<script type="module">
+  import { buildAtlas, TILE_NAMES } from '../src/textures/TextureAtlas.js';
+  import { PACKS } from '../src/textures/texturePacks.js';
+
+  const root = document.getElementById('packs');
+  const status = document.getElementById('status');
+  window.__errors = [];
+  window.addEventListener('error', (e) => window.__errors.push(String(e.message)));
+
+  try {
+    for (const packId of Object.keys(PACKS)) {
+      const atlas = buildAtlas(packId);
+      const sec = document.createElement('section');
+      const h = document.createElement('h2');
+      h.innerHTML = `${PACKS[packId].name} <span class="id">(pack: ${packId})</span>`;
+      sec.appendChild(h);
+      const wrap = document.createElement('div');
+      wrap.className = 'atlas-wrap';
+      atlas.canvas.style.width = atlas.canvas.width * 2 + 'px';
+      atlas.canvas.style.height = atlas.canvas.height * 2 + 'px';
+      wrap.appendChild(atlas.canvas);
+      sec.appendChild(wrap);
+      const cap = document.createElement('div');
+      cap.className = 'cap';
+      cap.textContent = `${TILE_NAMES.length} tiles · ${atlas.cols} cols · ${atlas.tilePx}px/tile · canvas ${atlas.canvas.width}×${atlas.canvas.height}`;
+      sec.appendChild(cap);
+      root.appendChild(sec);
+    }
+    status.textContent = `OK — ${Object.keys(PACKS).length} packs, ${TILE_NAMES.length} tiles each.`;
+    window.__ready = true;
+  } catch (err) {
+    status.textContent = 'ERROR: ' + err.message;
+    status.className = 'err';
+    window.__errors.push(String(err.stack || err));
+    throw err;
+  }
+</script>
+</body>
+</html>

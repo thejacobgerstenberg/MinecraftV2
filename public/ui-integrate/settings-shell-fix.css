@@ -1,0 +1,59 @@
+/* =========================================================================
+   Loomfall UI Integrate — settings-shell narrow-width breakpoint (OVERLAY)
+   -------------------------------------------------------------------------
+   This is a UI-KIT FOLLOW-UP, shipped as a page-level overlay stylesheet so
+   we do NOT edit ui-kit source (ui-kit/components/settings-shell.css has no
+   narrow-width breakpoint — the rail is pinned `flex: 0 0 168px`, so on a
+   ~390px phone viewport the content pane collapses to ~124px and the docked
+   lf-dropdown values crush / clip). Flagged in FINDINGS.
+
+   The fix mirrors the ux team's page-level override pattern (from
+   ux/options/demo.css): at narrow widths the category rail STACKS above the
+   pane as a horizontal, wrapping tab strip and the docked controls take the
+   full width. Everything is expressed with --lf-* tokens; no hard-coded
+   colors or spacing. Link this AFTER ui-kit/components/settings-shell.css so
+   these rules win by source order (equal specificity).
+
+   Target: ~440px and down (covers the 390w phone case cited in the review).
+   ========================================================================= */
+
+@media (max-width: 440px) {
+  /* Stack the rail above the pane instead of side-by-side. */
+  lf-settings-shell .lf-settings-shell__body {
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  /* Rail becomes a horizontal, wrapping tab strip with a bottom hem instead
+     of the right-edge hem. Release the fixed 168px basis so it hugs content. */
+  lf-settings-shell .lf-settings-shell__rail {
+    flex: none;
+    flex-direction: row;
+    flex-wrap: wrap;
+    border-right: 0;
+    border-bottom: var(--lf-border-hem);
+    padding-right: 0;
+    padding-bottom: var(--lf-space-3);
+  }
+
+  /* Pane may shrink freely now that it owns the full width. */
+  lf-settings-shell .lf-settings-shell__pane {
+    min-width: 0;
+    max-height: none;
+  }
+
+  /* Docked controls span the row so dropdown values are never crushed. */
+  lf-settings-shell lf-dropdown {
+    width: 100%;
+  }
+
+  /* Let any authored option group / row children shrink below their content
+     width instead of forcing horizontal overflow (crushed dropdowns). */
+  lf-settings-shell .lf-settings-shell__panel > *,
+  lf-settings-shell .lf-access-options__group,
+  lf-settings-shell .lf-access-options__row,
+  lf-settings-shell .lf-access-options__group > *,
+  lf-settings-shell .lf-keybinds__row {
+    min-width: 0;
+  }
+}

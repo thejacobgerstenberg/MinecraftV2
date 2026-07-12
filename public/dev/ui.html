@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- Title doubles as the game-title fallback used by ui/menu.js when no
+     #game-title element exists (as in this harness). -->
+<title>VOXELHEIM</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230a0d13'/%3E%3Crect x='3' y='3' width='10' height='10' fill='%235ecb6a'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  /* Harness-only chrome */
+  #fake-scene {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    display: block;
+  }
+  #harness-bar {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    z-index: 500;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    background: rgba(8, 11, 16, 0.85);
+    border: 1px solid #3d4a68;
+    padding: 8px;
+  }
+  #harness-bar b {
+    font: 700 10px ui-monospace, Menlo, Consolas, monospace;
+    color: #8af095;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+  }
+  #harness-bar button {
+    font: 600 11px ui-monospace, Menlo, Consolas, monospace;
+    color: #e9eef7;
+    background: #222b40;
+    border: 1px solid #080b10;
+    padding: 4px 10px;
+    cursor: pointer;
+    text-align: left;
+  }
+  #harness-bar button:hover { background: #2c3852; }
+  body.shot #harness-bar { display: none; }
+</style>
+</head>
+<body>
+  <!-- Fake in-game backdrop so HUD states screenshot like real gameplay. -->
+  <canvas id="fake-scene"></canvas>
+  <div id="harness-bar"></div>
+
+<script type="module">
+  import { initHUD } from '../src/ui/hud.js';
+  import { initHotbar } from '../src/ui/hotbar.js';
+  import { initDebug } from '../src/ui/debug.js';
+  import { initChat } from '../src/ui/chat.js';
+  import { initInventory } from '../src/ui/inventory.js';
+  import { initMenus } from '../src/ui/menu.js';
+  import { getBlockDef, CREATIVE_BLOCKS } from '../src/blocks/blocks.js';
+
+  // ---------------------------------------------------------------------
+  // Test plumbing: every callback logs to console AND window.TEST.events.
+  // ---------------------------------------------------------------------
+  const events = [];
+  function logEvent(type, payload) {
+    console.log('[ui-event]', type, payload === undefined ? '' : payload);
+    events.push({ type, payload, t: Date.now() });
+  }
+
+  // ---------------------------------------------------------------------
+  // iconFor: colored data-URL squares (deterministic per block name).
+  // Returns null for "purpur" to exercise the modules' fallback swatch.
+  // ---------------------------------------------------------------------
+  const BLOCK_COLORS = {
+    grass: '#56a03c', dirt: '#79553a', stone: '#8a8d93', cobblestone: '#6f7278',
+    sand: '#ddd08d', sandstone: '#d8cd96', gravel: '#86817c', water: '#3b6fd1',
+    log: '#6b4a2b', leaves: '#3e7a2a', planks: '#b08a4f', glass: '#b8d8e8',
+    coal_ore: '#555a61', iron_ore: '#b08d74', gold_ore: '#d8b545',
+    diamond_ore: '#59d8d0', bedrock: '#333338', snow_block: '#e8f0f4',
+    snow_grass: '#cfdce4', cactus: '#4a8f3a', red_sand: '#c46a35',
+    netherrack: '#7a2f2f', soul_sand: '#5a4635', glowstone: '#e8c85a',
+    obsidian: '#241a33', end_stone: '#dede9e', lava: '#e8722a',
+    portal: '#8a4ae8', air: '#000000',
+  };
+
+  function shade(hex, f) {
+    const n = parseInt(hex.slice(1), 16);
+    const ch = (v) => Math.max(0, Math.min(255, Math.round(v * f)));
+    const r = ch(n >> 16), g = ch((n >> 8) & 255), b = ch(n & 255);
+    return `rgb(${r},${g},${b})`;
+  }
+
+  const iconCache = new Map();
+  function iconFor(id) {
+    const name = getBlockDef(id).name;
+    if (name === 'purpur') return null; // prove the fallback swatch path
+    if (iconCache.has(id)) return iconCache.get(id);
+    const base = BLOCK_COLORS[name] || '#888888';
+    const c = document.createElement('canvas');
+    c.width = c.height = 32;
+    const g = c.getContext('2d');
+    g.fillStyle = base;
+    g.fillRect(0, 0, 32, 32);
+    g.fillStyle = shade(base, 1.28);
+    g.fillRect(0, 0, 32, 10);
+    g.fillStyle = shade(base, 0.62);
+    g.fillRect(0, 26, 32, 6);
+    g.strokeStyle = 'rgba(0,0,0,0.55)';
+    g.lineWidth = 2;
+    g.strokeRect(1, 1, 30, 30);
+    const url = c.toDataURL();
+    iconCache.set(id, url);
+    return url;
+  }
+
+  // ---------------------------------------------------------------------
+  // Fake wiring
+  // ---------------------------------------------------------------------
+  const FAKE_WORLDS = [
+    { id: 'w_1', name: 'Greenpeak Valley', seed: '743921', createdAt: '2026-07-02T18:24:00Z' },
+    { id: 'w_2', name: 'Deephollow', seed: 'voxelheim', createdAt: '2026-06-27T09:10:00Z' },
+  ];
+  async function getWorlds() {
+    logEvent('getWorlds');
+    await new Promise((r) => setTimeout(r, 120));
+    return FAKE_WORLDS;
+  }
+  // The three real packs from src/textures/texturePacks.js, hardcoded:
+  const packsList = [
+    { id: 'default', name: 'Voxelheim Classic' },
+    { id: 'smooth', name: 'Softstone' },
+    { id: 'gritty', name: 'Gritstone' },
+  ];
+
+  const hud = initHUD();
+  const hotbar = initHotbar({ iconFor });
+  const debug = initDebug();
+  const chat = initChat({ onSend: (text) => logEvent('chat:send', text) });
+  const inventory = initInventory({
+    iconFor,
+    onPick: (id) => logEvent('inventory:pick', id),
+  });
+  const menus = initMenus({
+    onPlayWorld: (w) => logEvent('menu:playWorld', w),
+    onCreateWorld: (w) => logEvent('menu:createWorld', w),
+    onSettingsChange: (s) => logEvent('menu:settingsChange', s),
+    onResume: () => logEvent('menu:resume'),
+    onQuitToTitle: () => logEvent('menu:quitToTitle'),
+    getWorlds,
+    packsList,
+  });
+
+  inventory.setBlocks(CREATIVE_BLOCKS);
+
+  window.TEST = { events, hud, hotbar, debug, chat, inventory, menus };
+
+  // ---------------------------------------------------------------------
+  // Fake voxel scene painted behind the HUD (deterministic, canvas 2D).
+  // ---------------------------------------------------------------------
+  function mulberry(seed) {
+    let a = seed >>> 0;
+    return () => {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function paintScene() {
+    const cv = document.getElementById('fake-scene');
+    const w = (cv.width = window.innerWidth);
+    const h = (cv.height = window.innerHeight);
+    const g = cv.getContext('2d');
+    const rng = mulberry(1337);
+
+    // Sky
+    const sky = g.createLinearGradient(0, 0, 0, h);
+    sky.addColorStop(0, '#5f9be0');
+    sky.addColorStop(0.65, '#a8ccf0');
+    sky.addColorStop(1, '#cfe3f5');
+    g.fillStyle = sky;
+    g.fillRect(0, 0, w, h);
+
+    // Blocky sun
+    g.fillStyle = '#fdf2c0';
+    g.fillRect(w * 0.78, h * 0.10, 64, 64);
+    g.fillStyle = 'rgba(253,242,192,0.35)';
+    g.fillRect(w * 0.78 - 8, h * 0.10 - 8, 80, 80);
+
+    // Clouds (blocky strips)
+    g.fillStyle = 'rgba(255,255,255,0.75)';
+    for (let i = 0; i < 7; i++) {
+      const cx = rng() * w, cy = 40 + rng() * (h * 0.22);
+      const cw = 90 + rng() * 130;
+      g.fillRect(cx, cy, cw, 14);
+      g.fillRect(cx + 18, cy - 12, cw * 0.55, 12);
+    }
+
+    const B = 26; // block size in px
+    const cols = Math.ceil(w / B) + 1;
+
+    // Distant hill layer (hazy)
+    for (let c = 0; c < cols; c++) {
+      const ht = Math.round(4 + 2.4 * Math.sin(c * 0.35) + 1.4 * Math.sin(c * 0.11 + 2));
+      for (let r = 0; r < ht; r++) {
+        g.fillStyle = r === ht - 1 ? 'rgba(96,130,105,0.85)' : 'rgba(84,104,96,0.85)';
+        g.fillRect(c * B, h - (r + 7) * B, B, B);
+      }
+    }
+
+    // Near terrain: grass / dirt / stone with shading + edge highlight
+    const heights = [];
+    for (let c = 0; c < cols; c++) {
+      heights.push(Math.round(5 + 2.2 * Math.sin(c * 0.5 + 1) + 1.6 * Math.sin(c * 0.17)));
+    }
+    for (let c = 0; c < cols; c++) {
+      const ht = heights[c];
+      for (let r = 0; r < ht; r++) {
+        const x = c * B, y = h - (r + 1) * B;
+        let color;
+        if (r === ht - 1) color = '#4f9e3a';       // grass
+        else if (r >= ht - 3) color = '#79553a';   // dirt
+        else color = '#7d8187';                    // stone
+        g.fillStyle = color;
+        g.fillRect(x, y, B, B);
+        g.fillStyle = 'rgba(255,255,255,0.14)';    // lit top edge
+        g.fillRect(x, y, B, 4);
+        g.fillStyle = 'rgba(0,0,0,0.16)';          // shaded right edge
+        g.fillRect(x + B - 4, y, 4, B);
+        if (color === '#7d8187' && rng() < 0.12) { // ore speck
+          g.fillStyle = rng() < 0.5 ? '#3a3a3a' : '#d8b545';
+          g.fillRect(x + 8, y + 8, 8, 8);
+        }
+      }
+    }
+
+    // A couple of trees
+    for (const tc of [4, Math.floor(cols * 0.62)]) {
+      if (tc >= cols) continue;
+      const baseY = h - heights[tc] * B;
+      g.fillStyle = '#6b4a2b';
+      for (let t = 1; t <= 3; t++) g.fillRect(tc * B + 6, baseY - t * B, B - 12, B);
+      g.fillStyle = '#3e7a2a';
+      for (let lx = -1; lx <= 1; lx++) {
+        for (let ly = 3; ly <= 5; ly++) {
+          if (Math.abs(lx) === 1 && ly === 5) continue;
+          g.fillRect((tc + lx) * B, baseY - ly * B, B, B);
+        }
+      }
+    }
+  }
+  paintScene();
+  window.addEventListener('resize', paintScene);
+
+  // ---------------------------------------------------------------------
+  // State switching (harness buttons + location.hash)
+  // ---------------------------------------------------------------------
+  function setHudLayersVisible(b) {
+    for (const id of ['hud', 'hotbar', 'chat']) {
+      const n = document.getElementById(id);
+      if (n) n.style.display = b ? '' : 'none';
+    }
+    if (!b) debug.setVisible(false);
+  }
+
+  function seedGameState() {
+    hotbar.setSlots([1, 2, 3, 4, 9, 11, 12, 24, 16]);
+    hotbar.setSelected(2); // slot labeled "3"
+    hud.setHealth(13);
+    hud.showCrosshair(true);
+    debug.setData({
+      fps: 60,
+      pos: { x: 128.42, y: 71.0, z: -64.18 },
+      chunk: { cx: 8, cz: -5 },
+      dim: 'overworld',
+      biome: 'plains',
+      facing: 'south (yaw 180.0)',
+      tris: 245812,
+      calls: 96,
+      chunks: 121,
+    });
+  }
+
+  function seedChat() {
+    chat.addMessage({ system: true, text: 'Welcome to Voxelheim — world "Greenpeak Valley"' });
+    chat.addMessage({ name: 'Astrid', text: 'found diamonds at y=12, bring a pickaxe' });
+    chat.addMessage({ name: 'Bjorn', text: 'on my way, marking the spot' });
+  }
+
+  const STATES = {
+    main() { menus.showMain(); },
+    worlds() { menus.showWorldSelect(); },
+    settings() { menus.showSettings(); },
+    pause() { seedGameState(); setHudLayersVisible(true); menus.showPause(); },
+    hud() {
+      seedGameState();
+      setHudLayersVisible(true);
+      debug.setVisible(true);
+      seedChat();
+    },
+    'hud-breaking'() {
+      STATES.hud();
+      hud.setBreakProgress(0.65);
+    },
+    chat() {
+      seedGameState();
+      setHudLayersVisible(true);
+      seedChat();
+      chat.open();
+    },
+    inventory() {
+      seedGameState();
+      setHudLayersVisible(true);
+      inventory.open();
+    },
+    loading() { menus.setLoading('Generating terrain… 42%'); },
+  };
+
+  function applyState(name) {
+    // Reset everything first
+    menus.hideAll();
+    menus.setLoading(null);
+    inventory.close();
+    chat.close();
+    hud.setBreakProgress(null);
+    debug.setVisible(false);
+    setHudLayersVisible(false);
+    (STATES[name] || STATES.main)();
+    logEvent('harness:state', name);
+  }
+  window.TEST.applyState = applyState;
+
+  // Harness toolbar
+  const bar = document.getElementById('harness-bar');
+  const barTitle = document.createElement('b');
+  barTitle.textContent = 'UI states';
+  bar.appendChild(barTitle);
+  for (const name of Object.keys(STATES)) {
+    const b = document.createElement('button');
+    b.textContent = name;
+    b.addEventListener('click', () => { location.hash = name; });
+    bar.appendChild(b);
+  }
+
+  const params = new URLSearchParams(location.search);
+  if (params.get('shot') === '1') document.body.classList.add('shot');
+
+  function stateFromHash() {
+    const name = (location.hash || '#main').slice(1);
+    applyState(STATES[name] ? name : 'main');
+  }
+  window.addEventListener('hashchange', stateFromHash);
+  stateFromHash();
+
+  console.log('[ui-harness] ready — window.TEST =', Object.keys(window.TEST));
+</script>
+</body>
+</html>

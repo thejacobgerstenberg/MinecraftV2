@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <!-- GAME TITLE — also set in the main-menu <h1 id="game-title"> below.
+       Rename the game by editing exactly those two lines. -->
+  <title>Loomfall</title>
+  <!-- Brand favicon (loom-eye + Everthread; see public/assets/brand/). -->
+  <link rel="icon" type="image/svg+xml" href="./assets/brand/favicon.svg" />
+  <link rel="stylesheet" href="./css/style.css" />
+  <!-- lf-toast-rack styles (join/leave/whisper toasts — social layer via
+       PlayerStack). The player-list / whisper / feed styles are injected by
+       their own modules; the toast component alone ships its CSS as a file. -->
+  <link rel="stylesheet" href="./ui-kit/components/toast.css" />
+  <!-- Vendored Three.js resolved as bare specifier `three`. No bundler, no build step. -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three.module.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <!-- Main render target. The WebGLRenderer draws into this canvas. -->
+  <canvas id="game"></canvas>
+
+  <!-- ====================================================================
+       UI containers. Each is populated (and given its styling classes) by
+       its owning module in src/ui/ at init time, so they stay invisible
+       until the game boots:
+         #hud       — ui/hud.js       (crosshair, health shards, break bar)
+         #hotbar    — ui/hotbar.js    (9 slots + selection)
+         #debug     — ui/debug.js     (F3 overlay)
+         #chat      — ui/chat.js      (log + input row)
+         #inventory — ui/inventory.js (creative block palette)
+         #menu-root — ui/menu.js      (main / worlds / settings / pause)
+       ==================================================================== -->
+  <div id="hud"></div>
+  <div id="hotbar"></div>
+  <div id="debug"></div>
+  <div id="chat"></div>
+  <div id="inventory"></div>
+
+  <div id="menu-root">
+    <!-- GAME TITLE — adopted into the main menu by ui/menu.js.
+         Brand wordmark image; the img alt text is the fallback if the SVG
+         fails to load. -->
+    <h1 id="game-title" class="game-title game-title--mark" hidden aria-label="Loomfall">
+      <img class="game-wordmark" src="./assets/brand/wordmark-dark.svg" alt="LOOMFALL" />
+    </h1>
+  </div>
+
+  <!-- Loading splash: visible pre-boot; main.js / ui/menu.js manage it. -->
+  <div id="loading" class="overlay loading visible">
+    <div class="loading-inner">
+      <img class="loading-wordmark" src="./assets/brand/wordmark-dark.svg" alt="LOOMFALL" />
+      <div class="loading-cube"><i></i><i></i><i></i></div>
+      <div class="loading-text">Loading…</div>
+    </div>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
